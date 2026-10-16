@@ -5,7 +5,13 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+pub mod manifest;
+pub use manifest::{
+    EncodeError, LoadedManifest, ManifestCandidate, ManifestDiscovery, ManifestError,
+    ManifestFormat, MetadataError, discover, encode_metadata, load, validate_document,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Metadata {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,22 +33,11 @@ impl Metadata {
         }
         Ok(())
     }
-
-    fn to_json(&self) -> Result<Vec<u8>, InitError> {
-        self.validate()?;
-        let mut json = serde_json::to_vec_pretty(self).map_err(InitError::Serialization)?;
-        json.push(b'\n');
-        Ok(json)
-    }
 }
 
 /// Validate a supplied value without changing its whitespace or spelling.
 pub fn validate_metadata_value(field: &'static str, value: &str) -> Result<(), InitError> {
-    if value.chars().any(|character| !character.is_whitespace()) {
-        Ok(())
-    } else {
-        Err(InitError::InvalidMetadata { field })
-    }
+    manifest::validate_field(field, value).map_err(|_| InitError::InvalidMetadata { field })
 }
 
 #[derive(Debug)]
@@ -62,6 +57,8 @@ pub enum InitError {
         source: io::Error,
     },
     Serialization(serde_json::Error),
+    Encoding(EncodeError),
+    Discovery(ManifestError),
 }
 
 impl fmt::Display for InitError {
@@ -93,6 +90,8 @@ impl fmt::Display for InitError {
             Self::Serialization(source) => {
                 write!(formatter, "Could not serialise layer metadata: {source}")
             }
+            Self::Encoding(source) => source.fmt(formatter),
+            Self::Discovery(source) => source.fmt(formatter),
         }
     }
 }
@@ -102,44 +101,156 @@ impl std::error::Error for InitError {
         match self {
             Self::Io { source, .. } => Some(source),
             Self::Serialization(source) => Some(source),
+            Self::Encoding(source) => Some(source),
+            Self::Discovery(source) => Some(source),
             _ => None,
         }
     }
 }
 
-/// Create only the manifest, without overwriting an existing entry or invoking Git.
+/// Initialise with the YAML default. Invalid metadata is rejected before filesystem access.
+/// CLI callers should inspect, report diagnostics, prepare, then call `create_init` instead.
 pub fn initialize(directory: &Path, metadata: &Metadata) -> Result<PathBuf, InitError> {
-    let json = metadata.to_json()?;
-    let path = preflight(directory)?;
+    metadata.validate()?;
+    let prepared = inspect_init(directory)?.prepare()?;
+    create_init(prepared, metadata, ManifestFormat::default())
+        .map(|created| created.path)
+        .map_err(|failure| failure.error)
+}
+
+/// Initial inspection retains discovery even when an occupied name will refuse init.
+#[derive(Debug)]
+pub struct InitInspection {
+    discovery: ManifestDiscovery,
+}
+
+impl InitInspection {
+    pub fn discovery(&self) -> &ManifestDiscovery {
+        &self.discovery
+    }
+
+    /// Refuse occupied names, without reserving the directory or reading contents.
+    pub fn prepare(self) -> Result<PreparedInit, InitError> {
+        if let Some(candidate) = self.discovery.selected() {
+            return Err(InitError::ExistingManifest {
+                path: candidate.path.clone(),
+            });
+        }
+        Ok(PreparedInit {
+            directory: self.discovery.directory,
+        })
+    }
+}
+
+/// Permission from one initially empty inspection, not a lock or reservation.
+#[derive(Debug)]
+pub struct PreparedInit {
+    directory: PathBuf,
+}
+
+impl PreparedInit {
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+}
+
+/// A completed write and its best-effort, content-free duplicate observation.
+#[derive(Debug)]
+pub struct CreatedManifest {
+    pub path: PathBuf,
+    pub observation: Result<ManifestDiscovery, ManifestError>,
+}
+
+/// Creation failed. A collision may retain discovery for diagnostics, never retry.
+#[derive(Debug)]
+pub struct InitCreationError {
+    pub error: InitError,
+    pub discovery: Option<ManifestDiscovery>,
+}
+
+impl fmt::Display for InitCreationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl std::error::Error for InitCreationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+impl From<InitError> for InitCreationError {
+    fn from(error: InitError) -> Self {
+        Self {
+            error,
+            discovery: None,
+        }
+    }
+}
+
+/// Validate and encode before exclusively creating only the requested target.
+/// Never repeat the initial all-format refusal check, even if other formats appeared.
+pub fn create_init(
+    prepared: PreparedInit,
+    metadata: &Metadata,
+    format: ManifestFormat,
+) -> Result<CreatedManifest, InitCreationError> {
+    create_init_observing(prepared, metadata, format, discover)
+}
+
+fn create_init_observing(
+    prepared: PreparedInit,
+    metadata: &Metadata,
+    format: ManifestFormat,
+    observe: impl FnOnce(&Path) -> Result<ManifestDiscovery, ManifestError>,
+) -> Result<CreatedManifest, InitCreationError> {
+    metadata.validate()?;
+    let bytes = encode_metadata(metadata, format).map_err(InitError::Encoding)?;
+    let path = prepared.directory.join(format.filename());
 
     // Exclusive creation is the no-overwrite guarantee, including concurrent init
     // and dangling symlinks. An existence check alone would race with other writers.
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|source| {
-            if source.kind() == io::ErrorKind::AlreadyExists {
-                InitError::ExistingManifest { path: path.clone() }
+    let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(file) => file,
+        Err(source) => {
+            return Err(if source.kind() == io::ErrorKind::AlreadyExists {
+                InitCreationError {
+                    error: InitError::ExistingManifest { path: path.clone() },
+                    discovery: observe(&prepared.directory).ok(),
+                }
             } else {
                 InitError::Io {
                     action: "create manifest",
                     path: path.clone(),
                     source,
                 }
-            }
-        })?;
-    file.write_all(&json).map_err(|source| InitError::Io {
+                .into()
+            });
+        }
+    };
+    file.write_all(&bytes).map_err(|source| InitError::Io {
         action: "write manifest (a partial file may remain)",
         path: path.clone(),
         source,
     })?;
-    Ok(path)
+    Ok(CreatedManifest {
+        path,
+        observation: observe(&prepared.directory),
+    })
 }
 
 /// Check known target problems without creating files or reading a manifest.
 /// Creation must still be exclusive because another process can change the target.
 pub fn preflight(directory: &Path) -> Result<PathBuf, InitError> {
+    Ok(inspect_init(directory)?
+        .prepare()?
+        .directory
+        .join(ManifestFormat::default().filename()))
+}
+
+/// Canonicalise and check repository boundaries once, then discover all supported names.
+pub fn inspect_init(directory: &Path) -> Result<InitInspection, InitError> {
     let directory = fs::canonicalize(directory).map_err(|source| InitError::Io {
         action: "resolve initialisation directory",
         path: directory.to_owned(),
@@ -147,16 +258,8 @@ pub fn preflight(directory: &Path) -> Result<PathBuf, InitError> {
     })?;
     check_repository_location(&directory)?;
 
-    let path = directory.join("layer.json");
-    match fs::symlink_metadata(&path) {
-        Ok(_) => Err(InitError::ExistingManifest { path }),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(path),
-        Err(source) => Err(InitError::Io {
-            action: "inspect manifest path",
-            path,
-            source,
-        }),
-    }
+    let discovery = discover(&directory).map_err(InitError::Discovery)?;
+    Ok(InitInspection { discovery })
 }
 
 fn check_repository_location(directory: &Path) -> Result<(), InitError> {
@@ -221,7 +324,7 @@ mod tests {
                     description: description.clone(),
                     ..metadata()
                 };
-                let bytes = metadata.to_json().unwrap();
+                let bytes = encode_metadata(&metadata, ManifestFormat::Json).unwrap();
                 let value: Value = serde_json::from_slice(&bytes).unwrap();
                 assert_eq!(value["name"], "example");
                 assert_eq!(
@@ -261,7 +364,7 @@ mod tests {
                     _ => unreachable!(),
                 }
                 assert!(
-                    matches!(metadata.to_json(), Err(InitError::InvalidMetadata { field: invalid }) if invalid == field)
+                    matches!(metadata.validate(), Err(InitError::InvalidMetadata { field: invalid }) if invalid == field)
                 );
             }
         }
@@ -275,7 +378,9 @@ mod tests {
             author: Some(original.into()),
             description: Some(original.into()),
         };
-        let value: Value = serde_json::from_slice(&metadata.to_json().unwrap()).unwrap();
+        let value: Value =
+            serde_json::from_slice(&encode_metadata(&metadata, ManifestFormat::Json).unwrap())
+                .unwrap();
         for field in ["name", "author", "description"] {
             assert_eq!(value[field], original);
         }
@@ -317,5 +422,48 @@ mod tests {
             Err(InitError::ExistingManifest { .. })
         ));
         assert_eq!(fs::read_to_string(manifest).unwrap(), "another writer");
+    }
+
+    #[test]
+    fn failed_post_write_observation_preserves_completed_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
+        let created = create_init_observing(prepared, &metadata(), ManifestFormat::Jsonc, |root| {
+            // This seam runs only after the file has been completely written.
+            assert_eq!(
+                fs::read(root.join("layer.jsonc")).unwrap(),
+                b"{\n  \"name\": \"example\"\n}\n"
+            );
+            Err(ManifestError::Io {
+                action: "inspect manifest path",
+                path: root.join("layer.yaml"),
+                source: io::ErrorKind::PermissionDenied.into(),
+            })
+        })
+        .unwrap();
+        assert_eq!(created.path.file_name().unwrap(), "layer.jsonc");
+        assert!(created.observation.is_err());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert!(created.path.is_file());
+    }
+
+    #[test]
+    fn failed_collision_observation_preserves_the_original_creation_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
+        let path = directory.path().join("layer.yaml");
+        fs::write(&path, "keep").unwrap();
+        let failure = create_init_observing(prepared, &metadata(), ManifestFormat::Yaml, |root| {
+            Err(ManifestError::Io {
+                action: "inspect manifest path",
+                path: root.join("layer.json"),
+                source: io::ErrorKind::PermissionDenied.into(),
+            })
+        })
+        .unwrap_err();
+        assert!(matches!(failure.error, InitError::ExistingManifest { .. }));
+        assert!(failure.discovery.is_none());
+        assert_eq!(fs::read_to_string(path).unwrap(), "keep");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 }

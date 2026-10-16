@@ -8,6 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use hydragen::ManifestFormat;
 use portable_pty::{Child, CommandBuilder, ExitStatus, PtyPair, PtySize, native_pty_system};
 use serde_json::{Value, json};
 use tempfile::tempdir;
@@ -165,6 +166,20 @@ esac",
         writer.flush().unwrap();
     }
 
+    fn choose_format(&mut self, directory: &Path, format: ManifestFormat) {
+        self.wait_for("Manifest format");
+        self.wait_for("layer.jsonc");
+        assert_no_manifests(directory);
+        for _ in 0..ManifestFormat::ALL
+            .iter()
+            .position(|item| *item == format)
+            .unwrap()
+        {
+            self.send(b"\x1b[B");
+        }
+        self.send(b"\r");
+    }
+
     fn finish(&mut self) -> ExitStatus {
         let deadline = Instant::now() + TIMEOUT;
         let mut status = None;
@@ -193,6 +208,7 @@ esac",
         let stderr = String::from_utf8_lossy(&self.stderr);
         assert!(!stderr.contains("Initialise a layer"), "{stderr}");
         assert!(!stderr.contains("Author (optional"), "{stderr}");
+        assert!(!stderr.contains("Manifest format"), "{stderr}");
         assert!(!self.stderr.contains(&b'\x1b'), "{stderr}");
         assert!(!self.stdout.contains(&b'\x1b'));
     }
@@ -218,7 +234,43 @@ fn visible_text(bytes: &[u8]) -> String {
 }
 
 fn manifest(directory: &Path) -> Value {
-    serde_json::from_slice(&fs::read(directory.join("layer.json")).unwrap()).unwrap()
+    manifest_in_format(directory, ManifestFormat::Yaml)
+}
+
+// Decode independently of Hydragen's loader so matching reader/writer bugs cannot
+// hide malformed output or a format field accidentally stored as metadata.
+fn manifest_in_format(directory: &Path, format: ManifestFormat) -> Value {
+    let text = fs::read_to_string(directory.join(format.filename())).unwrap();
+    assert!(text.ends_with('\n'));
+    match format {
+        ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::from_str(&text).unwrap(),
+        ManifestFormat::Toml => {
+            let table: toml::Table = toml::from_str(&text).unwrap();
+            serde_json::to_value(table).unwrap()
+        }
+        ManifestFormat::Json | ManifestFormat::Jsonc => serde_json::from_str(&text).unwrap(),
+    }
+}
+
+fn assert_no_manifests(directory: &Path) {
+    for format in ManifestFormat::ALL {
+        assert!(
+            fs::symlink_metadata(directory.join(format.filename())).is_err(),
+            "{} appeared early",
+            format.filename()
+        );
+    }
+}
+
+fn assert_only_files(directory: &Path, expected: &[&str]) {
+    let mut actual: Vec<_> = fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    actual.sort();
+    let mut expected = expected.to_vec();
+    expected.sort();
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -233,6 +285,7 @@ fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
     session.send(b"  Example team  \r");
     session.wait_for("Description (optional");
     session.send(b"Description\r");
+    session.choose_format(directory.path(), ManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(
         manifest(directory.path()),
@@ -240,6 +293,7 @@ fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
     );
     let stdout = String::from_utf8_lossy(&session.stdout);
     assert!(stdout.starts_with("Initialised layer:"), "{stdout}");
+    assert!(stdout.contains("layer.yaml"), "{stdout}");
     assert!(!stdout.contains("Author (optional"));
     assert!(!stdout.contains(guidance));
     assert!(String::from_utf8_lossy(&session.stderr).contains("Layer initialised"));
@@ -247,6 +301,7 @@ fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
     assert_eq!(transcript.matches(guidance).count(), 1);
     assert!(transcript.contains("Author (optional)"));
     assert!(transcript.contains("Description (optional)"));
+    assert!(transcript.contains("Manifest format"));
     assert!(!transcript.contains("Enter to skip"));
 }
 
@@ -264,6 +319,7 @@ fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     session.send(b"\r");
     session.wait_for("Description (optional");
     session.send(b"\r");
+    session.choose_format(&directory, ManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(manifest(&directory), json!({"name": default_name}));
 }
@@ -301,6 +357,7 @@ fn optional_fields_can_be_skipped_independently() {
             assert!(visible_text(&session.stderr).contains("Skipped"));
         }
         session.send(format!("{description}\r").as_bytes());
+        session.choose_format(directory.path(), ManifestFormat::Yaml);
         assert!(session.finish().success());
         assert_eq!(manifest(directory.path()), expected);
         if description.is_empty() {
@@ -309,6 +366,10 @@ fn optional_fields_can_be_skipped_independently() {
         if !author.is_empty() && !description.is_empty() {
             assert!(!visible_text(&session.stderr).contains("Skipped"));
         }
+        let transcript = visible_text(&session.stderr);
+        let format_summary = transcript.rsplit_once("Manifest format").unwrap().1;
+        assert!(format_summary.contains("layer.yaml"), "{format_summary}");
+        assert!(!format_summary.contains("Skipped"), "{format_summary}");
     }
 }
 
@@ -319,17 +380,92 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
     session.wait_for("Name");
     session.send(b" \r");
     session.wait_for("non-whitespace");
-    assert!(!directory.path().join("layer.json").exists());
+    assert_no_manifests(directory.path());
     session.send(b"\x7fexample\r");
     session.wait_for("Author (optional");
     session.send(b" \r");
     session.wait_for("--author must contain");
-    assert!(!directory.path().join("layer.json").exists());
+    assert_no_manifests(directory.path());
     session.send(b"\x7f\r");
     session.wait_for("Description (optional");
     session.send(b"\r");
+    session.choose_format(directory.path(), ManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(manifest(directory.path()), json!({"name": "example"}));
+}
+
+#[test]
+fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
+    for format in ManifestFormat::ALL {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        assert_no_manifests(directory.path());
+        session.send(b"shared-agent-rules\r");
+        session.wait_for("Author (optional");
+        assert_no_manifests(directory.path());
+        session.send("  Équipe 🦀  \r".as_bytes());
+        session.wait_for("Description (optional");
+        assert_no_manifests(directory.path());
+        session.send(b"2026-10-16\r");
+        session.wait_for("layer.jsonc");
+        let transcript = visible_text(&session.stderr);
+        let choices = transcript.split_once("Manifest format").unwrap().1;
+        let mut previous = 0;
+        for choice in ManifestFormat::ALL {
+            let position = choices.find(choice.filename()).unwrap();
+            assert!(position >= previous, "{choices}");
+            previous = position;
+        }
+        session.choose_format(directory.path(), format);
+        assert!(session.finish().success());
+        assert_eq!(
+            manifest_in_format(directory.path(), format),
+            json!({
+                "name": "shared-agent-rules", "author": "  Équipe 🦀  ", "description": "2026-10-16"
+            })
+        );
+        assert_only_files(directory.path(), &[format.filename()]);
+        let stdout = visible_text(&session.stdout);
+        assert!(
+            stdout.contains(
+                &directory
+                    .path()
+                    .join(format.filename())
+                    .display()
+                    .to_string()
+            ),
+            "{stdout}"
+        );
+        assert!(!stdout.contains("Manifest format"));
+        let transcript = visible_text(&session.stderr);
+        assert!(!transcript.contains("Skipped"));
+        let summary = transcript.rsplit_once("Manifest format").unwrap().1;
+        assert!(summary.contains(format.filename()), "{summary}");
+    }
+}
+
+#[test]
+fn format_only_flags_never_prompt_in_a_terminal() {
+    for format in ManifestFormat::ALL {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(
+            directory.path(),
+            &["init", "--format", format.extension()],
+            None,
+        );
+        assert!(session.finish().success());
+        session.assert_no_prompts();
+        assert!(session.stderr.is_empty());
+        assert_eq!(
+            manifest_in_format(directory.path(), format),
+            json!({
+                "name": directory.path().file_name().unwrap().to_str().unwrap()
+            })
+        );
+        assert!(visible_text(&session.stdout).contains(format.filename()));
+        assert_only_files(directory.path(), &[format.filename()]);
+    }
 }
 
 #[test]
@@ -360,6 +496,10 @@ fn metadata_flags_never_start_a_guided_session_in_a_terminal() {
         };
         assert_eq!(manifest(directory.path())["name"], expected_name);
         assert_eq!(
+            manifest(directory.path()).get("author").is_some(),
+            arguments.contains(&"--author")
+        );
+        assert_eq!(
             manifest(directory.path()).get("description").is_some(),
             arguments.contains(&"--description")
         );
@@ -372,13 +512,16 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
         vec!["init", "--author", " "],
         vec!["init", "--name", ""],
         vec!["init", "--name", "example", "--author", " "],
+        vec!["init", "--format", "invalid"],
+        vec!["init", "--format"],
     ] {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &arguments, None);
         assert!(!session.finish().success());
         session.assert_no_prompts();
         assert!(session.stdout.is_empty());
-        assert!(!directory.path().join("layer.json").exists());
+        assert_no_manifests(directory.path());
+        assert_only_files(directory.path(), &[]);
     }
 }
 
@@ -389,62 +532,78 @@ fn explicit_override_and_ci_use_defaults_without_prompts_in_terminals() {
         (vec!["init", "--non-interactive"], None),
         (vec!["init"], Some("true")),
         (vec!["init"], Some("1")),
+        (vec!["--non-interactive", "init", "--format", "toml"], None),
+        (vec!["init", "--format", "jsonc", "--non-interactive"], None),
+        (vec!["init", "--format", "json"], Some("true")),
     ] {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &arguments, ci);
         assert!(session.finish().success());
         session.assert_no_prompts();
         assert!(session.stderr.is_empty());
+        let format = arguments
+            .iter()
+            .position(|argument| *argument == "--format")
+            .map(|index| {
+                ManifestFormat::ALL
+                    .into_iter()
+                    .find(|format| format.extension() == arguments[index + 1])
+                    .unwrap()
+            })
+            .unwrap_or_default();
         assert_eq!(
-            manifest(directory.path()),
+            manifest_in_format(directory.path(), format),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
+        assert_only_files(directory.path(), &[format.filename()]);
     }
 }
 
 #[test]
-fn escape_and_ctrl_c_cancel_before_or_after_some_answers() {
+fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
     for key in [b"\x1b".as_slice(), b"\x03"] {
-        for answered_name in [false, true] {
+        for answered in 0..=3 {
             let directory = tempdir().unwrap();
             let mut session = Session::new(directory.path(), &["init"], None);
             session.wait_for("Name");
-            if answered_name {
+            if answered >= 1 {
                 session.send(b"example\r");
                 session.wait_for("Author (optional");
             }
+            if answered >= 2 {
+                session.send(b"Team\r");
+                session.wait_for("Description (optional");
+            }
+            if answered == 3 {
+                session.send(b"Description\r");
+                session.wait_for("Manifest format");
+                session.wait_for("layer.jsonc");
+            }
+            assert_no_manifests(directory.path());
             session.send(key);
             assert!(!session.finish().success());
             assert!(String::from_utf8_lossy(&session.stderr).contains("cancelled"));
             assert!(session.stdout.is_empty());
-            assert!(!directory.path().join("layer.json").exists());
+            assert_no_manifests(directory.path());
+            assert_only_files(directory.path(), &[]);
         }
     }
 }
 
 #[test]
-fn an_existing_manifest_is_reported_before_any_questions() {
-    let directory = tempdir().unwrap();
-    fs::write(directory.path().join("layer.json"), "not valid JSON").unwrap();
-    let mut session = Session::new(directory.path(), &["init"], None);
-    assert!(!session.finish().success());
-    session.assert_no_prompts();
-    assert!(String::from_utf8_lossy(&session.stderr).contains("already exists"));
-    assert_eq!(
-        fs::read_to_string(directory.path().join("layer.json")).unwrap(),
-        "not valid JSON"
-    );
-}
-
-#[test]
-fn directories_and_symlinks_are_reported_before_any_questions() {
+fn every_occupied_manifest_path_is_reported_before_any_questions() {
     use std::os::unix::fs::symlink;
 
-    for kind in ["directory", "symlink", "dangling"] {
+    for (format, kind) in ManifestFormat::ALL
+        .into_iter()
+        .flat_map(|format| ["file", "directory", "symlink", "dangling"].map(|kind| (format, kind)))
+    {
         let directory = tempdir().unwrap();
-        let path = directory.path().join("layer.json");
+        let path = directory.path().join(format.filename());
         let target = directory.path().join("target");
-        if kind == "directory" {
+        if kind == "file" {
+            fs::write(&path, "not valid manifest content").unwrap();
+        } else if kind == "directory" {
             fs::create_dir(&path).unwrap();
             fs::write(path.join("keep"), "keep").unwrap();
         } else {
@@ -456,18 +615,63 @@ fn directories_and_symlinks_are_reported_before_any_questions() {
         let mut session = Session::new(directory.path(), &["init"], None);
         assert!(!session.finish().success());
         session.assert_no_prompts();
+        assert!(session.stdout.is_empty());
         assert!(String::from_utf8_lossy(&session.stderr).contains("already exists"));
-        if kind == "directory" {
+        assert!(String::from_utf8_lossy(&session.stderr).contains(format.filename()));
+        assert!(!visible_text(&session.stderr).contains("Warning:"));
+        if kind == "file" {
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                "not valid manifest content"
+            );
+        } else if kind == "directory" {
             assert_eq!(fs::read_to_string(path.join("keep")).unwrap(), "keep");
         } else {
-            assert_eq!(fs::read_link(path).unwrap(), target);
+            assert_eq!(fs::read_link(&path).unwrap(), target);
             if kind == "symlink" {
-                assert_eq!(fs::read_to_string(target).unwrap(), "keep");
+                assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
             } else {
                 assert!(!target.exists());
             }
         }
+        let expected = if kind == "symlink" {
+            vec![format.filename(), "target"]
+        } else {
+            vec![format.filename()]
+        };
+        assert_only_files(directory.path(), &expected);
     }
+}
+
+#[test]
+fn initial_duplicates_warn_once_before_refusal_without_questions() {
+    let directory = tempdir().unwrap();
+    for format in ManifestFormat::ALL {
+        fs::write(
+            directory.path().join(format.filename()),
+            "not valid content",
+        )
+        .unwrap();
+    }
+    let mut session = Session::new(directory.path(), &["init"], None);
+    assert!(!session.finish().success());
+    session.assert_no_prompts();
+    assert!(session.stdout.is_empty());
+    let stderr = visible_text(&session.stderr);
+    assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
+    assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
+    assert!(stderr.contains("layer.yaml takes priority"), "{stderr}");
+    for format in ManifestFormat::ALL {
+        assert!(stderr.contains(format.filename()), "{stderr}");
+        assert_eq!(
+            fs::read_to_string(directory.path().join(format.filename())).unwrap(),
+            "not valid content"
+        );
+    }
+    assert_only_files(
+        directory.path(),
+        &ManifestFormat::ALL.map(|format| format.filename()),
+    );
 }
 
 #[test]
@@ -480,36 +684,124 @@ fn repository_location_errors_happen_before_questions() {
     assert!(!session.finish().success());
     session.assert_no_prompts();
     assert!(String::from_utf8_lossy(&session.stderr).contains("repository root"));
-    assert!(!nested.join("layer.json").exists());
+    assert_no_manifests(&nested);
 }
 
 #[test]
-fn a_manifest_created_during_questions_is_not_overwritten() {
+fn the_exact_default_target_created_during_questions_is_not_overwritten() {
     let directory = tempdir().unwrap();
     let mut session = Session::new(directory.path(), &["init"], None);
     session.wait_for("Name");
-    fs::write(directory.path().join("layer.json"), "another process").unwrap();
+    fs::write(directory.path().join("layer.yaml"), "another process").unwrap();
     session.send(b"example\r");
     session.wait_for("Author (optional");
     session.send(b"\r");
     session.wait_for("Description (optional");
     session.send(b"\r");
+    session.wait_for("Manifest format");
+    session.wait_for("layer.jsonc");
+    session.send(b"\r");
     assert!(!session.finish().success());
     assert!(session.stdout.is_empty());
     assert_eq!(
-        fs::read_to_string(directory.path().join("layer.json")).unwrap(),
+        fs::read_to_string(directory.path().join("layer.yaml")).unwrap(),
         "another process"
     );
+    assert!(visible_text(&session.stderr).contains("already exists"));
+    assert_only_files(directory.path(), &["layer.yaml"]);
+}
+
+#[test]
+fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_directions() {
+    for (appeared, chosen, governing) in [
+        (
+            ManifestFormat::Json,
+            ManifestFormat::Yaml,
+            ManifestFormat::Yaml,
+        ),
+        (
+            ManifestFormat::Yaml,
+            ManifestFormat::Jsonc,
+            ManifestFormat::Yaml,
+        ),
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        assert_no_manifests(directory.path());
+        fs::write(
+            directory.path().join(appeared.filename()),
+            "another process",
+        )
+        .unwrap();
+        session.send(b"example\r");
+        session.wait_for("Author (optional");
+        session.send(b"\r");
+        session.wait_for("Description (optional");
+        session.send(b"\r");
+        session.wait_for("Manifest format");
+        session.wait_for("layer.jsonc");
+        // The output is chosen only after the competing path has appeared.
+        for _ in 0..ManifestFormat::ALL
+            .iter()
+            .position(|format| *format == chosen)
+            .unwrap()
+        {
+            session.send(b"\x1b[B");
+        }
+        assert!(fs::symlink_metadata(directory.path().join(chosen.filename())).is_err());
+        session.send(b"\r");
+        assert!(session.finish().success());
+        assert_eq!(
+            manifest_in_format(directory.path(), chosen),
+            json!({"name": "example"})
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join(appeared.filename())).unwrap(),
+            "another process"
+        );
+        let stderr = visible_text(&session.stderr);
+        assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
+        assert!(
+            stderr.contains(&format!("{} takes priority", governing.filename())),
+            "{stderr}"
+        );
+        assert!(stderr.contains(appeared.filename()));
+        assert!(stderr.contains(chosen.filename()));
+        let stdout = visible_text(&session.stdout);
+        assert!(
+            stdout.contains(
+                &directory
+                    .path()
+                    .join(chosen.filename())
+                    .display()
+                    .to_string()
+            ),
+            "{stdout}"
+        );
+        assert!(!stdout.contains("Warning:"));
+        assert_only_files(directory.path(), &[appeared.filename(), chosen.filename()]);
+    }
 }
 
 #[test]
 fn redirecting_any_single_stream_disables_guided_input() {
-    for stream in ["stdin", "stdout", "stderr"] {
+    for (stream, format) in ["stdin", "stdout", "stderr"]
+        .into_iter()
+        .flat_map(|stream| {
+            [ManifestFormat::Yaml, ManifestFormat::Jsonc].map(|format| (stream, format))
+        })
+    {
         let directory = tempdir().unwrap();
         let capture_directory = tempdir().unwrap();
         let capture = capture_directory.path().join("output");
+        let arguments = if format == ManifestFormat::Yaml {
+            vec!["init"]
+        } else {
+            vec!["init", "--format", format.extension()]
+        };
         let mut session =
-            Session::spawn(directory.path(), &["init"], None, Some((stream, &capture)));
+            Session::spawn(directory.path(), &arguments, None, Some((stream, &capture)));
         assert!(session.finish().success());
         session.assert_no_prompts();
         assert!(session.stderr.is_empty());
@@ -523,40 +815,62 @@ fn redirecting_any_single_stream_disables_guided_input() {
             assert!(fs::read(&capture).unwrap().is_empty());
         }
         assert_eq!(
-            manifest(directory.path()),
+            manifest_in_format(directory.path(), format),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
+        assert_only_files(directory.path(), &[format.filename()]);
     }
 }
 
 #[test]
 fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
-    let directory = tempdir().unwrap();
-    let terminal_session = TERMINAL_SESSION
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let input = native_pty_system()
-        .openpty(PtySize {
-            rows: 24,
-            cols: 120,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .unwrap();
-    let input_path = input.master.tty_name().unwrap();
-    let mut session = Session::spawn_with_lock(
-        directory.path(),
-        &["init"],
-        None,
-        Some(("stdin-eof", &input_path)),
-        terminal_session,
-    );
-    session.wait_for("Name");
-    // Closing every master handle disconnects stdin while stderr remains usable.
-    // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
-    drop(input);
-    assert!(!session.finish().success());
-    assert!(String::from_utf8_lossy(&session.stderr).contains("Could not collect metadata"));
-    assert!(session.stdout.is_empty());
-    assert!(!directory.path().join("layer.json").exists());
+    for at_selector in [false, true] {
+        let directory = tempdir().unwrap();
+        let terminal_session = TERMINAL_SESSION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let input = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let input_path = input.master.tty_name().unwrap();
+        let mut input_writer = input.master.take_writer().unwrap();
+        let mut session = Session::spawn_with_lock(
+            directory.path(),
+            &["init"],
+            None,
+            Some(("stdin-eof", &input_path)),
+            terminal_session,
+        );
+        session.wait_for("Name");
+        if at_selector {
+            for (answer, next_prompt) in [
+                ("example\r", "Author (optional"),
+                ("Team\r", "Description (optional"),
+                ("Description\r", "Manifest format"),
+            ] {
+                input_writer.write_all(answer.as_bytes()).unwrap();
+                input_writer.flush().unwrap();
+                session.wait_for(next_prompt);
+            }
+            session.wait_for("layer.jsonc");
+        }
+        assert_no_manifests(directory.path());
+        // Closing every master handle disconnects stdin while stderr remains usable.
+        // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
+        drop(input_writer);
+        drop(input);
+        assert!(!session.finish().success());
+        assert!(
+            String::from_utf8_lossy(&session.stderr)
+                .contains("Could not collect initialisation input")
+        );
+        assert!(session.stdout.is_empty());
+        assert_no_manifests(directory.path());
+        assert_only_files(directory.path(), &[]);
+    }
 }

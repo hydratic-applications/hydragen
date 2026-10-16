@@ -140,20 +140,44 @@ Keep terminal presentation outside the manifest and filesystem logic.
 When a command offers guided input and input flags, keep those routes separate.
 With no input flags, allow a guided flow when interaction is available; any input
 flag selects flag-only execution without questions to complete it. For init, the input
-flags are `--name`, `--author`, and `--description`. Global controls such as
-`--non-interactive` are not metadata. Preserve flags for input overrides, apply
-documented defaults without prompting, and reject missing input that has no
+flags are `--name`, `--author`, `--description`, and `--format`. Explicit format
+alone selects flag-only execution; the inferred YAML default does not count as an
+input flag. Global controls such as `--non-interactive` are not input flags.
+Preserve flags for input overrides, apply documented defaults without prompting,
+and reject missing input that has no
 default. Init defaults omitted name to the current directory's name; its guided
 name prompt shows that default and accepts it on Enter. Omit unsupplied author
-and description instead of prompting for them in flag-only execution.
+and description instead of prompting for them in flag-only execution. Omitted
+format defaults to `yaml` (`layer.yaml`). Guided init asks Name, Author,
+Description, then Manifest format, with choices labelled by exact filenames in
+priority order: `layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`, `layer.jsonc`.
+The selector starts on `layer.yaml`, accepted by Enter. Format is separate from
+manifest metadata and does not override read-time priority.
 
 Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal
 standard stream disables guided input. Do not reopen a terminal or read piped
 answers to work around that choice. Keep flag-only output plain, result output on
 standard output, and prompts and diagnostics on standard error.
 
-Share validation across input routes, check known target errors before questions,
-and do not write until guided input is complete. Cancellation must exit nonzero
-without creating files. Preserve exclusive creation and other filesystem safety
-checks even after a read-only check succeeds. Test both captured-output execution
-and real terminal sessions, with bounded waits and child-process cleanup.
+Share validation across input routes. Initially check repository location and all
+five supported manifest paths before questions; any occupied entry, including a
+directory or dangling symlink, refuses init without reading its contents. Do not
+write until guided input, including format, is complete. Cancellation must exit
+nonzero without creating files.
+
+The initial check does not reserve the directory. Keep exclusive creation
+(`create_new`) for the exact chosen target, but do not repeat all-format refusal
+at the final write or add a lock. A different supported filename appearing after
+the initial check does not block creation. After a completed write, make a
+best-effort discovery: warn on observed duplicates, naming every detected
+filename and the priority selection, without rollback or changing success. A
+failed observation is also a non-fatal warning. Actual write failures remain
+errors and may leave a partial newly created file. A failure to report a completed
+write must explain that the manifest was already created, not claim that no
+files changed.
+
+Use shared read-only discovery and loading for manifest-dependent commands, and
+report duplicates at most once per affected directory per invocation on standard
+error, before a dependent failure. Do not scan manifests for help, version, or
+argument-usage failures. Test both captured-output execution and real terminal
+sessions, with bounded waits and child-process cleanup.

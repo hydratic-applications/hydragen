@@ -36,9 +36,17 @@ design everything upfront.
    does this require? Can collaborators and continuous integration (CI) build,
    run, and edit the project without Hydragen installed? What must work after a
    plain clone?
-   - **Partial resolution:** The layer manifest is a JSON file named exactly
-     `layer.json` at the root of the layer's repository. See the
-     [manifest location decision](changes/archive/2026-10-16-define-layer-manifest/design.md#agreed-manifest-filename-location-and-format).
+   - **Filename and format resolution:** The manifest remains at the layer's
+     repository root, with one of five fixed filenames. Selection follows
+     `layer.yaml` > `layer.yml` > `layer.toml` > `layer.json` > `layer.jsonc`;
+     new manifests default to YAML. This offers familiar editing formats while
+     keeping the governing file predictable: duplicates are warned about, not
+     merged, and a selected-file error does not cause fallback. See the
+     [format and priority decision](changes/support-layer-manifest-formats/design.md#fixed-filenames-and-an-explicit-priority-order)
+     and [discovery/loading separation](changes/support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
+     This supersedes the JSON-only part of the historical
+     [manifest location decision](changes/archive/2026-10-16-define-layer-manifest/design.md#agreed-manifest-filename-location-and-format),
+     not its repository-root location.
    - **Partial resolution:** The CLI renders the layer result of a dependent layer
      into its workspace. The layer result is the files and directory structure
      produced by applying its contributions to inherited content; the workspace
@@ -50,10 +58,17 @@ design everything upfront.
      for collaborators and CI remain open.
    - **Initialisation decision:** `hydragen init` targets the current directory,
      permits initialisation before Git setup, and refuses a location below a
-     detected conventional Git working-tree root. It creates only `layer.json`
-     and does not initialise Git or render files. See the
+     detected conventional Git working-tree root. It creates only the selected
+     manifest and does not initialise Git or render files. See the historical
      [directory and repository-boundary decision](changes/archive/2026-10-16-add-layer-init/design.md#use-the-current-directory-and-respect-repository-boundaries)
      and [initialisation requirements](specs/layer-initialization/spec.md).
+     The new [creation lifecycle decision](changes/support-layer-manifest-formats/design.md#check-once-for-permission-to-initialise-keep-exact-target-exclusive-creation)
+     replaces JSON-only checks: any occupied supported name initially refuses
+     init, but the final write exclusively creates only the chosen path. There is
+     no lock or late refusal because a different format appeared. Best-effort
+     post-write discovery warns about observed duplicates or a failed check
+     without undoing successful creation. This keeps overhead low but allows
+     concurrent invocations to create different formats in the same directory.
 4. **Local changes.** May a consumer edit a shared file in place? How would a local
    exception, a change to the shared source, or a decision to stop sharing be
    distinguished, and what happens to each on the next update? How can a consumer
@@ -87,15 +102,24 @@ design everything upfront.
    sets the requirement; the specific interfaces remain open.
    - **CLI interaction decision:** Use cliclack for suitable interactive flows,
      starting with init, while retaining a complete flag-based path for scripts,
-     CI, and agents. **Agreed input rule:** No metadata flags means guided init
-     when interaction is available; any metadata flag means flag-only init, with
-      no prompts to complete missing values. The explicit and automatic
-      non-interactive policy also prevents prompts in unattended environments.
-      Supplying name is optional: both routes default it to the current
-      directory's name, with Enter accepting the displayed prompt default. The
-      manifest still requires a non-blank name. See the
-      [directory-name default decision](changes/archive/2026-10-16-add-interactive-init/design.md#default-name-to-the-current-directory).
-     See the [separate-input-route decision](changes/archive/2026-10-16-add-interactive-init/design.md#separate-guided-and-flag-only-input),
+     CI, and agents. **Agreed input rule:** No input flags means guided init when
+     interaction is available; any of `--name`, `--author`, `--description`, or
+     explicit `--format` means flag-only init, with no questions to complete
+     missing values. Format alone therefore uses the directory-name default and
+     omits author and description. Omitted format defaults to `layer.yaml` without
+     counting as a supplied flag. Guided input asks Name, Author, Description,
+     then Manifest format, with exact filename labels and `layer.yaml` initially
+     selected. This keeps format choice within the existing complete, prompt-free
+     automation route rather than mixing flags and questions. See the
+     [format/input-route decision](changes/support-layer-manifest-formats/design.md#keep-format-selection-within-the-existing-input-route-policy),
+     which supersedes the metadata-only flag list and three-question flow in the
+     historical interaction decision.
+     The explicit and automatic non-interactive policy still prevents prompts in
+     unattended environments. Supplying name is optional: both routes default it
+     to the current directory's name, with Enter accepting the displayed prompt
+     default. The manifest still requires a non-blank name. See the
+     [directory-name default decision](changes/archive/2026-10-16-add-interactive-init/design.md#default-name-to-the-current-directory).
+     Historical context: the [separate-input-route decision](changes/archive/2026-10-16-add-interactive-init/design.md#separate-guided-and-flag-only-input),
      [mode-selection decision](changes/archive/2026-10-16-add-interactive-init/design.md#select-interactive-mode-conservatively),
      and [future-command convention](changes/archive/2026-10-16-add-interactive-init/design.md#keep-the-convention-reusable-without-adding-future-commands).
      This does not select an MCP server or skills as an agent-specific interface.

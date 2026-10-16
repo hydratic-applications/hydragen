@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 
-use hydragen::{InitError, Metadata, validate_metadata_value};
+use hydragen::{InitError, ManifestFormat, Metadata, validate_metadata_value};
 
 struct DefaultTheme;
 impl cliclack::Theme for DefaultTheme {}
@@ -36,9 +36,9 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn detect(metadata_flags: bool, non_interactive: bool) -> Self {
+    pub fn detect(input_flags: bool, non_interactive: bool) -> Self {
         Self::select(
-            metadata_flags,
+            input_flags,
             non_interactive,
             [
                 io::stdin().is_terminal(),
@@ -50,7 +50,7 @@ impl Mode {
     }
 
     fn select(
-        metadata_flags: bool,
+        input_flags: bool,
         non_interactive: bool,
         terminals: [bool; 3],
         ci: Option<&OsStr>,
@@ -59,10 +59,7 @@ impl Mode {
             let value = value.to_string_lossy();
             !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
         });
-        if metadata_flags
-            || non_interactive
-            || !terminals.into_iter().all(|value| value)
-            || ci_enabled
+        if input_flags || non_interactive || !terminals.into_iter().all(|value| value) || ci_enabled
         {
             Self::FlagOnly
         } else {
@@ -108,7 +105,12 @@ pub fn directory_name(directory: &Path) -> io::Result<String> {
         })
 }
 
-pub fn collect_metadata(default_name: &str) -> io::Result<Metadata> {
+pub struct InitInput {
+    pub metadata: Metadata,
+    pub format: ManifestFormat,
+}
+
+pub fn collect_init_input(default_name: &str) -> io::Result<InitInput> {
     // Only guided init uses this rendering adjustment. Submitted empty inputs
     // are optional skips; name always resolves to a validated non-empty value.
     cliclack::set_theme(InitTheme);
@@ -126,10 +128,22 @@ pub fn collect_metadata(default_name: &str) -> io::Result<Metadata> {
             .interact()?;
         let author = optional_input("author", "Author")?;
         let description = optional_input("description", "Description")?;
-        Ok(Metadata {
-            name,
-            author,
-            description,
+        // The empty-input summary is only for optional metadata, not selections.
+        cliclack::reset_theme();
+        let mut selector = cliclack::select("Manifest format");
+        for format in ManifestFormat::ALL {
+            selector = selector.item(format, format.filename(), "");
+        }
+        let format = selector
+            .initial_value(ManifestFormat::default())
+            .interact()?;
+        Ok(InitInput {
+            metadata: Metadata {
+                name,
+                author,
+                description,
+            },
+            format,
         })
     })();
     cliclack::reset_theme();
@@ -143,7 +157,7 @@ fn input_failure_message(error: &io::Error) -> String {
     if error.kind() == io::ErrorKind::Interrupted {
         "Initialisation cancelled. No files were changed.".to_owned()
     } else {
-        format!("Could not collect metadata: {error}. No files were changed.")
+        format!("Could not collect initialisation input: {error}. No files were changed.")
     }
 }
 
@@ -305,7 +319,7 @@ mod tests {
         assert!(cancelled.contains("cancelled"));
         for kind in [io::ErrorKind::UnexpectedEof, io::ErrorKind::BrokenPipe] {
             let message = input_failure_message(&kind.into());
-            assert!(message.contains("Could not collect metadata"));
+            assert!(message.contains("Could not collect initialisation input"));
             assert!(message.contains("No files were changed"));
         }
     }

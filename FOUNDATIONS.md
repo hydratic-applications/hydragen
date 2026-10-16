@@ -153,9 +153,10 @@ A **[layer](GLOSSARY.md#layer)** is Hydragen's building block for reuse. A
 **[root layer](GLOSSARY.md#root-layer)** has no dependencies; a
 **[dependent layer](GLOSSARY.md#dependent-layer)** depends on one or more other
 layers. A **[dependency](GLOSSARY.md#dependency)** is a layer declared in another
-layer's **[manifest](GLOSSARY.md#manifest)**, the `layer.json` file at its repository
-root, as a source of inherited content. Both root and dependent layers can serve
-as dependencies, and dependency chains have no fixed maximum depth.
+layer's **[manifest](GLOSSARY.md#manifest)** at its repository root as a source of
+inherited content. The manifest uses one of five fixed filenames: `layer.yaml`,
+`layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc`. Both root and dependent
+layers can serve as dependencies, and dependency chains have no fixed maximum depth.
 
 Hydragen uses layers both for content maintained primarily for reuse and for
 functioning projects. These are not separate kinds of layer: any layer can serve

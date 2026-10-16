@@ -12,14 +12,15 @@ Both [root layers](#root-layer) and [dependent layers](#dependent-layer) can hav
 other layers depend on them. Layers can form [dependency](#dependency) chains of
 any depth; there is no fixed maximum number of levels.
 
-Every layer has a [manifest](#manifest) named `layer.json` at its repository root,
-declaring its required name, optional author and description, and the other
-layers it depends on.
+Every layer has a [manifest](#manifest) at its repository root, declaring its
+required name, optional author and description, and the other layers it depends
+on. Its filename is one of `layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`,
+or `layer.jsonc`.
 
 ## Root layer
 
 A [layer](#layer) with no [dependencies](#dependency). Its
-[`layer.json`](#manifest) may omit the [dependency](#dependency) list or include an
+[manifest](#manifest) may omit the [dependency](#dependency) list or include an
 empty list; both mean the same thing.
 
 Its file [contributions](#contribution) are [additions](#addition). With no
@@ -114,9 +115,20 @@ represent those [contributions](#contribution) for committing.
 
 ## Manifest
 
-A JSON file named exactly `layer.json` at the root of a [layer's](#layer)
-repository. It declares the [layer's](#layer) required name and optional author and
-description, and lists the other [layers](#layer) it depends on.
+A file at the root of a [layer's](#layer) repository, named exactly `layer.yaml`,
+`layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc`. The two YAML extensions
+use the same format; the others use TOML, strict JSON, and JSON with comments
+(JSONC), respectively. New manifests default to `layer.yaml`. The
+[layer's](#layer) identifying name does not change the filename.
+
+It declares the [layer's](#layer) required name and optional author and description,
+and lists its [dependencies](#dependency). Each supplied metadata field must be
+a non-blank string, with the same meaning in every supported format.
+
+If multiple supported names are occupied, selection follows the fixed order
+`layer.yaml` > `layer.yml` > `layer.toml` > `layer.json` > `layer.jsonc`. Only the
+selected file supplies data; manifests are not merged, and a selected-file error
+does not cause fallback to another format.
 
 ## Contribution
 
