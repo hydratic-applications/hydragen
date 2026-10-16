@@ -18,18 +18,45 @@ design everything upfront.
    decide which to use? How does a consumer select a source and version, and which
    commands support that workflow? Should references pin a version, follow updates
    automatically, or support both by consumer choice?
+   - **Partial resolution:** Every layer has a manifest declaring its name,
+     author, and description, and listing the other layers it depends on. An
+     omitted dependency list and an empty list both mean no dependencies. See the
+     [manifest decision and draft schema choices](changes/define-layer-manifest/design.md#decisions).
+     Source locations, reference syntax, and how versioning works (including
+     whether it belongs in the manifest) remain open.
 3. **Files and tool dependency.** Are shared files committed into a consumer's
    repository, or created or linked by Hydragen when needed? What project layout
    does this require? Can collaborators and continuous integration (CI) build,
    run, and edit the project without Hydragen installed? What must work after a
    plain clone?
+   - **Partial resolution:** The layer manifest is a JSON file named exactly
+     `layer.json` at the root of the layer's repository. See the
+     [manifest location decision](changes/define-layer-manifest/design.md#agreed-manifest-filename-location-and-format).
+   - **Partial resolution:** The CLI renders the layer result of a dependent layer
+     into its workspace. The layer result is the files and directory structure
+     produced by applying its contributions to inherited content; the workspace
+     is the directory where developers and agents edit those files. Workspace
+     files are not committed; the repository records the manifest
+     and the layer's own contributions. The CLI handles translation between the
+     two. See [the layer model](../FOUNDATIONS.md#the-layer-model).
+     Directory layout, how files are made available, and installation requirements
+     for collaborators and CI remain open.
 4. **Local changes.** May a consumer edit a shared file in place? How would a local
    exception, a change to the shared source, or a decision to stop sharing be
    distinguished, and what happens to each on the next update? How can a consumer
    propose or contribute a reusable improvement back to the shared source?
+   - **Partial resolution:** Developers and agents edit ordinary files in the
+     dependent layer's workspace. The CLI uses
+     [contribution capture](../GLOSSARY.md#contribution-capture) to reflect those
+     edits in its contributions rather than requiring users to author patches or
+     deletion markers during ordinary editing. See
+     [the layer model](../FOUNDATIONS.md#the-layer-model).
+     Commands and translation timing, handling shared-source improvements, stopping
+     sharing, and update behaviour remain open.
 5. **Partially shared files.** How are shared dependencies, scripts, or settings
    combined with consumer-owned content in one file? How are conflicting choices
-   resolved while preserving one source of truth for each shared part?
+   resolved while preserving one [authoritative source](../GLOSSARY.md#authoritative-source)
+   for each shared part?
 6. **Incompatible updates.** What happens when a shared source removes a file,
    changes its structure, or requires consumers to change their code? Who supplies
    and runs migration steps, and how are updates across layers coordinated?
@@ -55,3 +82,6 @@ design everything upfront.
     - The usefulness of the workflows described in the AI support value.
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
+12. **Patch structure.** What internal structure should `.patch` files use to
+    describe modifications to inherited files? The filename suffix does not select
+    an existing patch format. See [Patch](../GLOSSARY.md#patch) for the agreed meaning.

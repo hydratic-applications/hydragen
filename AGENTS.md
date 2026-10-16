@@ -27,6 +27,30 @@ and specifications. Update the question list with a brief resolution and a link
 to that decision. Reflect agreed product beliefs, goals, and meaningful constraints
 in FOUNDATIONS.md where appropriate; keep implementation details in OpenSpec.
 
+## Terminology and glossary
+
+Consult [GLOSSARY.md](GLOSSARY.md) when unsure what a Hydragen term means or which
+term to use. Use its terminology consistently in documentation, discussions, and
+code rather than introducing alternative names for the same concept.
+
+When exploration, design, or implementation introduces a new term or clarifies an
+existing one, consider adding or updating its glossary entry. Check existing
+entries first to avoid duplicates. Keep definitions concise, understandable
+without prior conversation, and limited to agreed meaning; do not use a glossary
+update to settle an unresolved design question. Raise ambiguous or conflicting
+definitions for discussion before changing their meaning.
+
+Keep glossary entries focused on what a term means based on agreed decisions.
+Do not include design-status commentary such as "not yet decided" or lists of
+unresolved questions. Keep those in openspec/design-questions.md or the relevant
+OpenSpec change instead.
+
+Within the glossary, link references to other defined terms to their headings on
+the same page, including plural and possessive forms. For example, write
+`A [contribution](#contribution) that...` in the addition definition. Avoid links
+from a term's definition back to itself. When adding or revising entries, check
+for missing cross-references and confirm that the links target existing headings.
+
 ## Developer-facing documentation
 
 **Clarity without loss of meaning.** Write all developer-facing documentation,

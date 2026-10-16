@@ -9,11 +9,11 @@ Hydragen is a development system for building distinct projects from shared code
 configuration, and project files, without maintaining the same content separately
 in every repository. It aims to make reuse fast and as natural as editing directly,
 saving time and mental effort. Projects take only what they need and keep their
-own choices, with clear sources, versions, and local differences as they adopt
-improvements. AI support is native and optional.
+own choices, with clear dependency sources, versions, and contributions as they
+adopt improvements. AI support is native and optional.
 
-Its intended first interface is a command-line tool (CLI), run from a terminal and
-written in Rust.
+Its intended first interface is the [Hydragen CLI](GLOSSARY.md#hydragen-cli), a
+command-line tool run from a terminal and written in Rust.
 
 ## Who it is for
 
@@ -21,9 +21,6 @@ Hydragen is for developers who want to share and reuse code, configuration, and
 other files across projects while keeping each project's own choices. It is
 especially relevant when repeated setup and carrying improvements between
 separate repositories have become ongoing work.
-
-Code and files maintained for reuse are **shared sources**; projects that use
-them are **consumers**.
 
 Developers with any level of AI use, including none, are part of the intended
 audience; see the [AI support value](#guiding-values).
@@ -37,18 +34,18 @@ instructions for coding agents.
 Setting up each project from scratch repeats tedious boilerplate work. A template
 provides a quicker start, but often bundles a particular set of technologies.
 Projects must add missing pieces or remove unwanted code, configuration, and
-dependencies. Cleanup can be messy and incomplete. Maintaining a custom template
-does not eliminate this mismatch between projects.
+package dependencies. Cleanup can be messy and incomplete. Maintaining a custom
+template does not eliminate this mismatch between projects.
 
 Hydragen's motivation comes from the author's experience maintaining many separate
 repositories. Even with one maintainer, projects could use different technologies
 or configurations, repeat files, or contain different code serving similar purposes.
 
 The cost continues after setup. Separately maintained code gradually differs
-between repositories—often called **drift**. An improvement in one project must
-be identified and carried to others that could benefit. Plain template copies
-also miss later improvements to the template; update tools help propagate them,
-but still leave consumer copies to reconcile.
+between repositories—often called **[drift](GLOSSARY.md#drift)**. An improvement in
+one project must be identified and carried to others that could benefit. Plain
+template copies also miss later improvements to the template; update tools help
+propagate them, but still leave project copies to reconcile.
 
 Differences also cost attention. Projects can use the same technology or solve the
 same problem in slightly different ways, leaving developers to remember or
@@ -56,7 +53,7 @@ rediscover each setup. Switching projects or returning after a break then requir
 time and mental effort before useful work can resume.
 
 When developers see only a final file, it can be hard to tell which parts came
-from a shared source, how a consumer changes or extends them, or whether a new
+from a shared source, how a project changes or extends them, or whether a new
 improvement should be shared. A record of the template repository and version
 helps, but does not show how inherited content and local changes combine while
 editing.
@@ -75,10 +72,10 @@ These eight values guide Hydragen's design. They must work together to make it a
 useful choice over existing approaches.
 
 1. **DRY — Don't Repeat Yourself.** Each shared piece of code or project content
-   must have one **effective source of truth**: the maintained definition that
-   governs it and where shared improvements belong. This is its
-   **authoritative source**. Writing it once, copying it into consumers, and keeping
-   those copies updated does not satisfy this value, even when their origin is recorded.
+   must have one **[authoritative source](GLOSSARY.md#authoritative-source)**: the
+   maintained definition that governs it and where shared improvements belong.
+   Writing it once, copying it into projects, and keeping those copies updated
+   does not satisfy this value, even when their origin is recorded.
    Shared work should avoid repeatedly solving the same problem, setting up the
    same capability, or implementing the same changes across repositories.
 
@@ -88,7 +85,9 @@ useful choice over existing approaches.
    should be easy to write, adopt, and maintain, reducing setup, cleanup, and
    maintenance effort. It must remain readable as customisation grows, without
    unnecessary layers of generation. Ease of use matters immediately, not only
-   after long-term savings accumulate.
+   after long-term savings accumulate. Developers and agents should edit the
+   layer result in a workspace; translating ordinary edits into contributions
+   is the CLI's responsibility, not a burden on each edit.
 
 3. **Granular reuse — Take what you need.** Let projects share individual needs
    without adopting an entire set of technologies. This includes directory
@@ -96,25 +95,27 @@ useful choice over existing approaches.
    coding agents—not only JavaScript or TypeScript modules. Reuse must work for
    needs shared by only a minority of projects, without unwanted material to
    remove. Legitimate differences must not prevent sharing common parts. Combining
-   and extending parts must be supported directly, without consumers inventing
-   their own layering rules or templates that generate templates.
+   dependencies and extending their content through contributions must be supported
+   directly, without developers inventing their own layering rules or templates
+   that generate templates.
 
 4. **Reuse beyond setup — Keep benefiting from improvements.** Reuse must remain
-   useful as projects evolve. Keep the **reuse relationship**: the ongoing
-   connection from a consumer to its shared source and selected version, with a
-   clear distinction between shared content and consumer-owned changes. Preserve
-   that connection rather than maintain copies through repeated copying or
-   synchronisation. Consumers must know which version they use and choose when to
-   adopt improvements. Adopting an incompatible change may still require work in
-   the consuming project.
+   useful as projects evolve. Keep the
+   **[reuse relationship](GLOSSARY.md#reuse-relationship)**: the ongoing
+   connection from a dependent layer to its dependencies and their selected
+   versions, with a clear distinction between inherited content and the layer's
+   own contributions. Preserve that connection rather than maintain independent
+   copies through repeated copying or synchronisation. Developers must know which
+   dependency versions their layer uses and choose when to adopt improvements.
+   Adopting an incompatible change may still require work in the dependent layer.
 
 5. **Efficiency — Save time and mental effort.** Where projects share needs, make
    consistent technology choices, configuration, and code easy to reuse. Familiar
    approaches should reduce relearning when switching projects or returning after
-   a break. Consider the wider set of projects: put common solutions in shared
-   sources and keep project-specific choices local. This useful consistency should
-   reduce implementation and maintenance effort while preserving legitimate
-   differences.
+   a break. Consider the wider set of projects: put common solutions in layers
+   reused as dependencies and keep project-specific contributions in the relevant
+   layer. This useful consistency should reduce implementation and maintenance
+   effort while preserving legitimate differences.
 
 6. **AI support — Native by design, optional in use.** Hydragen must work naturally
    without AI and offer purpose-built AI support when developers choose to use it.
@@ -122,8 +123,8 @@ useful choice over existing approaches.
    Developers may work manually, use AI selectively, or delegate substantial work
    to agents, mixing approaches and changing them over time. Each must be a
    first-class, efficient workflow. Native support means agents have direct ways
-   to discover and use shared content, with the same source and change visibility
-   available to developers.
+   to discover layers and use their content, with the same dependency and
+   contribution visibility available to developers.
 
 7. **Performance — Keep everyday operations fast.** Hydragen must start quickly
    and keep common operations responsive for developers and agents. Speed and
@@ -132,14 +133,72 @@ useful choice over existing approaches.
    remains practical as projects and shared content grow.
 
 8. **Visibility and traceability — Know the source and see the differences.**
-   Developers and agents must be able to locate the source of truth for shared
-   content, identify its origin and selected version, and see how a consumer
-   changes or extends what it inherits.
+   Developers and agents must be able to locate the authoritative source for shared
+   content, identify each dependency's origin and selected version, and inspect a
+   dependent layer's contributions relative to what it inherits.
    When several layers contribute, show where each contribution comes from and
-   the order in which changes take effect. Shared content and local differences
-   must be clear during everyday work, not only reconstructable during updates.
+   the order in which contributions take effect. Inherited content and local
+   contributions must be clear during everyday work, not only reconstructable
+   during updates.
    This should help developers spot drift, understand intentional exceptions, and
-   recognise improvements that belong in the shared source.
+   recognise improvements that belong in a dependency.
+
+## The layer model
+
+Hydragen's layer model is intended to support these values by keeping inherited
+content connected to its sources while letting developers edit ordinary project
+files.
+
+A **[layer](GLOSSARY.md#layer)** is Hydragen's building block for reuse. A
+**[root layer](GLOSSARY.md#root-layer)** has no dependencies; a
+**[dependent layer](GLOSSARY.md#dependent-layer)** depends on one or more other
+layers. A **[dependency](GLOSSARY.md#dependency)** is a layer declared in another
+layer's **[manifest](GLOSSARY.md#manifest)**, the `layer.json` file at its repository
+root, as a source of inherited content. Both root and dependent layers can serve
+as dependencies, and dependency chains have no fixed maximum depth.
+
+Hydragen uses layers both for content maintained primarily for reuse and for
+functioning projects. These are not separate kinds of layer: any layer can serve
+as another layer's dependency.
+
+A layer's **[contributions](GLOSSARY.md#contribution)** are what it supplies itself
+rather than inherits. The three
+**[contribution types](GLOSSARY.md#contribution-type)** are additions,
+modifications, and deletions.
+**[Additions](GLOSSARY.md#addition)** introduce files and are committed as ordinary
+files. **[Modifications](GLOSSARY.md#modification)** alter inherited files without
+removing the files themselves; they use **[patches](GLOSSARY.md#patch)**, files
+named after the inherited file with `.patch` appended.
+**[Deletions](GLOSSARY.md#deletion)** remove inherited files entirely; they use empty
+**[deletion markers](GLOSSARY.md#deletion-marker)** with `.delete` appended to the
+inherited filename. Only dependent layers can have modification or deletion
+contributions, because root layers have no inherited files. A dependent layer
+commits its manifest and its own contributions, not unchanged inherited content.
+See the [glossary](GLOSSARY.md) for the full definitions.
+
+The **[layer result](GLOSSARY.md#layer-result)** is the files and directory
+structure produced by applying the layer's contributions to its
+**[inherited content](GLOSSARY.md#inherited-content)**: content supplied through its
+dependencies' layer results. Added files are present, modified files contain the
+resulting content, and deleted files are absent. The
+**[workspace](GLOSSARY.md#workspace)** is the directory where developers and agents
+edit that result as ordinary project files. This should feel like working directly
+on a project, not continually managing contributions.
+
+The workspace files are not committed. The Hydragen CLI handles translation in
+both directions: it **[renders](GLOSSARY.md#rendering)** the layer result into the
+workspace from the layer's contributions and its dependencies. In the other
+direction, **[contribution capture](GLOSSARY.md#contribution-capture)** translates
+workspace edits into the dependent layer's contribution files for committing.
+Developers and agents should not have to write patches or deletion markers
+themselves during ordinary editing.
+The committed contributions describe the current differences from dependencies,
+not a running history of edits; Git handles their history over time.
+
+This separation keeps everyday editing familiar without losing the reuse
+relationship. Dependencies and local contributions must remain available to
+inspect during work, without requiring constant attention to how contributions
+are stored.
 
 ## Existing approaches
 
@@ -171,9 +230,9 @@ abandonment; mature tools can remain useful with few changes.
     [v7.0.2, 2026-08-20][typescript-reviewed-release].
   - Prettier: commit [2026-10-15][prettier-reviewed-commit]; release
     [3.9.10, 2026-10-10][prettier-reviewed-release].
-- **Hydragen's goal:** Extend single-source reuse to files and structures in the
-  form their tools need. Keep ordinary packages and configuration inheritance
-  where they already work well.
+- **Hydragen's goal:** Render layer results as files and structures in the form
+  their tools need, while keeping inherited content tied to its source layers.
+  Keep ordinary packages and configuration inheritance where they already work well.
 
 ### Monorepos and workspaces: pnpm, Turborepo, and Nx
 
@@ -183,7 +242,8 @@ abandonment; mature tools can remain useful with few changes.
 - **Core tradeoff:** Sharing through co-location assumes projects can live together.
   Projects that remain in separate repositories still need a way to distribute
   shared content. This is a limit of that repository arrangement, not a claim that
-  Nx or Turborepo cannot use published dependencies or serve other workflows.
+  Nx or Turborepo cannot use published package dependencies or serve other
+  workflows.
 - **Maintenance — checked 2026-10-15:** Not archived at review.
   - pnpm: commit [2026-10-15][pnpm-reviewed-commit]; release
     [v12.11.2, 2026-10-09][pnpm-reviewed-release].
@@ -198,7 +258,7 @@ abandonment; mature tools can remain useful with few changes.
 
 - **Good for:** Bringing a shared directory into a project using Git.
   A [submodule][git-submodules] references a separate repository at a chosen commit;
-  a [subtree][git-subtrees] brings files into the consumer's own history and can
+  a [subtree][git-subtrees] brings files into the project's own history and can
   merge changes back and forth.
 - **Core tradeoff:** Submodules add repository setup and update steps. Subtrees
   make files ordinary local files, but keep copies that need merging. Both work
@@ -206,16 +266,17 @@ abandonment; mature tools can remain useful with few changes.
 - **Maintenance — checked 2026-10-15:** Git mirror commit
   [2026-10-06][git-reviewed-commit]; [no GitHub releases][git-releases].
   Not archived at review. Git's [release tags][git-tags] are a separate publication channel.
-- **Hydragen's goal:** Preserve clear origins and chosen versions with less setup
-  and a clearer boundary between shared content and project-specific changes.
+- **Hydragen's goal:** Preserve clear dependency origins and chosen versions with
+  less setup and a clearer boundary between inherited content and a dependent
+  layer's contributions.
 
 ### Repository templates
 
 - **Good for:** [Starting a project quickly][github-templates] from a known setup.
 - **Core tradeoff:** You inherit the whole starting point, remove what does not fit,
   and maintain your own copy. Later template improvements do not flow back in.
-- **Hydragen's goal:** Take only the parts you need and keep shared code connected
-  to one source of truth.
+- **Hydragen's goal:** Select the dependencies a layer needs and keep inherited
+  content connected to its source layers.
 
 ### Configurable starting points: Cookiecutter
 
@@ -243,8 +304,8 @@ abandonment; mature tools can remain useful with few changes.
   [2026-10-13][copier-reviewed-commit]; GitHub release
   [v9.19.1, 2026-10-13][copier-reviewed-release]. Not archived at review.
 - **Hydragen's goal:** Combine and extend shared parts without building that
-  inheritance machinery yourself. Keep one source of truth and make origins and
-  project-specific changes visible while editing.
+  inheritance machinery yourself. Keep one authoritative source and make dependency
+  origins and local contributions visible while editing the layer result.
 
 ### Updatable templates: cruft
 
@@ -266,36 +327,40 @@ abandonment; mature tools can remain useful with few changes.
 - **Maintenance — checked 2026-10-15:** Latest default-branch commit
   [2023-03-15][hygen-reviewed-commit]; GitHub release
   [v6.2.11, 2022-09-07][hygen-reviewed-release]. Not archived at review.
-- **Hydragen's goal:** Make shared improvements available to existing consumers,
-  not just the next generation run.
+- **Hydragen's goal:** Make improvements in dependencies available to existing
+  dependent layers, not just the next generation run.
 
 ### Updating existing code: Nx migrate and Angular ng update
 
 - **Good for:** [Nx `migrate`][nx-migrate] and [Angular `ng update`][angular-update]
-  can change existing configuration and source code when upgrading dependencies.
-  Generation does not always leave developers updating old output by hand.
+  can change existing configuration and source code when upgrading package
+  dependencies. Generation does not always leave developers updating old output
+  by hand.
 - **Core tradeoff:** Someone must supply update instructions for the relevant
-  versions. They change consumer-owned files rather than turn them into one shared
+  versions. They change project-owned files rather than turn them into one shared
   implementation; project-specific edits still need review.
 - **Maintenance — checked 2026-10-15:** Angular CLI commit
   [2026-10-15][angular-reviewed-commit]; release
   [v22.2.2, 2026-10-07][angular-reviewed-release]. Not archived at review.
   Nx's snapshot is in its
   [workspace comparison](#monorepos-and-workspaces-pnpm-turborepo-and-nx).
-- **Hydragen's goal:** Preserve a clear shared source as it evolves. These tools
-  offer examples of upgrades that modify consumer files.
+- **Hydragen's goal:** Keep inherited content tied to its dependency layers as
+  those layers evolve. These tools offer examples of upgrades that modify project
+  files.
 
 ### Configuration as code: projen
 
 - **Good for:** [Managing project configuration as code][projen], with reusable
-  components and a clear source of truth.
+  components and a clear authoritative source.
 - **Core tradeoff:** To change managed files, edit projen's definitions and
-  regenerate them. Direct edits to the generated files are not the source of truth.
+  regenerate them. Direct edits to generated files do not change the authoritative
+  source.
 - **Maintenance — checked 2026-10-15:** Latest default-branch commit
   [2026-10-15][projen-reviewed-commit]; GitHub release
   [v0.104.5, 2026-10-12][projen-reviewed-release]. Not archived at review.
-- **Hydragen's goal:** Retain a clear source of truth while making shared
-  configuration as natural to work with as ordinary project code.
+- **Hydragen's goal:** Retain a clear authoritative source while letting developers
+  edit configuration in the workspace as ordinary project files. The CLI renders
+  the layer result and translates edits into contributions.
 
 ### Configuration update tasks: mrm
 
@@ -329,15 +394,16 @@ Optimising the template for the majority merely determines which projects bear
 the additional work. It does not eliminate that work or enable the minority to
 share their common setup.
 
-Hydragen must enable those two projects to reuse their common setup without
-imposing it on the other three or requiring each consumer to recreate it
-independently. For each new project, the intended experience is to select the
-common parts and any relevant additions, know their sources and versions, and
-start working without repeated setup or cleanup.
+Hydragen must enable those two projects to reuse their common setup as a layer
+without imposing it on the other three or requiring each dependent layer to
+recreate it independently. For each new project, the intended experience is to
+select dependencies, know their sources and versions, and start editing the layer
+result in the workspace without repeated setup or cleanup. The CLI records the
+project's own additions, modifications, and deletions as contributions.
 
 The project author's attempt to achieve this kind of layering in Copier involved
 templates extending other templates, custom overlays—rules for putting one
-template's changes over another—and a template acting as a consumer in another
+template's changes over another—and a template receiving content in another
 generation stage. This felt recursive and hard to reason about.
 
 Copier's [documented multi-template workflow][copier-multiple] applies independent
@@ -350,26 +416,29 @@ complications around different parent/child versions and which update scripts
 must run. The difficulty includes managing updates, not simply template syntax.
 
 Hydragen must make combining and extending shared parts a straightforward supported
-workflow rather than require consumers to design that additional machinery themselves.
+workflow rather than require developers to design that additional machinery
+themselves.
 
 ### Sharing project files beyond library APIs
 
-A developer wants one source of truth for coding-agent skills and rules used
+A developer wants one authoritative source for coding-agent skills and rules used
 across many repositories. The agents need actual Markdown (`.md`) files in the
 locations they read; importing a JavaScript or TypeScript library does not give
 them those instructions.
 
-Each consumer references the shared skills or rules and the version it uses.
-Hydragen should make the actual files available to the agent, with their content
-determined by that reference. The files available in a consumer must remain tied
-to the shared source, not become separately maintained versions of the rules.
+Each project is a dependent layer that declares the layer supplying the shared
+skills or rules as a dependency. Hydragen should render the resulting Markdown
+files into its workspace for the agent, using the selected dependency version and
+any local contributions. Inherited content must remain tied to the dependency,
+not become separately maintained versions of the rules.
 
-When the developer improves a rule, they change it once in the shared source.
-That improvement should be available to every consuming project. A project
-referencing the updated version should receive the updated Markdown content
+When the developer improves a rule for all projects, they change it once in the
+layer supplying that rule. That improvement should be available to every
+dependent layer. Adopting the updated dependency version should make the updated
+Markdown content available in the layer result, subject to local contributions,
 without someone manually editing or copying the change into each repository.
-The agent still reads ordinary files; the reuse comes from the shared-source
-reference, not a code import.
+The agent still reads ordinary workspace files; the reuse comes from the declared
+dependency, not a code import.
 
 The same need applies to directory structures and configuration outside JavaScript
 or TypeScript. Even a self-published npm package needs tool support or extra wiring
@@ -386,8 +455,8 @@ themselves are simple.
 
 One developer changes a shared configuration without AI tools. Another uses their
 own AI assistant for help and later delegates an update to an agent. Both need to
-find the same shared source and version, understand local differences, and know
-where a change belongs.
+find the same dependency and selected version, understand local contributions,
+and know whether an improvement belongs in the dependency or the dependent layer.
 
 The authoring side matters too. In the project author's experience, Copier's saved
 answers and Jinja enabled useful fine-grained choices. Version pinning and Git
@@ -402,26 +471,27 @@ reuse without making their immediate work harder than editing code directly.
 ### Improving code used by multiple projects
 
 A base implementation is copied into several projects. An update tool can record
-its origin and propagate later changes, but each consumer still has a separate
+its origin and propagate later changes, but each project still has a separate
 copy. If a developer changes one of those copies, they need to know how it differs
 from the shared implementation and whether the change belongs upstream or only to
-that consumer.
+that project.
 
 In the project author's Copier workflow, only the final generated file was apparent
 while editing. Copier's answers file recorded the source and version, and Copier
 could reconstruct differences during updates. During everyday editing, however,
 it was hard to tell unchanged base content apart from additions or modifications
-made in the consumer. This hid both drift and opportunities to lift
-an improvement into the shared template. Git history of the consumer's own edits
+made in the project. This hid both drift and opportunities to lift
+an improvement into the shared template. Git history of the project's own edits
 did not by itself show its differences from the template.
 
-Hydragen must preserve one effective source of truth for the shared implementation
-and an explicit boundary for consumer-owned code. Developers must be able to tell
-where inherited code is defined, which source and version govern it, and how the
-consumer adds to, changes, or overrides it. This must remain understandable across
-layers so developers know where a shared improvement belongs. Differences specific
-to a consumer must be clear enough to recognise reusable improvements and
-contribute them to the shared source. Keeping copies synchronised does not fulfil
+Hydragen must preserve one authoritative source for the shared implementation
+and an explicit boundary for each layer's own contributions. While editing the
+layer result in the workspace, developers must be able to tell where inherited
+code is defined, which dependency and version govern it, and what the dependent
+layer adds, modifies, or deletes. This must remain understandable across layers
+so developers know where a shared improvement belongs. Local contributions must
+be clear enough to recognise reusable improvements and contribute them to the
+appropriate dependency. Keeping independent copies synchronised does not fulfil
 this requirement.
 
 ### Returning to and switching between projects
@@ -435,10 +505,10 @@ works.
 Shared approaches should make matching parts familiar across projects, reducing
 time spent rediscovering setup and rebuilding that understanding. When adding a
 technology, configuration, or implementation, the developer should be able to
-consider whether it belongs in a shared source for several projects or only in
-the current one. Improvements made at that shared level can benefit the others.
-Project-specific needs must remain clear and supported; consistency should make
-work easier rather than impose unnecessary uniformity.
+consider whether it belongs in a layer reused as a dependency by several projects
+or only in the current layer's contributions. Improvements made in the dependency
+can benefit the others. Project-specific needs must remain clear and supported;
+consistency should make work easier rather than impose unnecessary uniformity.
 
 ### Intentional local changes and partially shared files
 
@@ -446,13 +516,22 @@ A project uses a shared ESLint configuration but needs one rule to differ. That
 exception should remain distinguishable from the shared settings; a developer
 should also be able to recognise when it could benefit other projects.
 
-A related case is adopting a shared capability that adds a dependency and script
-to an existing `package.json`, or settings to `.gitignore` or `tsconfig.json`.
-The file already contains the consumer's own choices, so whole-file ownership
-does not explain which source governs each part.
+In a dependent layer, the developer edits the complete ESLint configuration in
+the workspace, not a patch file. The CLI reflects that exception as a
+modification contribution represented by a patch. Likewise, adding a new project
+file produces an addition, while removing an inherited file produces a deletion
+represented by an empty deletion marker. The CLI renders the layer result into
+the workspace; the repository records the layer's contributions instead of
+committing that result again. An agent uses the same editing model.
 
-The goal in both cases is to keep shared definitions and consumer-owned choices
-clearly distinguishable, including when they contribute to the same file.
+A related case is adopting a layer that adds an npm package dependency and script
+to an existing `package.json`, or settings to `.gitignore` or `tsconfig.json`.
+The file already contains the dependent layer's own choices, so whole-file
+ownership does not explain which source governs each part.
+
+The goal in both cases is to keep inherited content and the dependent layer's own
+contributions clearly distinguishable, including when they affect the same file
+in the layer result.
 
 [github-templates]: https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template
 [cookiecutter]: https://cookiecutter.readthedocs.io/en/stable/README.html
