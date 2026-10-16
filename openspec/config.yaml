@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  Read AGENTS.md and FOUNDATIONS.md at the repository root before creating artifacts.
+  FOUNDATIONS.md is the authoritative record of Hydragen's problem statement,
+  guiding values, and scenarios. Check proposals and designs against it.
+  Read openspec/design-questions.md for unresolved product and design choices.
+  Address the questions relevant to the current change in its design and specs;
+  do not treat unanswered questions as agreed requirements or resolve everything upfront.
+  AGENTS.md defines development workflow and how to maintain the foundations.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
