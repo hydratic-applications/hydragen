@@ -133,6 +133,16 @@ overwhelming.
 
 ## CLI development
 
+Follow the [DX value](FOUNDATIONS.md#guiding-values): beauty, enjoyment,
+functionality, and ease of use are equally important CLI design goals. Review
+help, prompts, results, and errors together, including plain output. Consider
+whether help is easy to scan, choices and defaults are clear, feedback is
+consistent, and errors explain what happened and how to proceed. Assess visual
+appeal and enjoyment explicitly; functional correctness alone does not complete
+the review. No particular visual style or extra decoration is required. Preserve
+the interaction and safety rules below and the foundations' performance value;
+surface tradeoffs rather than silently demoting a goal.
+
 Use clap for argument parsing and help, and cliclack for suitable guided prompts
 and interactive feedback. Not every command needs prompts or decorative output.
 Keep terminal presentation outside the manifest and filesystem logic.

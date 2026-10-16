@@ -1,0 +1,45 @@
+{
+  "revision": "e2d50e853db6bb5fb2c9abd53a87aef2fc2ba712",
+  "date": "2026-10-16T22:31:52Z",
+  "os": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "rust": "rustc 1.96.0 (ac68faa20 2026-05-25) (Homebrew)",
+  "cargo": "cargo 1.96.0 (30a34c682 2026-05-25) (Homebrew)",
+  "records": [
+    {
+      "args": [
+        "--help"
+      ],
+      "exit": 0,
+      "stdout": "Build projects from shared layers\n\nUsage: hydragen [OPTIONS] <COMMAND>\n\nCommands:\n  init  Initialise a layer in the current directory\n  help  Print this message or the help of the given subcommand(s)\n\nOptions:\n      --non-interactive  Never prompt, even in a terminal\n  -h, --help             Print help\n  -V, --version          Print version\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "init",
+        "--help"
+      ],
+      "exit": 0,
+      "stdout": "Initialise a layer in the current directory\n\nUsage: hydragen init [OPTIONS]\n\nOptions:\n      --name <NAME>                Optional name override (defaults to the current directory name; must not be blank)\n      --non-interactive            Never prompt, even in a terminal\n      --author <AUTHOR>            Optional person or organisation credited with authoring the layer\n      --description <DESCRIPTION>  Optional explanation of what the layer provides or is used for\n  -h, --help                       Print help\n\nExamples:\n  hydragen init\n  hydragen init --name shared-agent-rules\n  hydragen init --name shared-agent-rules --author \"Example team\" --description \"Shared coding-agent instructions.\"\n  hydragen init --non-interactive --name shared-agent-rules\n\nNo metadata flags: guided prompts when stdin, stdout and stderr are terminals and CI is disabled.\nAny metadata flag: flag-only input; no follow-up questions.\nName defaults to the current directory name when omitted. Author and description are optional.\n--non-interactive always disables prompts.\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "init",
+        "--name",
+        " "
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: --name must contain at least one non-whitespace character.\n"
+    },
+    {
+      "args": [
+        "init"
+      ],
+      "setup": "existing manifest containing keep original",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: '<project>/layer.json' already exists. Initialisation was cancelled; no files were changed.\n"
+    }
+  ]
+}

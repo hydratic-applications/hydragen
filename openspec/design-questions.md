@@ -107,6 +107,18 @@ design everything upfront.
     - Work saved by shared improvements and effort spent returning to or switching
       between projects.
     - The usefulness of the workflows described in the AI support value.
+    - **Partial resolution — CLI experience:** Review beauty, enjoyment,
+      functionality, and ease of use as equally important goals across help,
+      prompts, results, and errors. Audit the implemented CLI after establishing
+      the principle, using captured output, behavioural tests, and actual terminal
+      observation; distinguish evidence from design judgement and plan remediation
+      for observed gaps. See the
+      [CLI audit decision](changes/archive/2026-10-17-clarify-cli-experience-principles/design.md#audit-after-establishing-the-principle).
+      This does not select real projects or settle the broader success criteria.
+      The [presentation increment](changes/archive/2026-10-17-improve-cli-presentation/design.md#decisions)
+      applies this review to width-aware help, prompt-specific validation feedback,
+      and safe occupied-manifest recovery advice without selecting a visual theme
+      or minimum terminal width.
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to

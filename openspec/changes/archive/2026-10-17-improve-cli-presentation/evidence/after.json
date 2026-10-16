@@ -1,0 +1,379 @@
+{
+  "date_utc": "2026-10-16T22:38:05.516270+00:00",
+  "records": [
+    {
+      "id": "after-help",
+      "mode": "captured",
+      "args": [
+        "init",
+        "--help"
+      ],
+      "directory": "<project>",
+      "exit": 0,
+      "stdout": "Initialise a layer in the current directory\n\nUsage: hydragen init [OPTIONS]\n\nOptions:\n      --name <NAME>\n          Optional name override (defaults to the current directory name; must not be blank)\n      --non-interactive\n          Never prompt, even in a terminal\n      --author <AUTHOR>\n          Optional person or organisation credited with authoring the layer\n      --description <DESCRIPTION>\n          Optional explanation of what the layer provides or is used for\n  -h, --help\n          Print help\n\nExamples:\n  hydragen init\n  hydragen init --name shared-rules\n  hydragen init \\\n    --name shared-agent-rules \\\n    --author \"Example team\" \\\n    --description \"Shared agent rules.\"\n  hydragen init --non-interactive\n\nInput:\n  No metadata flags: guided prompts only when stdin, stdout and stderr are terminals and CI is\n  disabled.\n  Any metadata flag: flag-only input; no follow-up questions.\n  Name defaults to the current directory name. Author and description are optional and omitted when\n  not supplied.\n  --non-interactive always disables prompts.\n",
+      "stderr": "",
+      "manifest": null
+    },
+    {
+      "id": "after-root",
+      "mode": "captured",
+      "args": [
+        "--help"
+      ],
+      "directory": "<project>",
+      "exit": 0,
+      "stdout": "Build projects from shared layers\n\nUsage: hydragen [OPTIONS] <COMMAND>\n\nCommands:\n  init  Initialise a layer in the current directory\n  help  Print this message or the help of the given subcommand(s)\n\nOptions:\n      --non-interactive  Never prompt, even in a terminal\n  -h, --help             Print help\n  -V, --version          Print version\n",
+      "stderr": "",
+      "manifest": null
+    },
+    {
+      "id": "after-version",
+      "mode": "captured",
+      "args": [
+        "--version"
+      ],
+      "directory": "<project>",
+      "exit": 0,
+      "stdout": "hydragen 0.1.0\n",
+      "stderr": "",
+      "manifest": null
+    },
+    {
+      "id": "after-bad-flag",
+      "mode": "captured",
+      "args": [
+        "init",
+        "--name",
+        " "
+      ],
+      "directory": "<project>",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: --name must contain at least one non-whitespace character.\n",
+      "manifest": null
+    },
+    {
+      "id": "after-missing-value",
+      "mode": "captured",
+      "args": [
+        "init",
+        "--name"
+      ],
+      "directory": "<project>",
+      "exit": 2,
+      "stdout": "",
+      "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n",
+      "manifest": null
+    },
+    {
+      "id": "after-unknown",
+      "mode": "captured",
+      "args": [
+        "init",
+        "--bogus"
+      ],
+      "directory": "<project>",
+      "exit": 2,
+      "stdout": "",
+      "stderr": "error: unexpected argument '--bogus' found\n\nUsage: hydragen init [OPTIONS]\n\nFor more information, try '--help'.\n",
+      "manifest": null
+    },
+    {
+      "id": "after-occupied",
+      "mode": "captured",
+      "args": [
+        "init"
+      ],
+      "directory": "<project>",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: '<project>/layer.json' already exists.\n'hydragen init' does not overwrite existing entries.\nInspect the entry or run 'hydragen init' in a different directory.\nThis command did not change any files.\n",
+      "manifest": "keep original"
+    },
+    {
+      "id": "after-help-40-root",
+      "mode": "pty",
+      "args": [
+        "--help"
+      ],
+      "directory": "<project>",
+      "cols": 40,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [],
+      "exit": 0,
+      "stdout": "Build projects from shared layers\r\n\r\nUsage: hydragen [OPTIONS] <COMMAND>\r\n\r\nCommands:\r\n  init  Initialise a layer in the\r\n        current directory\r\n  help  Print this message or the help\r\n        of the given subcommand(s)\r\n\r\nOptions:\r\n      --non-interactive\r\n          Never prompt, even in a\r\n          terminal\r\n  -h, --help\r\n          Print help\r\n  -V, --version\r\n          Print version\r\n",
+      "stderr": "",
+      "frames": [
+        {
+          "label": "final",
+          "stderr_end": 0
+        }
+      ],
+      "manifest": null
+    },
+    {
+      "id": "after-help-40-init",
+      "mode": "pty",
+      "args": [
+        "init",
+        "--help"
+      ],
+      "directory": "<project>",
+      "cols": 40,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [],
+      "exit": 0,
+      "stdout": "Initialise a layer in the current\r\ndirectory\r\n\r\nUsage: hydragen init [OPTIONS]\r\n\r\nOptions:\r\n      --name <NAME>\r\n          Optional name override\r\n          (defaults to the current\r\n          directory name; must not be\r\n          blank)\r\n      --non-interactive\r\n          Never prompt, even in a\r\n          terminal\r\n      --author <AUTHOR>\r\n          Optional person or\r\n          organisation credited with\r\n          authoring the layer\r\n      --description <DESCRIPTION>\r\n          Optional explanation of what\r\n          the layer provides or is used\r\n          for\r\n  -h, --help\r\n          Print help\r\n\r\nExamples:\r\n  hydragen init\r\n  hydragen init --name shared-rules\r\n  hydragen init \\\r\n    --name shared-agent-rules \\\r\n    --author \"Example team\" \\\r\n    --description \"Shared agent rules.\"\r\n  hydragen init --non-interactive\r\n\r\nInput:\r\n  No metadata flags: guided prompts only\r\n  when stdin, stdout and stderr are\r\n  terminals and CI is disabled.\r\n  Any metadata flag: flag-only input; no\r\n  follow-up questions.\r\n  Name defaults to the current directory\r\n  name. Author and description are\r\n  optional and omitted when not\r\n  supplied.\r\n  --non-interactive always disables\r\n  prompts.\r\n",
+      "stderr": "",
+      "frames": [
+        {
+          "label": "final",
+          "stderr_end": 0
+        }
+      ],
+      "manifest": null
+    },
+    {
+      "id": "after-help-80-root",
+      "mode": "pty",
+      "args": [
+        "--help"
+      ],
+      "directory": "<project>",
+      "cols": 80,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [],
+      "exit": 0,
+      "stdout": "Build projects from shared layers\r\n\r\nUsage: hydragen [OPTIONS] <COMMAND>\r\n\r\nCommands:\r\n  init  Initialise a layer in the current directory\r\n  help  Print this message or the help of the given subcommand(s)\r\n\r\nOptions:\r\n      --non-interactive  Never prompt, even in a terminal\r\n  -h, --help             Print help\r\n  -V, --version          Print version\r\n",
+      "stderr": "",
+      "frames": [
+        {
+          "label": "final",
+          "stderr_end": 0
+        }
+      ],
+      "manifest": null
+    },
+    {
+      "id": "after-help-80-init",
+      "mode": "pty",
+      "args": [
+        "init",
+        "--help"
+      ],
+      "directory": "<project>",
+      "cols": 80,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [],
+      "exit": 0,
+      "stdout": "Initialise a layer in the current directory\r\n\r\nUsage: hydragen init [OPTIONS]\r\n\r\nOptions:\r\n      --name <NAME>\r\n          Optional name override (defaults to the current directory name; must\r\n          not be blank)\r\n      --non-interactive\r\n          Never prompt, even in a terminal\r\n      --author <AUTHOR>\r\n          Optional person or organisation credited with authoring the layer\r\n      --description <DESCRIPTION>\r\n          Optional explanation of what the layer provides or is used for\r\n  -h, --help\r\n          Print help\r\n\r\nExamples:\r\n  hydragen init\r\n  hydragen init --name shared-rules\r\n  hydragen init \\\r\n    --name shared-agent-rules \\\r\n    --author \"Example team\" \\\r\n    --description \"Shared agent rules.\"\r\n  hydragen init --non-interactive\r\n\r\nInput:\r\n  No metadata flags: guided prompts only when stdin, stdout and stderr are\r\n  terminals and CI is disabled.\r\n  Any metadata flag: flag-only input; no follow-up questions.\r\n  Name defaults to the current directory name. Author and description are\r\n  optional and omitted when not supplied.\r\n  --non-interactive always disables prompts.\r\n",
+      "stderr": "",
+      "frames": [
+        {
+          "label": "final",
+          "stderr_end": 0
+        }
+      ],
+      "manifest": null
+    },
+    {
+      "id": "after-help-100-root",
+      "mode": "pty",
+      "args": [
+        "--help"
+      ],
+      "directory": "<project>",
+      "cols": 100,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [],
+      "exit": 0,
+      "stdout": "Build projects from shared layers\r\n\r\nUsage: hydragen [OPTIONS] <COMMAND>\r\n\r\nCommands:\r\n  init  Initialise a layer in the current directory\r\n  help  Print this message or the help of the given subcommand(s)\r\n\r\nOptions:\r\n      --non-interactive  Never prompt, even in a terminal\r\n  -h, --help             Print help\r\n  -V, --version          Print version\r\n",
+      "stderr": "",
+      "frames": [
+        {
+          "label": "final",
+          "stderr_end": 0
+        }
+      ],
+      "manifest": null
+    },
+    {
+      "id": "after-help-100-init",
+      "mode": "pty",
+      "args": [
+        "init",
+        "--help"
+      ],
+      "directory": "<project>",
+      "cols": 100,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [],
+      "exit": 0,
+      "stdout": "Initialise a layer in the current directory\r\n\r\nUsage: hydragen init [OPTIONS]\r\n\r\nOptions:\r\n      --name <NAME>\r\n          Optional name override (defaults to the current directory name; must not be blank)\r\n      --non-interactive\r\n          Never prompt, even in a terminal\r\n      --author <AUTHOR>\r\n          Optional person or organisation credited with authoring the layer\r\n      --description <DESCRIPTION>\r\n          Optional explanation of what the layer provides or is used for\r\n  -h, --help\r\n          Print help\r\n\r\nExamples:\r\n  hydragen init\r\n  hydragen init --name shared-rules\r\n  hydragen init \\\r\n    --name shared-agent-rules \\\r\n    --author \"Example team\" \\\r\n    --description \"Shared agent rules.\"\r\n  hydragen init --non-interactive\r\n\r\nInput:\r\n  No metadata flags: guided prompts only when stdin, stdout and stderr are terminals and CI is\r\n  disabled.\r\n  Any metadata flag: flag-only input; no follow-up questions.\r\n  Name defaults to the current directory name. Author and description are optional and omitted when\r\n  not supplied.\r\n  --non-interactive always disables prompts.\r\n",
+      "stderr": "",
+      "frames": [
+        {
+          "label": "final",
+          "stderr_end": 0
+        }
+      ],
+      "manifest": null
+    },
+    {
+      "id": "after-retry-False",
+      "mode": "pty",
+      "args": [
+        "init"
+      ],
+      "directory": "<project>",
+      "cols": 100,
+      "rows": 30,
+      "colour": false,
+      "ci": null,
+      "inputs": [
+        {
+          "after": "Name",
+          "bytes": " \r"
+        },
+        {
+          "after": "Enter a non-blank name.",
+          "bytes": "example\r"
+        },
+        {
+          "after": "Author",
+          "bytes": " \r"
+        },
+        {
+          "after": "Enter a non-blank author, or clear the field and press Enter to skip.",
+          "bytes": "\r"
+        },
+        {
+          "after": "Description",
+          "bytes": " \r"
+        },
+        {
+          "after": "Enter a non-blank description, or clear the field and press Enter to skip.",
+          "bytes": "  Description 配置  \r"
+        }
+      ],
+      "exit": 0,
+      "stdout": "Initialised layer: <project>/layer.json\r\n",
+      "stderr": "┌  Initialise a layer\r\n│\r\n●  Enter accepts the default or skips an optional field.\r\n│  \r\n\u001b[?25l◆  Name\r\n│  after-retry-False (default)\r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│    \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A▲  Name\r\n│    \r\n└  Enter a non-blank name.\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  after-retry-False (default)\r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  e \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  ex \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  exa \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  exam \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  examp \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  exampl \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Name\r\n│  example \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◇  Name\r\n│  example\r\n│\r\n\u001b[?25h\u001b[?25l◆  Author (optional)\r\n│   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Author (optional)\r\n│    \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A▲  Author (optional)\r\n│    \r\n└  Enter a non-blank author, or clear the field and press Enter to skip.\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Author (optional)\r\n│   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◇  Author (optional)\r\n│  Skipped\r\n│\r\n\u001b[?25h\u001b[?25l◆  Description (optional)\r\n│   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A▲  Description (optional)\r\n│    \r\n└  Enter a non-blank description, or clear the field and press Enter to skip.\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│     \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    D \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    De \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Des \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Desc \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Descr \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Descri \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Descrip \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Descript \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Descripti \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Descriptio \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Description \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Description  \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Description 配 \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Description 配置 \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Description 配置  \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◆  Description (optional)\r\n│    Description 配置   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◇  Description (optional)\r\n│    Description 配置  \r\n│\r\n\u001b[?25h└  Layer initialised.\r\n",
+      "frames": [
+        {
+          "label": "name",
+          "stderr_end": 141
+        },
+        {
+          "label": "invalid-name",
+          "stderr_end": 276
+        },
+        {
+          "label": "author",
+          "stderr_end": 874
+        },
+        {
+          "label": "invalid-author",
+          "stderr_end": 1081
+        },
+        {
+          "label": "description",
+          "stderr_end": 1271
+        },
+        {
+          "label": "invalid-description",
+          "stderr_end": 1493
+        },
+        {
+          "label": "final",
+          "stderr_end": 3168
+        }
+      ],
+      "manifest": "{\n  \"name\": \"example\",\n  \"description\": \"  Description 配置  \"\n}\n"
+    },
+    {
+      "id": "after-retry-True",
+      "mode": "pty",
+      "args": [
+        "init"
+      ],
+      "directory": "<project>",
+      "cols": 100,
+      "rows": 30,
+      "colour": true,
+      "ci": null,
+      "inputs": [
+        {
+          "after": "Name",
+          "bytes": " \r"
+        },
+        {
+          "after": "Enter a non-blank name.",
+          "bytes": "example\r"
+        },
+        {
+          "after": "Author",
+          "bytes": " \r"
+        },
+        {
+          "after": "Enter a non-blank author, or clear the field and press Enter to skip.",
+          "bytes": "\r"
+        },
+        {
+          "after": "Description",
+          "bytes": " \r"
+        },
+        {
+          "after": "Enter a non-blank description, or clear the field and press Enter to skip.",
+          "bytes": "  Description 配置  \r"
+        }
+      ],
+      "exit": 0,
+      "stdout": "Initialised layer: <project>/layer.json\r\n",
+      "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7ma\u001b[0m\u001b[2mfter-retry-True (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[33m▲\u001b[0m  Name\r\n\u001b[33m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[33m└  Enter a non-blank name.\u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7ma\u001b[0m\u001b[2mfter-retry-True (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  e\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  ex\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exa\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exam\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  examp\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exampl\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  example\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mexample\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[33m▲\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[33m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[33m└  Enter a non-blank author, or clear the field and press Enter to skip.\u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[33m▲\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[33m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[33m└  Enter a non-blank description, or clear the field and press Enter to skip.\u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    D\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    De\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Des\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Desc\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Descr\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Descri\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Descrip\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Descript\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Descripti\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Descriptio\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Description\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Description \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Description 配\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Description 配置\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Description 配置 \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m    Description 配置  \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m  Description 配置  \u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+      "frames": [
+        {
+          "label": "name",
+          "stderr_end": 255
+        },
+        {
+          "label": "invalid-name",
+          "stderr_end": 460
+        },
+        {
+          "label": "author",
+          "stderr_end": 1471
+        },
+        {
+          "label": "invalid-author",
+          "stderr_end": 1764
+        },
+        {
+          "label": "description",
+          "stderr_end": 2147
+        },
+        {
+          "label": "invalid-description",
+          "stderr_end": 2455
+        },
+        {
+          "label": "final",
+          "stderr_end": 5035
+        }
+      ],
+      "manifest": "{\n  \"name\": \"example\",\n  \"description\": \"  Description 配置  \"\n}\n"
+    }
+  ]
+}

@@ -71,11 +71,21 @@ impl Mode {
     }
 }
 
-fn validate_answer(field: &'static str, value: &str, optional: bool) -> Result<(), InitError> {
+fn validate_answer(field: &'static str, value: &str, optional: bool) -> Result<(), String> {
     if optional && value.is_empty() {
         Ok(())
     } else {
-        validate_metadata_value(field, value)
+        validate_metadata_value(field, value).map_err(|error| answer_error_message(error, optional))
+    }
+}
+
+fn answer_error_message(error: InitError, optional: bool) -> String {
+    match error {
+        InitError::InvalidMetadata { field } if optional => {
+            format!("Enter a non-blank {field}, or clear the field and press Enter to skip.")
+        }
+        InitError::InvalidMetadata { field } => format!("Enter a non-blank {field}."),
+        other => other.to_string(),
     }
 }
 
@@ -297,6 +307,36 @@ mod tests {
             assert!(validate_answer("name", value, false).is_ok());
             assert!(validate_answer("description", value, true).is_ok());
         }
+    }
+
+    #[test]
+    fn invalid_answers_explain_prompt_recovery_without_changing_flag_errors() {
+        for field in ["name", "author", "description"] {
+            let optional = field != "name";
+            let message = validate_answer(field, " \t", optional).unwrap_err();
+            assert!(message.contains(field));
+            assert!(message.contains("non-blank"));
+            assert!(!message.contains("--"));
+            assert_eq!(
+                message.contains("clear the field and press Enter to skip"),
+                optional
+            );
+            let flag_error = validate_metadata_value(field, " \t")
+                .unwrap_err()
+                .to_string();
+            assert!(flag_error.contains(&format!("--{field}")));
+        }
+    }
+
+    #[test]
+    fn unrelated_validation_errors_keep_their_original_diagnostic() {
+        let error = InitError::Io {
+            action: "inspect manifest path",
+            path: Path::new("example/layer.json").to_owned(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        let expected = error.to_string();
+        assert_eq!(answer_error_message(error, true), expected);
     }
 
     #[test]

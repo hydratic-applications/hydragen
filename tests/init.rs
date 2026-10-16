@@ -37,6 +37,23 @@ fn assert_failure(output: &Output, message: &str) {
     assert!(!output.stderr.contains(&b'\x1b'));
 }
 
+fn assert_occupied_manifest(output: &Output) {
+    assert_failure(output, "already exists");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for phrase in [
+        "does not overwrite existing entries",
+        "Inspect the entry",
+        "in a different directory",
+        "This command did not change any files.",
+    ] {
+        assert!(stderr.contains(phrase), "{stderr}");
+    }
+    let advice = stderr.split_once("already exists.").unwrap().1;
+    for unsafe_advice in ["delete", "remove", "--force"] {
+        assert!(!advice.contains(unsafe_advice), "{stderr}");
+    }
+}
+
 #[test]
 fn non_interactive_override_is_accepted_before_and_after_init() {
     for arguments in [
@@ -254,6 +271,7 @@ fn help_explains_defaults_and_optional_metadata_without_writes() {
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
         let help = String::from_utf8_lossy(&output.stdout);
+        let prose = help.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(help.contains("Usage:"));
         if arguments.len() == 2 {
             for expected in [
@@ -261,13 +279,83 @@ fn help_explains_defaults_and_optional_metadata_without_writes() {
                 "current directory name",
                 "Optional person",
                 "Optional explanation",
-                "hydragen init --name shared-agent-rules",
+                "hydragen init --name shared-rules",
                 "--author \"Example team\"",
             ] {
-                assert!(help.contains(expected), "{help}");
+                assert!(prose.contains(expected), "{help}");
             }
         }
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn captured_help_uses_the_unknown_width_fallback_and_stays_plain() {
+    let directory = tempdir().unwrap();
+    let output = command(directory.path())
+        .env_remove("COLUMNS")
+        .env("CLICOLOR_FORCE", "1")
+        .args(["init", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(!output.stdout.contains(&b'\x1b'));
+    let help = String::from_utf8(output.stdout).unwrap();
+    let longest = help.lines().map(str::len).max().unwrap();
+    assert!((81..=100).contains(&longest), "{help}");
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn copied_help_examples_keep_their_shell_arguments() {
+    let parent = tempdir().unwrap();
+    let output = command(parent.path())
+        .args(["init", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    let examples = help
+        .split("Examples:\n")
+        .nth(1)
+        .unwrap()
+        .split("\n\nInput:")
+        .next()
+        .unwrap();
+    let mut commands = Vec::new();
+    let mut current = String::new();
+    for line in examples.lines() {
+        current.push_str(line.trim_start());
+        current.push('\n');
+        if !line.ends_with('\\') {
+            commands.push(std::mem::take(&mut current));
+        }
+    }
+    assert_eq!(commands.len(), 4);
+    assert!(current.is_empty());
+    for (index, script) in commands.iter().enumerate() {
+        let directory = parent.path().join(format!("example-{index}"));
+        fs::create_dir(&directory).unwrap();
+        let script = script.replacen("hydragen", "\"$HYDRAGEN\"", 1);
+        let output = Command::new("/bin/sh")
+            .args(["-c", &script])
+            .env("HYDRAGEN", env!("CARGO_BIN_EXE_hydragen"))
+            .current_dir(&directory)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_success(&output);
+        let expected = match index {
+            0 | 3 => json!({"name": format!("example-{index}")}),
+            1 => json!({"name": "shared-rules"}),
+            2 => {
+                json!({"name": "shared-agent-rules", "author": "Example team", "description": "Shared agent rules."})
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(read_manifest(&directory), expected);
     }
 }
 
@@ -363,10 +451,27 @@ fn refuses_existing_manifests_even_when_malformed() {
         let path = directory.path().join("layer.json");
         fs::write(&path, original).unwrap();
         let output = init(directory.path(), &["--name", "replacement"]);
-        assert_failure(&output, "already exists");
+        assert_occupied_manifest(&output);
         assert!(String::from_utf8_lossy(&output.stderr).contains("layer.json"));
         assert_eq!(fs::read(path).unwrap(), original);
     }
+}
+
+#[test]
+fn occupied_manifest_guidance_preserves_a_long_unicode_path() {
+    let parent = tempdir().unwrap();
+    let directory = parent
+        .path()
+        .join(format!("Project 配置 🦀 {}", "long-name-".repeat(15)));
+    fs::create_dir(&directory).unwrap();
+    let path = directory.join("layer.json");
+    fs::write(&path, "not a valid manifest").unwrap();
+    let output = init(&directory, &["--name", "example"]);
+    assert_occupied_manifest(&output);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(&path.canonicalize().unwrap().display().to_string()));
+    assert_eq!(fs::read_to_string(&path).unwrap(), "not a valid manifest");
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
 }
 
 #[test]
@@ -374,10 +479,7 @@ fn repeated_init_leaves_the_manifest_unchanged() {
     let directory = tempdir().unwrap();
     assert_success(&init(directory.path(), &["--name", "first"]));
     let original = fs::read(directory.path().join("layer.json")).unwrap();
-    assert_failure(
-        &init(directory.path(), &["--name", "second"]),
-        "already exists",
-    );
+    assert_occupied_manifest(&init(directory.path(), &["--name", "second"]));
     assert_eq!(
         fs::read(directory.path().join("layer.json")).unwrap(),
         original
@@ -390,10 +492,7 @@ fn a_directory_at_the_manifest_path_is_not_replaced() {
     let path = directory.path().join("layer.json");
     fs::create_dir(&path).unwrap();
     fs::write(path.join("keep.txt"), "keep").unwrap();
-    assert_failure(
-        &init(directory.path(), &["--name", "example"]),
-        "layer.json",
-    );
+    assert_occupied_manifest(&init(directory.path(), &["--name", "example"]));
     assert_eq!(fs::read_to_string(path.join("keep.txt")).unwrap(), "keep");
 }
 
@@ -410,10 +509,7 @@ fn existing_and_dangling_symlinks_are_not_followed_or_replaced() {
         }
         let path = directory.path().join("layer.json");
         symlink(&target, &path).unwrap();
-        assert_failure(
-            &init(directory.path(), &["--name", "example"]),
-            "already exists",
-        );
+        assert_occupied_manifest(&init(directory.path(), &["--name", "example"]));
         assert_eq!(fs::read_link(path).unwrap(), target);
         if target_exists {
             assert_eq!(fs::read_to_string(target).unwrap(), "keep");
@@ -453,7 +549,7 @@ fn concurrent_init_has_one_winner_without_overwriting_it() {
         if output.status.success() {
             assert_success(output);
         } else {
-            assert_failure(output, "already exists");
+            assert_occupied_manifest(output);
         }
     }
     let (winner, _) = outputs

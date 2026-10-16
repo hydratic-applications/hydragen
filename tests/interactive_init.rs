@@ -22,6 +22,22 @@ enum Event {
     Closed,
 }
 
+struct TerminalSettings {
+    cols: u16,
+    rows: u16,
+    colour: Option<bool>,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> Self {
+        Self {
+            cols: 120,
+            rows: 24,
+            colour: None,
+        }
+    }
+}
+
 // Keep stdout and stderr on distinct terminals so stream assertions exercise
 // actual cliclack output rather than relying on a combined terminal transcript.
 struct Session {
@@ -48,10 +64,33 @@ impl Session {
         ci: Option<&str>,
         redirect: Option<(&str, &Path)>,
     ) -> Self {
+        Self::with_settings(
+            directory,
+            arguments,
+            ci,
+            redirect,
+            TerminalSettings::default(),
+        )
+    }
+
+    fn with_settings(
+        directory: &Path,
+        arguments: &[&str],
+        ci: Option<&str>,
+        redirect: Option<(&str, &Path)>,
+        settings: TerminalSettings,
+    ) -> Self {
         let terminal_session = TERMINAL_SESSION
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        Self::spawn_with_lock(directory, arguments, ci, redirect, terminal_session)
+        Self::spawn_with_lock(
+            directory,
+            arguments,
+            ci,
+            redirect,
+            terminal_session,
+            settings,
+        )
     }
 
     fn spawn_with_lock(
@@ -60,11 +99,12 @@ impl Session {
         ci: Option<&str>,
         redirect: Option<(&str, &Path)>,
         terminal_session: MutexGuard<'static, ()>,
+        settings: TerminalSettings,
     ) -> Self {
         let system = native_pty_system();
         let size = PtySize {
-            rows: 24,
-            cols: 120,
+            rows: settings.rows,
+            cols: settings.cols,
             pixel_width: 0,
             pixel_height: 0,
         };
@@ -89,6 +129,18 @@ esac",
         command.env("RESULT_TTY", stdout_terminal.master.tty_name().unwrap());
         command.env_remove("CI");
         command.env_remove("REDIRECT");
+        command.env_remove("COLUMNS");
+        if let Some(colour) = settings.colour {
+            command.env_remove("CLICOLOR_FORCE");
+            command.env_remove("NO_COLOR");
+            command.env_remove("CLICOLOR");
+            if colour {
+                command.env("CLICOLOR_FORCE", "1");
+            } else {
+                command.env("NO_COLOR", "1");
+                command.env("CLICOLOR", "0");
+            }
+        }
         if let Some(ci) = ci {
             command.env("CI", ci);
         }
@@ -221,6 +273,103 @@ fn manifest(directory: &Path) -> Value {
     serde_json::from_slice(&fs::read(directory.join("layer.json")).unwrap()).unwrap()
 }
 
+fn assert_occupied_feedback(stderr: &[u8]) {
+    let text = visible_text(stderr);
+    for phrase in [
+        "already exists",
+        "does not overwrite existing entries",
+        "Inspect the entry",
+        "in a different directory",
+        "This command did not change any files.",
+    ] {
+        assert!(text.contains(phrase), "{text}");
+    }
+    let advice = text.split_once("already exists.").unwrap().1;
+    for unsafe_advice in ["delete", "remove", "--force"] {
+        assert!(!advice.contains(unsafe_advice), "{text}");
+    }
+}
+
+#[test]
+fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
+    for cols in [40, 80, 100, 160] {
+        for init in [false, true] {
+            for flag in ["-h", "--help"] {
+                for colour in [false, true] {
+                    let directory = tempdir().unwrap();
+                    let arguments = if init { vec!["init", flag] } else { vec![flag] };
+                    let mut session = Session::with_settings(
+                        directory.path(),
+                        &arguments,
+                        None,
+                        None,
+                        TerminalSettings {
+                            cols,
+                            colour: Some(colour),
+                            ..Default::default()
+                        },
+                    );
+                    assert!(session.finish().success());
+                    assert!(session.stderr.is_empty());
+                    assert!(!session.stdout.contains(&b'\x1b'));
+                    let help = visible_text(&session.stdout);
+                    assert!(help.contains("Usage:"));
+                    for line in help.lines() {
+                        assert!(
+                            line.len() <= usize::from(cols.min(100)),
+                            "{cols} columns: {line:?}"
+                        );
+                    }
+                    if init {
+                        assert!(help.contains("--name <NAME>\r\n"));
+                        assert!(help.contains("hydragen init --name shared-rules\r\n"));
+                        assert!(help.contains("--author \"Example team\" \\\r\n"));
+                        let prose = help.split_whitespace().collect::<Vec<_>>().join(" ");
+                        assert!(prose.contains(
+                            "Any metadata flag: flag-only input; no follow-up questions."
+                        ));
+                    }
+                    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
+    for (arguments, success) in [
+        (vec!["--version"], true),
+        (vec![], false),
+        (vec!["init", "--bogus"], false),
+        (vec!["init", "--name"], false),
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &arguments,
+            None,
+            None,
+            TerminalSettings {
+                cols: 40,
+                colour: Some(true),
+                ..Default::default()
+            },
+        );
+        assert_eq!(session.finish().success(), success);
+        assert!(!session.stdout.contains(&b'\x1b'));
+        assert!(!session.stderr.contains(&b'\x1b'));
+        if success {
+            assert!(session.stderr.is_empty());
+            assert!(visible_text(&session.stdout).contains("hydragen 0.1.0"));
+        } else {
+            assert!(session.stdout.is_empty());
+            assert!(visible_text(&session.stderr).contains("help"));
+        }
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
 #[test]
 fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
     let directory = tempdir().unwrap();
@@ -314,22 +463,69 @@ fn optional_fields_can_be_skipped_independently() {
 
 #[test]
 fn invalid_answers_can_be_corrected_without_creating_files_early() {
-    let directory = tempdir().unwrap();
-    let mut session = Session::new(directory.path(), &["init"], None);
-    session.wait_for("Name");
-    session.send(b" \r");
-    session.wait_for("non-whitespace");
-    assert!(!directory.path().join("layer.json").exists());
-    session.send(b"\x7fexample\r");
-    session.wait_for("Author (optional");
-    session.send(b" \r");
-    session.wait_for("--author must contain");
-    assert!(!directory.path().join("layer.json").exists());
-    session.send(b"\x7f\r");
-    session.wait_for("Description (optional");
-    session.send(b"\r");
-    assert!(session.finish().success());
-    assert_eq!(manifest(directory.path()), json!({"name": "example"}));
+    for colour in [false, true] {
+        for supply_author in [false, true] {
+            let directory = tempdir().unwrap();
+            let mut session = Session::with_settings(
+                directory.path(),
+                &["init"],
+                None,
+                None,
+                TerminalSettings {
+                    colour: Some(colour),
+                    ..Default::default()
+                },
+            );
+            session.wait_for("Name");
+            session.send(b" \r");
+            session.wait_for("Enter a non-blank name.");
+            assert!(!directory.path().join("layer.json").exists());
+            session.send("\x7f  配置 🦀  \r".as_bytes());
+            session.wait_for("Author (optional");
+            session.send(b" \r");
+            session
+                .wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
+            assert!(!directory.path().join("layer.json").exists());
+            if supply_author {
+                session.send("\x7f  Team 配置  \r".as_bytes());
+            } else {
+                session.send(b"\x7f\r");
+            }
+            session.wait_for("Description (optional");
+            if !supply_author {
+                assert!(visible_text(&session.stderr).contains("Skipped"));
+            }
+            session.send(b" \r");
+            session.wait_for(
+                "Enter a non-blank description, or clear the field and press Enter to skip.",
+            );
+            assert!(!directory.path().join("layer.json").exists());
+            if supply_author {
+                session.send(b"\x7f\r");
+            } else {
+                session.send("\x7f  Description 配置  \r".as_bytes());
+            }
+            assert!(session.finish().success());
+            let expected = if supply_author {
+                json!({"name": "  配置 🦀  ", "author": "  Team 配置  "})
+            } else {
+                json!({"name": "  配置 🦀  ", "description": "  Description 配置  "})
+            };
+            assert_eq!(manifest(directory.path()), expected);
+            let transcript = visible_text(&session.stderr);
+            assert!(!transcript.contains("--name"));
+            assert!(!transcript.contains("--author"));
+            assert!(!transcript.contains("--description"));
+            assert!(transcript.contains("Skipped"));
+            assert!(!session.stdout.contains(&b'\x1b'));
+            let raw = String::from_utf8_lossy(&session.stderr);
+            let has_style = raw.split("\x1b[").skip(1).any(|part| {
+                part.find('m')
+                    .is_some_and(|end| part[..end].chars().all(|c| c.is_ascii_digit() || c == ';'))
+            });
+            assert_eq!(has_style, colour);
+        }
+    }
 }
 
 #[test]
@@ -429,7 +625,8 @@ fn an_existing_manifest_is_reported_before_any_questions() {
     let mut session = Session::new(directory.path(), &["init"], None);
     assert!(!session.finish().success());
     session.assert_no_prompts();
-    assert!(String::from_utf8_lossy(&session.stderr).contains("already exists"));
+    assert!(session.stdout.is_empty());
+    assert_occupied_feedback(&session.stderr);
     assert_eq!(
         fs::read_to_string(directory.path().join("layer.json")).unwrap(),
         "not valid JSON"
@@ -456,7 +653,8 @@ fn directories_and_symlinks_are_reported_before_any_questions() {
         let mut session = Session::new(directory.path(), &["init"], None);
         assert!(!session.finish().success());
         session.assert_no_prompts();
-        assert!(String::from_utf8_lossy(&session.stderr).contains("already exists"));
+        assert!(session.stdout.is_empty());
+        assert_occupied_feedback(&session.stderr);
         if kind == "directory" {
             assert_eq!(fs::read_to_string(path.join("keep")).unwrap(), "keep");
         } else {
@@ -496,6 +694,7 @@ fn a_manifest_created_during_questions_is_not_overwritten() {
     session.send(b"\r");
     assert!(!session.finish().success());
     assert!(session.stdout.is_empty());
+    assert_occupied_feedback(&session.stderr);
     assert_eq!(
         fs::read_to_string(directory.path().join("layer.json")).unwrap(),
         "another process"
@@ -550,6 +749,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
         None,
         Some(("stdin-eof", &input_path)),
         terminal_session,
+        TerminalSettings::default(),
     );
     session.wait_for("Name");
     // Closing every master handle disconnects stdin while stderr remains usable.

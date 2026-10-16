@@ -65,8 +65,11 @@ The guided flow uses [cliclack](https://docs.rs/cliclack/latest/cliclack/index.h
 prompts to ask for name, author, and description in order. The name prompt shows
 the current directory's name as its default: press Enter to accept it, or type a
 different name. Press Enter without text to skip author or description. Invalid
-answers receive inline feedback so you can correct them. No files are created
-until input is complete.
+answers receive inline, field-specific feedback so you can correct them. For an
+optional field, the feedback also explains how to clear the field and press Enter
+to skip it. Guided feedback refers to the prompt rather than a metadata flag;
+flag-only errors still identify the relevant flag. No files are created until
+input is complete.
 
 The session explains Enter's behaviour once at the start. Author and description
 have dimmed `(optional)` labels and empty input areas; only name displays a default.
@@ -174,11 +177,16 @@ standard error; the result line remains on standard output. Flag-only output is
 plain text, with no cliclack UI even in a terminal. For example:
 
 ```text
-Error: '/path/to/project/layer.json' already exists. Initialisation was cancelled; no files were changed.
+Error: '/path/to/project/layer.json' already exists.
+'hydragen init' does not overwrite existing entries.
+Inspect the entry or run 'hydragen init' in a different directory.
+This command did not change any files.
 ```
 
 There is no overwrite or force option. Init does not read, validate, repair, or
-merge an existing manifest. If an actual write fails, a partial newly created
+merge an existing manifest. The recovery advice applies to any occupied entry,
+including a directory or symlink; it does not imply that an existing manifest is
+valid or recommend deleting it. If an actual write fails, a partial newly created
 manifest can remain; the error identifies its path. Inspect that file before
 removing it and retrying. Init does not promise recovery from a crash or disk
 failure.
@@ -196,6 +204,15 @@ hydragen --help
 hydragen init --help
 hydragen --version
 ```
+
+Help remains plain text and wraps prose to the detected terminal width, capped
+at 100 columns; when width cannot be determined it uses a 100-column layout.
+Init places option descriptions below option names so they remain easy to follow
+in narrower terminals. Its examples use short commands or deliberate shell
+continuations, preserving argument boundaries and quoting when copied. The
+40-, 80-, and 100-column verification cases are not a general minimum-width
+guarantee. Help line breaks and diagnostic wording are presentation, not a stable
+machine-readable format; result output and exit/channel conventions are unchanged.
 
 ## Development checks
 
@@ -218,7 +235,9 @@ loss, optional skips, retries, and metadata flags in a terminal. Prompt waits an
 child-process waits are bounded. Other Unix tests cover symlinks, output-reporting
 failure, repository-inspection errors, and an actual write failure using a
 child-process file-size limit. That limit does not affect your shell or other
-tests. The built CLI requires neither a shell nor the terminal test harness.
+tests. Width-aware help tests cover builder output and real terminal dimensions,
+while a Unix test executes copied help examples to check their shell arguments.
+The built CLI requires neither a shell nor the terminal test harness.
 
 The [manifest specification](openspec/specs/layer-manifest/spec.md) defines the
 metadata requirements. Its

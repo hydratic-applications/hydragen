@@ -5,7 +5,7 @@ edition = "2024"
 description = "Build distinct projects from shared layers"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "wrap_help"] }
 cliclack = "0.5.6"
 console = "0.16"
 serde = { version = "1", features = ["derive"] }
