@@ -130,3 +130,30 @@ Keep each iteration and addition of code focused and reviewable. Balance meaning
 progress with manageable scope: excessively small increments can slow progress and
 create review and testing fatigue, while oversized increments can become
 overwhelming.
+
+## CLI development
+
+Use clap for argument parsing and help, and cliclack for suitable guided prompts
+and interactive feedback. Not every command needs prompts or decorative output.
+Keep terminal presentation outside the manifest and filesystem logic.
+
+When a command offers guided input and input flags, keep those routes separate.
+With no input flags, allow a guided flow when interaction is available; any input
+flag selects flag-only execution without questions to complete it. For init, the input
+flags are `--name`, `--author`, and `--description`. Global controls such as
+`--non-interactive` are not metadata. Preserve flags for input overrides, apply
+documented defaults without prompting, and reject missing input that has no
+default. Init defaults omitted name to the current directory's name; its guided
+name prompt shows that default and accepts it on Enter. Omit unsupplied author
+and description instead of prompting for them in flag-only execution.
+
+Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal
+standard stream disables guided input. Do not reopen a terminal or read piped
+answers to work around that choice. Keep flag-only output plain, result output on
+standard output, and prompts and diagnostics on standard error.
+
+Share validation across input routes, check known target errors before questions,
+and do not write until guided input is complete. Cancellation must exit nonzero
+without creating files. Preserve exclusive creation and other filesystem safety
+checks even after a read-only check succeeds. Test both captured-output execution
+and real terminal sessions, with bounded waits and child-process cleanup.
