@@ -13,6 +13,12 @@ design everything upfront.
 1. **Audience and initial scope.** Who should the first useful version serve:
    individual developers, teams, or both? Which ecosystems should it support first,
    and how broad should support beyond them be?
+   - **Initial implementation scope:** Start with `hydragen init`, which creates a
+     layer's identifying manifest without requiring a root/dependent type choice.
+     Dependency management and inheritance are later increments; this does not
+     settle the broader audience or ecosystem questions. See the
+     [initialisation proposal](changes/archive/2026-10-16-add-layer-init/proposal.md) and
+     [layer-type decision](changes/archive/2026-10-16-add-layer-init/design.md#initialise-a-layer-without-a-type-declaration).
 2. **Shared sources and references.** Where do shared sources live—a repository,
    package, or directory? How do developers and agents find available sources and
    decide which to use? How does a consumer select a source and version, and which
@@ -42,6 +48,12 @@ design everything upfront.
      two. See [the layer model](../FOUNDATIONS.md#the-layer-model).
      Directory layout, how files are made available, and installation requirements
      for collaborators and CI remain open.
+   - **Initialisation decision:** `hydragen init` targets the current directory,
+     permits initialisation before Git setup, and refuses a location below a
+     detected conventional Git working-tree root. It creates only `layer.json`
+     and does not initialise Git or render files. See the
+     [directory and repository-boundary decision](changes/archive/2026-10-16-add-layer-init/design.md#use-the-current-directory-and-respect-repository-boundaries)
+     and [initialisation requirements](specs/layer-initialization/spec.md).
 4. **Local changes.** May a consumer edit a shared file in place? How would a local
    exception, a change to the shared source, or a decision to stop sharing be
    distinguished, and what happens to each on the next update? How can a consumer
@@ -73,6 +85,20 @@ design everything upfront.
    a standard way for AI applications to use tools) and skills—reusable instructions
    that teach agents how to use Hydragen. The [AI support value](../FOUNDATIONS.md#guiding-values)
    sets the requirement; the specific interfaces remain open.
+   - **CLI interaction decision:** Use cliclack for suitable interactive flows,
+     starting with init, while retaining a complete flag-based path for scripts,
+     CI, and agents. **Agreed input rule:** No metadata flags means guided init
+     when interaction is available; any metadata flag means flag-only init, with
+      no prompts to complete missing values. The explicit and automatic
+      non-interactive policy also prevents prompts in unattended environments.
+      Supplying name is optional: both routes default it to the current
+      directory's name, with Enter accepting the displayed prompt default. The
+      manifest still requires a non-blank name. See the
+      [directory-name default decision](changes/archive/2026-10-16-add-interactive-init/design.md#default-name-to-the-current-directory).
+     See the [separate-input-route decision](changes/archive/2026-10-16-add-interactive-init/design.md#separate-guided-and-flag-only-input),
+     [mode-selection decision](changes/archive/2026-10-16-add-interactive-init/design.md#select-interactive-mode-conservatively),
+     and [future-command convention](changes/archive/2026-10-16-add-interactive-init/design.md#keep-the-convention-reusable-without-adding-future-commands).
+     This does not select an MCP server or skills as an agent-specific interface.
 10. **Success criteria.** Which real projects and observations should we use to
     assess success? The assessment should cover:
     - Effort to adopt reuse compared with editing directly.
