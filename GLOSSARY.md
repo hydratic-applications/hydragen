@@ -13,8 +13,8 @@ other layers depend on them. Layers can form [dependency](#dependency) chains of
 any depth; there is no fixed maximum number of levels.
 
 Every layer has a [manifest](#manifest) named `layer.json` at its repository root,
-declaring its name, author, and description, and listing the other layers it
-depends on.
+declaring its required name, optional author and description, and the other
+layers it depends on.
 
 ## Root layer
 
@@ -115,8 +115,8 @@ represent those [contributions](#contribution) for committing.
 ## Manifest
 
 A JSON file named exactly `layer.json` at the root of a [layer's](#layer)
-repository. It declares the [layer's](#layer) identifying metadata, including its
-name, author, and description, and lists the other [layers](#layer) it depends on.
+repository. It declares the [layer's](#layer) required name and optional author and
+description, and lists the other [layers](#layer) it depends on.
 
 ## Contribution
 

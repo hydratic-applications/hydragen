@@ -6,7 +6,8 @@ them while we continue exploring layers.
 
 ## What Changes
 
-- Require a name, author, and description for every layer.
+- Require a name for every layer; allow optional author and description metadata.
+- Validate name and any supplied author or description as non-blank strings.
 - Require the manifest to be a JSON file named exactly `layer.json` at the root
   of the layer's repository.
 - Draft a JSON Schema for those fields, with optional `$schema` editor support.

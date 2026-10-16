@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hydragen layer manifest metadata (draft)",
+  "description": "Initial metadata requirements for layer.json, the JSON manifest at the root of every layer's repository. Name is required; author and description are optional. This schema validates contents, not filename or location, and does not yet validate dependency references or other layer behaviour.",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "Optional schema URL or relative path used by an editor or validator."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "The layer's name. Naming syntax and uniqueness rules remain undecided."
+    },
+    "author": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "Optional person or organisation credited with authoring the layer. When supplied, this must be a non-blank string. This is descriptive metadata, not a verified identity."
+    },
+    "description": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "Optional short explanation of what the layer provides or is used for. When supplied, this must be a non-blank string."
+    }
+  },
+  "additionalProperties": true
+}

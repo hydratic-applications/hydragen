@@ -1,20 +1,31 @@
-## ADDED Requirements
+# Layer manifest specification
+
+## Purpose
+
+Define a layer's identifying metadata, the manifest's filename and location,
+dependency declaration requirements, and the scope of metadata schema validation.
+
+## Requirements
 
 ### Requirement: Every layer has identifying metadata
 
-Every layer MUST have a manifest declaring its name, author, and description.
-This applies to both root and dependent layers, whether intended
-primarily for reuse, as working projects, or both.
+Every layer MUST have a manifest declaring its name. Author and description MUST
+be optional independently of each other. Name and any supplied author or
+description MUST be strings containing at least one non-whitespace character.
+These rules apply to both root and dependent layers, whether intended primarily
+for reuse, as working projects, or both.
 
 #### Scenario: Root layer metadata
 
 - **WHEN** a root layer is defined
-- **THEN** its manifest declares its name, author, and description
+- **THEN** its manifest declares its name
+- **AND** author and description can each be omitted
 
 #### Scenario: Dependent layer metadata
 
 - **WHEN** a dependent layer is defined
-- **THEN** its manifest declares its name, author, and description
+- **THEN** its manifest declares its name
+- **AND** author and description can each be omitted
 
 ### Requirement: Manifest has a fixed filename and location
 
@@ -54,14 +65,30 @@ name and reference format remain open.
 - **WHEN** a layer's `layer.json` includes an empty dependency list
 - **THEN** the layer has no dependencies and is a root layer, with the same outcome as omitting the list
 
-### Requirement: A schema describes required metadata
+### Requirement: A schema describes metadata requirements
 
-The manifest format MUST have a JSON Schema describing its required metadata.
+The manifest format MUST have a JSON Schema requiring name and permitting optional
+author and description, with non-blank string validation for each supplied field.
 The initial draft covers metadata only; it does not establish dependency
 reference syntax, how versioning works or whether it belongs in the manifest,
 or how layers combine.
 
-#### Scenario: Missing required metadata
+#### Scenario: Missing name
 
-- **WHEN** a manifest omits any of the three required metadata fields
+- **WHEN** a manifest omits name
+- **THEN** it fails validation against the schema
+
+#### Scenario: Optional metadata is omitted
+
+- **WHEN** a manifest contains a valid name and omits author and description
+- **THEN** it passes metadata validation against the schema
+
+#### Scenario: Optional metadata is supplied independently
+
+- **WHEN** a manifest contains a valid name and supplies either or both of author and description as non-blank strings
+- **THEN** it passes metadata validation against the schema
+
+#### Scenario: Supplied metadata is invalid
+
+- **WHEN** name or a supplied author or description is blank, whitespace-only, or not a string, including `null`
 - **THEN** it fails validation against the schema

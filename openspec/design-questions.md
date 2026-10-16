@@ -18,10 +18,11 @@ design everything upfront.
    decide which to use? How does a consumer select a source and version, and which
    commands support that workflow? Should references pin a version, follow updates
    automatically, or support both by consumer choice?
-   - **Partial resolution:** Every layer has a manifest declaring its name,
-     author, and description, and listing the other layers it depends on. An
+   - **Partial resolution:** Every layer has a manifest declaring its required
+     name, optional author and description, and the other layers it depends on. Name
+     and any supplied author or description must be non-blank strings. An
      omitted dependency list and an empty list both mean no dependencies. See the
-     [manifest decision and draft schema choices](changes/define-layer-manifest/design.md#decisions).
+     [manifest decision and draft schema choices](changes/archive/2026-10-16-define-layer-manifest/design.md#decisions).
      Source locations, reference syntax, and how versioning works (including
      whether it belongs in the manifest) remain open.
 3. **Files and tool dependency.** Are shared files committed into a consumer's
@@ -31,7 +32,7 @@ design everything upfront.
    plain clone?
    - **Partial resolution:** The layer manifest is a JSON file named exactly
      `layer.json` at the root of the layer's repository. See the
-     [manifest location decision](changes/define-layer-manifest/design.md#agreed-manifest-filename-location-and-format).
+     [manifest location decision](changes/archive/2026-10-16-define-layer-manifest/design.md#agreed-manifest-filename-location-and-format).
    - **Partial resolution:** The CLI renders the layer result of a dependent layer
      into its workspace. The layer result is the files and directory structure
      produced by applying its contributions to inherited content; the workspace
