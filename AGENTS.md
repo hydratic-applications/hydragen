@@ -79,6 +79,29 @@ conversation, unexplained terms, or unstated assumptions, revise the text before
 considering the change complete. Preserve its meaning and essential detail while
 making it understandable.
 
+### README scope
+
+Keep README.md a concise entry point for human developers, not an exhaustive
+technical reference or a running record of changes. Focus on what Hydragen does,
+its current limitations, getting started, everyday usage, and essential safety
+and automation guidance. Prefer a few useful examples over repeated explanations
+of the same behaviour.
+
+Describe user-facing choices, defaults, and rules at the level needed to use the
+tool. Do not turn each option or supported feature into its own technical
+tutorial. Leave implementation details, exhaustive edge cases, internal
+validation rules, detailed test coverage, and historical corrections out of the
+README; link to the relevant specification or focused reference when readers
+need that detail.
+Agent-specific technical guidance belongs in agent-facing documentation or
+interfaces, not in the human introduction.
+
+When behaviour changes, revise the existing explanation rather than appending
+another implementation summary. Before adding detail, ask whether a developer
+needs it to understand, try, or safely use the current tool. Preserve important
+requirements in their appropriate reference rather than duplicating them all in
+the README.
+
 ## Maintaining the foundations
 
 Keep FOUNDATIONS.md focused on the product: what Hydragen is, the problem it
