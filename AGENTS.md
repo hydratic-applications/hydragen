@@ -87,12 +87,12 @@ its current limitations, getting started, everyday usage, and essential safety
 and automation guidance. Prefer a few useful examples over repeated explanations
 of the same behaviour.
 
-For manifests, cover the metadata basics, supported formats and fixed filenames,
-the default, and the complete priority order when multiple manifests are present.
-Do not expand this into separate tutorials or parser-feature lists for each
-format. Leave parser edge cases, schema internals, implementation details, test
-matrices, and historical corrections out of the README; link to the relevant
-specification, schema, or focused reference when readers need that detail.
+Describe user-facing choices, defaults, and rules at the level needed to use the
+tool. Do not turn each option or supported feature into its own technical
+tutorial. Leave implementation details, exhaustive edge cases, internal
+validation rules, detailed test coverage, and historical corrections out of the
+README; link to the relevant specification or focused reference when readers
+need that detail.
 Agent-specific technical guidance belongs in agent-facing documentation or
 interfaces, not in the human introduction.
 
