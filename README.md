@@ -69,10 +69,11 @@ prompts to ask Name, Author, Description, then Manifest format. The name prompt
 shows the current directory's name as its default: press Enter to accept it, or
 type a different name. Press Enter without text to skip author or description. Invalid
 answers receive inline feedback so you can correct them. The final selector lists
-`layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`, and `layer.jsonc`, in that
-order, with `layer.yaml` initially selected. Press Enter to accept YAML or choose
-another filename. No files are created until all input, including format, is
-complete. The identifying name does not change the fixed filename.
+`yaml`, `yml`, `toml`, `json`, and `jsonc`, in that order, with `yaml` initially
+selected. Press Enter to accept YAML or choose another format. Each choice creates
+the corresponding fixed filename, such as `layer.json` for `json`. No files are
+created until all input, including format, is complete. The identifying name does
+not change the fixed filename.
 
 The session explains Enter's behaviour once at the start. Author and description
 have dimmed `(optional)` labels and empty input areas; only the name text prompt

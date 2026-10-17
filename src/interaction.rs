@@ -198,7 +198,7 @@ fn collect_init_input_ready(
         cliclack::reset_theme();
         let mut selector = cliclack::select("Manifest format");
         for format in ManifestFormat::ALL {
-            selector = selector.item(format, format.filename(), "");
+            selector = selector.item(format, format.extension(), "");
         }
         let format = selector
             .initial_value(ManifestFormat::default())

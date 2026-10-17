@@ -167,9 +167,10 @@ default. Init defaults omitted name to the current directory's name; its guided
 name prompt shows that default and accepts it on Enter. Omit unsupplied author
 and description instead of prompting for them in flag-only execution. Omitted
 format defaults to `yaml` (`layer.yaml`). Guided init asks Name, Author,
-Description, then Manifest format, with choices labelled by exact filenames in
-priority order: `layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`, `layer.jsonc`.
-The selector starts on `layer.yaml`, accepted by Enter. Format is separate from
+Description, then Manifest format, with choices labelled by extensions without a
+leading dot in priority order: `yaml`, `yml`, `toml`, `json`, `jsonc`.
+The selector starts on `yaml`, accepted by Enter. Each choice still creates its
+fixed `layer.<extension>` filename. Format is separate from
 manifest metadata and does not override read-time priority.
 
 Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal

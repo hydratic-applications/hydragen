@@ -168,7 +168,7 @@ esac",
 
     fn choose_format(&mut self, directory: &Path, format: ManifestFormat) {
         self.wait_for("Manifest format");
-        self.wait_for("layer.jsonc");
+        self.wait_for("jsonc");
         assert_no_manifests(directory);
         for _ in 0..ManifestFormat::ALL
             .iter()
@@ -370,7 +370,8 @@ fn optional_fields_can_be_skipped_independently() {
         }
         let transcript = visible_text(&session.stderr);
         let format_summary = transcript.rsplit_once("Manifest format").unwrap().1;
-        assert!(format_summary.contains("layer.yaml"), "{format_summary}");
+        assert!(format_summary.contains("yaml"), "{format_summary}");
+        assert!(!format_summary.contains("layer."), "{format_summary}");
         assert!(!format_summary.contains("Skipped"), "{format_summary}");
     }
 }
@@ -439,12 +440,19 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         session.wait_for("Description (optional");
         assert_no_manifests(directory.path());
         session.send(b"2026-10-16\r");
-        session.wait_for("layer.jsonc");
+        session.wait_for("jsonc");
         let transcript = visible_text(&session.stderr);
         let choices = transcript.split_once("Manifest format").unwrap().1;
+        assert!(!choices.contains("layer."), "{choices}");
         let mut previous = 0;
         for choice in ManifestFormat::ALL {
-            let position = choices.find(choice.filename()).unwrap();
+            assert!(
+                choices
+                    .lines()
+                    .any(|line| line.split_whitespace().last() == Some(choice.extension())),
+                "{choices}"
+            );
+            let position = choices.find(choice.extension()).unwrap();
             assert!(position >= previous, "{choices}");
             previous = position;
         }
@@ -472,7 +480,8 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         let transcript = visible_text(&session.stderr);
         assert!(!transcript.contains("Skipped"));
         let summary = transcript.rsplit_once("Manifest format").unwrap().1;
-        assert!(summary.contains(format.filename()), "{summary}");
+        assert!(summary.contains(format.extension()), "{summary}");
+        assert!(!summary.contains("layer."), "{summary}");
     }
 }
 
@@ -608,7 +617,7 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             if answered == 3 {
                 session.send(b"Description\r");
                 session.wait_for("Manifest format");
-                session.wait_for("layer.jsonc");
+                session.wait_for("jsonc");
             }
             assert_no_manifests(directory.path());
             session.send(key);
@@ -730,7 +739,7 @@ fn the_exact_default_target_created_during_questions_is_not_overwritten() {
     session.wait_for("Description (optional");
     session.send(b"\r");
     session.wait_for("Manifest format");
-    session.wait_for("layer.jsonc");
+    session.wait_for("jsonc");
     session.send(b"\r");
     assert!(!session.finish().success());
     assert!(session.stdout.is_empty());
@@ -771,7 +780,7 @@ fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_
         session.wait_for("Description (optional");
         session.send(b"\r");
         session.wait_for("Manifest format");
-        session.wait_for("layer.jsonc");
+        session.wait_for("jsonc");
         // The output is chosen only after the competing path has appeared.
         for _ in 0..ManifestFormat::ALL
             .iter()
@@ -888,7 +897,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
                 input_writer.flush().unwrap();
                 session.wait_for(next_prompt);
             }
-            session.wait_for("layer.jsonc");
+            session.wait_for("jsonc");
         }
         assert_no_manifests(directory.path());
         // Closing every master handle disconnects stdin while stderr remains usable.

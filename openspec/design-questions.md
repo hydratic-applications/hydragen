@@ -108,12 +108,17 @@ design everything upfront.
      missing values. Format alone therefore uses the directory-name default and
      omits author and description. Omitted format defaults to `layer.yaml` without
      counting as a supplied flag. Guided input asks Name, Author, Description,
-     then Manifest format, with exact filename labels and `layer.yaml` initially
-     selected. This keeps format choice within the existing complete, prompt-free
+     then Manifest format, with extension-only labels (`yaml`, `yml`, `toml`,
+     `json`, `jsonc`) and `yaml` initially selected. The prompt already identifies
+     the choice as a format, so repeating `layer.` adds no useful distinction;
+     generated filenames remain unchanged. See the
+     [shorter-label decision](changes/shorten-init-format-labels/design.md).
+     This keeps format choice within the existing complete, prompt-free
      automation route rather than mixing flags and questions. See the
      [format/input-route decision](changes/support-layer-manifest-formats/design.md#keep-format-selection-within-the-existing-input-route-policy),
      which supersedes the metadata-only flag list and three-question flow in the
-     historical interaction decision.
+     historical interaction decision. Its exact-filename selector labels are
+     superseded by the shorter-label decision above.
      The explicit and automatic non-interactive policy still prevents prompts in
      unattended environments. Supplying name is optional: both routes default it
      to the current directory's name, with Enter accepting the displayed prompt
