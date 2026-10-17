@@ -151,6 +151,16 @@ assets, require equality in tests, or use them as build or test inputs.
 
 ## CLI development
 
+Follow the [DX value](FOUNDATIONS.md#guiding-values): beauty, enjoyment,
+functionality, and ease of use are equally important CLI design goals. Review
+help, prompts, results, and errors together, including plain output. Consider
+whether help is easy to scan, choices and defaults are clear, feedback is
+consistent, and errors explain what happened and how to proceed. Assess visual
+appeal and enjoyment explicitly; functional correctness alone does not complete
+the review. No particular visual style or extra decoration is required. Preserve
+the interaction and safety rules below and the foundations' performance value;
+surface tradeoffs rather than silently demoting a goal.
+
 Use clap for argument parsing and help, and cliclack for suitable guided prompts
 and interactive feedback. Not every command needs prompts or decorative output.
 Keep terminal presentation outside the manifest and filesystem logic.
@@ -162,8 +172,8 @@ flags are `--name`, `--author`, `--description`, and `--format`. Explicit format
 alone selects flag-only execution; the inferred YAML default does not count as an
 input flag. Global controls such as `--non-interactive` are not input flags.
 Preserve flags for input overrides, apply documented defaults without prompting,
-and reject missing input that has no
-default. Init defaults omitted name to the current directory's name; its guided
+and reject missing input that has no default. Init defaults omitted name to the
+current directory's name; its guided
 name prompt shows that default and accepts it on Enter. Omit unsupplied author
 and description instead of prompting for them in flag-only execution. Omitted
 format defaults to `yaml` (`layer.yaml`). Guided init asks Name, Author,
@@ -177,6 +187,14 @@ Use the shared interaction policy: `--non-interactive`, CI mode, or a non-termin
 standard stream disables guided input. Do not reopen a terminal or read piped
 answers to work around that choice. Keep flag-only output plain, result output on
 standard output, and prompts and diagnostics on standard error.
+
+Adapt schema-derived validation feedback to the input route: guided feedback
+names the field and explains correction without referring to flags, including
+clear-and-Enter instructions for skipping an optional field. Flag-only errors
+retain the relevant flag. Only a known non-blank schema failure gets non-blank
+wording; preserve accurate diagnostics for other constraints. Internal schema
+setup failures must stop before prompts or writes, not ask users to retry valid
+input.
 
 Share validation across input routes. Initially check repository location and all
 five supported manifest paths before questions; any occupied entry, including a

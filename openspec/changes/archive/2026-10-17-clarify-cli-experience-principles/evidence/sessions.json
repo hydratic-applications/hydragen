@@ -1,0 +1,820 @@
+[
+  {
+    "id": "help-root",
+    "mode": "captured",
+    "args": [
+      "--help"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/help-root",
+    "exit": 0,
+    "stdout": "Build projects from shared layers\n\nUsage: hydragen [OPTIONS] <COMMAND>\n\nCommands:\n  init  Initialise a layer in the current directory\n  help  Print this message or the help of the given subcommand(s)\n\nOptions:\n      --non-interactive  Never prompt, even in a terminal\n  -h, --help             Print help\n  -V, --version          Print version\n",
+    "stderr": "",
+    "manifest": null
+  },
+  {
+    "id": "help-init",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--help"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/help-init",
+    "exit": 0,
+    "stdout": "Initialise a layer in the current directory\n\nUsage: hydragen init [OPTIONS]\n\nOptions:\n      --name <NAME>                Optional name override (defaults to the current directory name; must not be blank)\n      --non-interactive            Never prompt, even in a terminal\n      --author <AUTHOR>            Optional person or organisation credited with authoring the layer\n      --description <DESCRIPTION>  Optional explanation of what the layer provides or is used for\n  -h, --help                       Print help\n\nExamples:\n  hydragen init\n  hydragen init --name shared-agent-rules\n  hydragen init --name shared-agent-rules --author \"Example team\" --description \"Shared coding-agent instructions.\"\n  hydragen init --non-interactive --name shared-agent-rules\n\nNo metadata flags: guided prompts when stdin, stdout and stderr are terminals and CI is disabled.\nAny metadata flag: flag-only input; no follow-up questions.\nName defaults to the current directory name when omitted. Author and description are optional.\n--non-interactive always disables prompts.\n",
+    "stderr": "",
+    "manifest": null
+  },
+  {
+    "id": "version",
+    "mode": "captured",
+    "args": [
+      "--version"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/version",
+    "exit": 0,
+    "stdout": "hydragen 0.1.0\n",
+    "stderr": "",
+    "manifest": null
+  },
+  {
+    "id": "missing-command",
+    "mode": "captured",
+    "args": [],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/missing-command",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "Build projects from shared layers\n\nUsage: hydragen [OPTIONS] <COMMAND>\n\nCommands:\n  init  Initialise a layer in the current directory\n  help  Print this message or the help of the given subcommand(s)\n\nOptions:\n      --non-interactive  Never prompt, even in a terminal\n  -h, --help             Print help\n  -V, --version          Print version\n",
+    "manifest": null
+  },
+  {
+    "id": "unknown-option",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--bogus"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/unknown-option",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--bogus' found\n\nUsage: hydragen init [OPTIONS]\n\nFor more information, try '--help'.\n",
+    "manifest": null
+  },
+  {
+    "id": "missing-value",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--name"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/missing-value",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n",
+    "manifest": null
+  },
+  {
+    "id": "flag-name",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--name",
+      "example"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-name",
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-name/layer.json\n",
+    "stderr": "",
+    "manifest": "{\n  \"name\": \"example\"\n}\n"
+  },
+  {
+    "id": "flag-author",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--author",
+      "Team"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-author",
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-author/layer.json\n",
+    "stderr": "",
+    "manifest": "{\n  \"name\": \"flag-author\",\n  \"author\": \"Team\"\n}\n"
+  },
+  {
+    "id": "flag-description",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--description",
+      "Layer"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-description",
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-description/layer.json\n",
+    "stderr": "",
+    "manifest": "{\n  \"name\": \"flag-description\",\n  \"description\": \"Layer\"\n}\n"
+  },
+  {
+    "id": "flag-default",
+    "mode": "captured",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-default",
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-default/layer.json\n",
+    "stderr": "",
+    "manifest": "{\n  \"name\": \"flag-default\"\n}\n"
+  },
+  {
+    "id": "flag-invalid",
+    "mode": "captured",
+    "args": [
+      "init",
+      "--name",
+      " "
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/flag-invalid",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Error: --name must contain at least one non-whitespace character.\n",
+    "manifest": null
+  },
+  {
+    "id": "existing-manifest",
+    "mode": "captured",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/existing",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Error: '/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/existing/layer.json' already exists. Initialisation was cancelled; no files were changed.\n",
+    "manifest": "keep original"
+  },
+  {
+    "id": "nested-repository",
+    "mode": "captured",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/repository/nested",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Error: Run 'hydragen init' from the repository root '/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/repository', not a subdirectory. No files were changed.\n",
+    "manifest": null
+  },
+  {
+    "id": "unusable-default",
+    "mode": "captured",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/   ",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Error: Could not derive a non-blank UTF-8 layer name from directory '/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/   '. Supply --name explicitly.\n",
+    "manifest": null
+  },
+  {
+    "id": "guided-default",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-default",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-default/layer.json\r\n",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mg\u001b[0m\u001b[2muided-default (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mguided-default\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name-default",
+        "stderr_end": 253
+      },
+      {
+        "label": "author-skip",
+        "stderr_end": 474
+      },
+      {
+        "label": "description-skip",
+        "stderr_end": 722
+      },
+      {
+        "label": "final",
+        "stderr_end": 900
+      }
+    ],
+    "manifest": "{\n  \"name\": \"guided-default\"\n}\n"
+  },
+  {
+    "id": "guided-nocolour",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-nocolour",
+    "cols": 100,
+    "rows": 30,
+    "colour": false,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-nocolour/layer.json\r\n",
+    "stderr": "┌  Initialise a layer\r\n│\r\n●  Enter accepts the default or skips an optional field.\r\n│  \r\n\u001b[?25l◆  Name\r\n│  guided-nocolour (default)\r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◇  Name\r\n│  guided-nocolour\r\n│\r\n\u001b[?25h\u001b[?25l◆  Author (optional)\r\n│   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◇  Author (optional)\r\n│  Skipped\r\n│\r\n\u001b[?25h\u001b[?25l◆  Description (optional)\r\n│   \r\n└  \r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A◇  Description (optional)\r\n│  Skipped\r\n│\r\n\u001b[?25h└  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name-default",
+        "stderr_end": 139
+      },
+      {
+        "label": "author-skip",
+        "stderr_end": 251
+      },
+      {
+        "label": "description-skip",
+        "stderr_end": 373
+      },
+      {
+        "label": "final",
+        "stderr_end": 479
+      }
+    ],
+    "manifest": "{\n  \"name\": \"guided-nocolour\"\n}\n"
+  },
+  {
+    "id": "guided-override",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-override",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "配置 🦀\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "Team\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "Layer\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-override/layer.json\r\n",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mg\u001b[0m\u001b[2muided-override (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  配\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  配置\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  配置 \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  配置 🦀\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m配置 🦀\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  T\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Te\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Tea\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Team\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mTeam\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  L\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  La\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Lay\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Laye\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Layer\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mLayer\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name",
+        "stderr_end": 254
+      },
+      {
+        "label": "author",
+        "stderr_end": 835
+      },
+      {
+        "label": "description",
+        "stderr_end": 1526
+      },
+      {
+        "label": "final",
+        "stderr_end": 2289
+      }
+    ],
+    "manifest": "{\n  \"name\": \"配置 🦀\",\n  \"author\": \"Team\",\n  \"description\": \"Layer\"\n}\n"
+  },
+  {
+    "id": "guided-author-only",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-author-only",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "example\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "Team\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-author-only/layer.json\r\n",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mg\u001b[0m\u001b[2muided-author-only (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  e\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  ex\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exa\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exam\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  examp\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exampl\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  example\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mexample\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  T\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Te\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Tea\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Team\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mTeam\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name",
+        "stderr_end": 257
+      },
+      {
+        "label": "author",
+        "stderr_end": 1129
+      },
+      {
+        "label": "description",
+        "stderr_end": 1820
+      },
+      {
+        "label": "final",
+        "stderr_end": 1998
+      }
+    ],
+    "manifest": "{\n  \"name\": \"example\",\n  \"author\": \"Team\"\n}\n"
+  },
+  {
+    "id": "guided-description-only",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-description-only",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "example\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "Layer\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-description-only/layer.json\r\n",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mg\u001b[0m\u001b[2muided-description-only (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  e\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  ex\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exa\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exam\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  examp\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exampl\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  example\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mexample\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  L\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  La\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Lay\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Laye\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  Layer\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mLayer\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name",
+        "stderr_end": 262
+      },
+      {
+        "label": "author",
+        "stderr_end": 1134
+      },
+      {
+        "label": "description",
+        "stderr_end": 1382
+      },
+      {
+        "label": "final",
+        "stderr_end": 2145
+      }
+    ],
+    "manifest": "{\n  \"name\": \"example\",\n  \"description\": \"Layer\"\n}\n"
+  },
+  {
+    "id": "guided-retry",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-retry",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": " \r"
+      },
+      {
+        "after": "non-whitespace",
+        "bytes": "example\r"
+      },
+      {
+        "after": "Author",
+        "bytes": " \r"
+      },
+      {
+        "after": "--author must contain",
+        "bytes": "\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/guided-retry/layer.json\r\n",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mg\u001b[0m\u001b[2muided-retry (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[33m▲\u001b[0m  Name\r\n\u001b[33m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[33m└  --name must contain at least one non-whitespace character.\u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mg\u001b[0m\u001b[2muided-retry (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  e\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  ex\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exa\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exam\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  examp\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exampl\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  example\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mexample\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[33m▲\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[33m│\u001b[0m   \u001b[7m \u001b[0m\r\n\u001b[33m└  --author must contain at least one non-whitespace character.\u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name",
+        "stderr_end": 251
+      },
+      {
+        "label": "invalid-name",
+        "stderr_end": 491
+      },
+      {
+        "label": "author",
+        "stderr_end": 1498
+      },
+      {
+        "label": "invalid-author",
+        "stderr_end": 1782
+      },
+      {
+        "label": "description",
+        "stderr_end": 2165
+      },
+      {
+        "label": "final",
+        "stderr_end": 2343
+      }
+    ],
+    "manifest": "{\n  \"name\": \"example\"\n}\n"
+  },
+  {
+    "id": "cancel-escape",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/cancel-escape",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "\u001b"
+      }
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mc\u001b[0m\u001b[2mancel-escape (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[31m■\u001b[0m  Name\r\n\u001b[31m└  Operation cancelled.\u001b[0m\r\n\u001b[?25hError: Initialisation cancelled. No files were changed.\r\n",
+    "frames": [
+      {
+        "label": "cancel",
+        "stderr_end": 252
+      },
+      {
+        "label": "final",
+        "stderr_end": 402
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "cancel-partial-escape",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/cancel-partial-escape",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "example\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "\u001b"
+      }
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mc\u001b[0m\u001b[2mancel-partial-escape (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  e\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  ex\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exa\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exam\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  examp\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exampl\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  example\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mexample\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[31m■\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[31m└  Operation cancelled.\u001b[0m\r\n\u001b[?25hError: Initialisation cancelled. No files were changed.\r\n",
+    "frames": [
+      {
+        "label": "name",
+        "stderr_end": 260
+      },
+      {
+        "label": "cancel",
+        "stderr_end": 1132
+      },
+      {
+        "label": "final",
+        "stderr_end": 1303
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "cancel-ctrl-c",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/cancel-ctrl-c",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "\u0003"
+      }
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mc\u001b[0m\u001b[2mancel-ctrl-c (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[31m■\u001b[0m  Name\r\n\u001b[31m└  Operation cancelled.\u001b[0m\r\n\u001b[?25hError: Initialisation cancelled. No files were changed.\r\n",
+    "frames": [
+      {
+        "label": "cancel",
+        "stderr_end": 252
+      },
+      {
+        "label": "final",
+        "stderr_end": 402
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "cancel-partial-ctrl-c",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/cancel-partial-ctrl-c",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "example\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "\u0003"
+      }
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mc\u001b[0m\u001b[2mancel-partial-ctrl-c (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  e\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  ex\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exa\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exam\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  examp\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  exampl\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  example\u001b[7m \u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mexample\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[31m■\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[31m└  Operation cancelled.\u001b[0m\r\n\u001b[?25hError: Initialisation cancelled. No files were changed.\r\n",
+    "frames": [
+      {
+        "label": "name",
+        "stderr_end": 260
+      },
+      {
+        "label": "cancel",
+        "stderr_end": 1132
+      },
+      {
+        "label": "final",
+        "stderr_end": 1303
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "terminal-ci",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-ci",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": "true",
+    "inputs": [],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-ci/layer.json\r\n",
+    "stderr": "",
+    "frames": [
+      {
+        "label": "final",
+        "stderr_end": 0
+      }
+    ],
+    "manifest": "{\n  \"name\": \"terminal-ci\"\n}\n"
+  },
+  {
+    "id": "terminal-noninteractive",
+    "mode": "pty",
+    "args": [
+      "init",
+      "--non-interactive"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-noninteractive",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-noninteractive/layer.json\r\n",
+    "stderr": "",
+    "frames": [
+      {
+        "label": "final",
+        "stderr_end": 0
+      }
+    ],
+    "manifest": "{\n  \"name\": \"terminal-noninteractive\"\n}\n"
+  },
+  {
+    "id": "terminal-flag",
+    "mode": "pty",
+    "args": [
+      "init",
+      "--author",
+      "Team"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-flag",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-flag/layer.json\r\n",
+    "stderr": "",
+    "frames": [
+      {
+        "label": "final",
+        "stderr_end": 0
+      }
+    ],
+    "manifest": "{\n  \"name\": \"terminal-flag\",\n  \"author\": \"Team\"\n}\n"
+  },
+  {
+    "id": "terminal-invalid-flag",
+    "mode": "pty",
+    "args": [
+      "init",
+      "--name",
+      " "
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/terminal-invalid-flag",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Error: --name must contain at least one non-whitespace character.\r\n",
+    "frames": [
+      {
+        "label": "final",
+        "stderr_end": 67
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "help-narrow",
+    "mode": "pty",
+    "args": [
+      "init",
+      "--help"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/help-narrow",
+    "cols": 40,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [],
+    "exit": 0,
+    "stdout": "Initialise a layer in the current directory\r\n\r\nUsage: hydragen init [OPTIONS]\r\n\r\nOptions:\r\n      --name <NAME>                Optional name override (defaults to the current directory name; must not be blank)\r\n      --non-interactive            Never prompt, even in a terminal\r\n      --author <AUTHOR>            Optional person or organisation credited with authoring the layer\r\n      --description <DESCRIPTION>  Optional explanation of what the layer provides or is used for\r\n  -h, --help                       Print help\r\n\r\nExamples:\r\n  hydragen init\r\n  hydragen init --name shared-agent-rules\r\n  hydragen init --name shared-agent-rules --author \"Example team\" --description \"Shared coding-agent instructions.\"\r\n  hydragen init --non-interactive --name shared-agent-rules\r\n\r\nNo metadata flags: guided prompts when stdin, stdout and stderr are terminals and CI is disabled.\r\nAny metadata flag: flag-only input; no follow-up questions.\r\nName defaults to the current directory name when omitted. Author and description are optional.\r\n--non-interactive always disables prompts.\r\n",
+    "stderr": "",
+    "frames": [
+      {
+        "label": "final",
+        "stderr_end": 0
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "help-normal",
+    "mode": "pty",
+    "args": [
+      "init",
+      "--help"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/help-normal",
+    "cols": 100,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [],
+    "exit": 0,
+    "stdout": "Initialise a layer in the current directory\r\n\r\nUsage: hydragen init [OPTIONS]\r\n\r\nOptions:\r\n      --name <NAME>                Optional name override (defaults to the current directory name; must not be blank)\r\n      --non-interactive            Never prompt, even in a terminal\r\n      --author <AUTHOR>            Optional person or organisation credited with authoring the layer\r\n      --description <DESCRIPTION>  Optional explanation of what the layer provides or is used for\r\n  -h, --help                       Print help\r\n\r\nExamples:\r\n  hydragen init\r\n  hydragen init --name shared-agent-rules\r\n  hydragen init --name shared-agent-rules --author \"Example team\" --description \"Shared coding-agent instructions.\"\r\n  hydragen init --non-interactive --name shared-agent-rules\r\n\r\nNo metadata flags: guided prompts when stdin, stdout and stderr are terminals and CI is disabled.\r\nAny metadata flag: flag-only input; no follow-up questions.\r\nName defaults to the current directory name when omitted. Author and description are optional.\r\n--non-interactive always disables prompts.\r\n",
+    "stderr": "",
+    "frames": [
+      {
+        "label": "final",
+        "stderr_end": 0
+      }
+    ],
+    "manifest": null
+  },
+  {
+    "id": "guided-narrow-long",
+    "mode": "pty",
+    "args": [
+      "init"
+    ],
+    "directory": "/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/Long project 配置 🦀 with a deliberately lengthy directory name for wrapping review",
+    "cols": 40,
+    "rows": 30,
+    "colour": true,
+    "ci": null,
+    "inputs": [
+      {
+        "after": "Name",
+        "bytes": "\r"
+      },
+      {
+        "after": "Author",
+        "bytes": "\r"
+      },
+      {
+        "after": "Description",
+        "bytes": "\r"
+      }
+    ],
+    "exit": 0,
+    "stdout": "Initialised layer: /private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/hydragen-dx-audit-20261016/cases-8y3pxyx6/Long project 配置 🦀 with a deliberately lengthy directory name for wrapping review/layer.json\r\n",
+    "stderr": "\u001b[38;5;8m┌\u001b[0m  Initialise a layer\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[34m●\u001b[0m  \u001b[2mEnter accepts the default or skips an optional field.\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \r\n\u001b[?25l\u001b[36m◆\u001b[0m  Name\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7mL\u001b[0m\u001b[2mong project 配置 🦀 with a deliberately lengthy directory name for wrapping review (default)\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[5A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[5A\u001b[32m◇\u001b[0m  Name\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2mLong project 配置 🦀 with a deliberately lengthy directory name for wrapping review\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Author \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[?25l\u001b[36m◆\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[36m│\u001b[0m  \u001b[2m\u001b[2m\u001b[0m\u001b[7m \u001b[0m\u001b[2m\u001b[0m\u001b[0m\r\n\u001b[36m└  \u001b[0m\r\n\u001b[3A\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\r\u001b[2K\u001b[1B\u001b[3A\u001b[32m◇\u001b[0m  Description \u001b[2m(optional)\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m  \u001b[2m\u001b[3mSkipped\u001b[0m\u001b[0m\r\n\u001b[38;5;8m│\u001b[0m\r\n\u001b[?25h\u001b[38;5;8m└\u001b[0m  Layer initialised.\r\n",
+    "frames": [
+      {
+        "label": "name-default",
+        "stderr_end": 319
+      },
+      {
+        "label": "author-skip",
+        "stderr_end": 624
+      },
+      {
+        "label": "description-skip",
+        "stderr_end": 872
+      },
+      {
+        "label": "final",
+        "stderr_end": 1050
+      }
+    ],
+    "manifest": "{\n  \"name\": \"Long project 配置 🦀 with a deliberately lengthy directory name for wrapping review\"\n}\n"
+  }
+]

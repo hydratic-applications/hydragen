@@ -14,6 +14,6 @@ reports the full created path. This is a presentation change only, consistent
 with the foundations' developer-experience value; no foundation or glossary change
 is needed.
 
-This supersedes only the exact-filename labels in the earlier manifest-format
+This supersedes only the exact-filename labels in the archived manifest-format
 decision. The updated requirements are recorded in the
-[manifest-format CLI interaction specification](../support-layer-manifest-formats/specs/cli-interaction/spec.md#requirement-collect-metadata-through-a-guided-cliclack-session).
+[CLI interaction specification](../../specs/cli-interaction/spec.md#requirement-collect-metadata-through-a-guided-cliclack-session).

@@ -95,7 +95,7 @@ impl fmt::Display for InitError {
             ),
             Self::ExistingManifest { path } => write!(
                 formatter,
-                "'{}' already exists. Initialisation was cancelled; no files were changed.",
+                "'{}' already exists.\n'hydragen init' does not overwrite existing entries.\nInspect the entry or run 'hydragen init' in a different directory.\nThis command did not change any files.",
                 path.display()
             ),
             Self::Io {

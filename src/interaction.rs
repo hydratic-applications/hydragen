@@ -79,6 +79,16 @@ fn validate_answer(field: &'static str, value: &str, optional: bool) -> Result<(
     }
 }
 
+fn answer_error_message(error: InitError, optional: bool) -> String {
+    match error {
+        InitError::InvalidMetadata { field } if optional => {
+            format!("Enter a non-blank {field}, or clear the field and press Enter to skip.")
+        }
+        InitError::InvalidMetadata { field } => format!("Enter a non-blank {field}."),
+        other => other.to_string(),
+    }
+}
+
 fn optional_input(field: &'static str, label: &str) -> io::Result<Option<String>> {
     let hint = console::Style::new()
         .for_stderr()
@@ -94,11 +104,13 @@ fn optional_input(field: &'static str, label: &str) -> io::Result<Option<String>
 struct PromptValidation(Rc<RefCell<Option<InitError>>>);
 
 impl PromptValidation {
-    fn check(&self, result: Result<(), InitError>) -> Result<(), String> {
+    fn check(&self, result: Result<(), InitError>, optional: bool) -> Result<(), String> {
         match result {
             Ok(()) => Ok(()),
-            Err(error @ InitError::InvalidMetadata { .. })
-            | Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(error.to_string()),
+            Err(error @ InitError::InvalidMetadata { .. }) => {
+                Err(answer_error_message(error, optional))
+            }
+            Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(error.to_string()),
             Err(error) => {
                 *self.0.borrow_mut() = Some(error);
                 Ok(())
@@ -124,7 +136,9 @@ fn metadata_input(
     let callback = validation.clone();
     let mut input = cliclack::input(label)
         .required(!optional)
-        .validate(move |value: &String| callback.check(validate_answer(field, value, optional)));
+        .validate(move |value: &String| {
+            callback.check(validate_answer(field, value, optional), optional)
+        });
     if let Some(default) = default {
         input = input.default_input(default);
     }
@@ -352,20 +366,36 @@ mod tests {
     fn only_content_failures_request_inline_retry() {
         let validation = PromptValidation::default();
         let retry = validation
-            .check(validate_metadata_value("name", "\u{85}"))
+            .check(validate_metadata_value("name", "\u{85}"), false)
             .unwrap_err();
-        assert!(retry.contains("--name must contain"));
+        assert_eq!(retry, "Enter a non-blank name.");
         assert!(validation.finish(Ok("corrected".into())).is_ok());
 
         let expected = setup_failure();
         assert!(
             validation
-                .check(Err(InitError::from(expected.clone())))
+                .check(Err(InitError::from(expected.clone())), false)
                 .is_ok()
         );
         let error = validation.finish(Ok("not accepted".into())).unwrap_err();
         assert_eq!(error.to_string(), expected.to_string());
         assert!(!error.to_string().contains("non-whitespace"));
+    }
+
+    #[test]
+    fn generic_schema_content_feedback_keeps_its_rule_and_can_retry() {
+        let validation = PromptValidation::default();
+        let error = schema::validate(&serde_json::json!({"name": 42})).unwrap_err();
+        let expected = error.to_string();
+        assert_eq!(
+            validation
+                .check(Err(InitError::from(error)), false)
+                .unwrap_err(),
+            expected
+        );
+        assert!(expected.contains("/name (type)"));
+        assert!(!expected.contains("non-blank"));
+        assert!(validation.finish(Ok("corrected".into())).is_ok());
     }
 
     #[cfg(unix)]
@@ -434,6 +464,46 @@ mod tests {
             assert!(validate_answer("name", value, false).is_ok());
             assert!(validate_answer("description", value, true).is_ok());
         }
+    }
+
+    #[test]
+    fn invalid_answers_explain_prompt_recovery_without_changing_flag_errors() {
+        for field in ["name", "author", "description"] {
+            let optional = field != "name";
+            let message = PromptValidation::default()
+                .check(validate_answer(field, " \t", optional), optional)
+                .unwrap_err();
+            assert!(message.contains(field));
+            assert!(message.contains("non-blank"));
+            assert!(!message.contains("--"));
+            assert_eq!(
+                message.contains("clear the field and press Enter to skip"),
+                optional
+            );
+            let flag_error = validate_metadata_value(field, " \t")
+                .unwrap_err()
+                .to_string();
+            assert!(flag_error.contains(&format!("--{field}")));
+        }
+    }
+
+    #[test]
+    fn unrelated_validation_errors_keep_their_original_diagnostic() {
+        let error = InitError::Io {
+            action: "inspect manifest path",
+            path: Path::new("example/layer.json").to_owned(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        let expected = error.to_string();
+        let validation = PromptValidation::default();
+        assert!(validation.check(Err(error), true).is_ok());
+        assert_eq!(
+            validation
+                .finish(Ok("not accepted".into()))
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
     }
 
     #[test]

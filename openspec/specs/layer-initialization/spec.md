@@ -3,8 +3,8 @@
 ## Purpose
 
 Define how `hydragen init` creates a layer manifest in the current directory,
-including metadata validation, repository-location checks, file safety, and
-command outcomes.
+including format selection, metadata validation, repository-location checks,
+file safety, and command outcomes.
 
 ## Requirements
 
@@ -13,34 +13,36 @@ command outcomes.
 The CLI MUST provide `hydragen init` to create a layer manifest in the current
 directory. It MUST NOT require or emit a root/dependent type declaration.
 Initialisation MUST omit dependencies from the manifest, without introducing a
-permanent restriction on the layer later declaring dependencies.
+permanent restriction on the layer later declaring dependencies. The basename
+MUST remain `layer`, independent of the layer's identifying name.
 
 #### Scenario: Initialise a layer
 
-- **WHEN** a developer runs `hydragen init` with valid metadata in a supported directory without `layer.json`
-- **THEN** the command creates `layer.json` in that directory
+- **WHEN** a developer runs `hydragen init` with valid input in a supported directory with no occupied supported manifest paths at its initial check
+- **THEN** the command creates the manifest with the chosen format's fixed filename in that directory
 - **AND** the manifest contains no dependency list or layer-type field
 - **AND** success output describes a layer rather than a special root-only project
 
 ### Requirement: Accept explicit non-blank metadata without prompts
 
-Initialisation MUST use flag-only input whenever any metadata flag is supplied or
-interaction is unavailable. This route MUST accept `--name` as an optional override
-and `--author` and `--description` as independently optional flags, without prompting.
-When name is not supplied, init MUST use the current directory's final path
-component unchanged as the name. Guided input MUST offer the same value as a
-displayed default accepted by Enter. Init MUST NOT infer any other metadata.
-Only when no metadata flags are supplied and interaction is available MUST init
-collect metadata through the guided CLI interaction flow. It MUST NOT combine
-flags and prompt answers in one invocation.
+Initialisation MUST use flag-only input whenever any input flag is supplied or
+interaction is unavailable. The input flags MUST be `--name`, `--author`,
+`--description`, and `--format`. This route MUST accept `--name` as an optional
+override and `--author` and `--description` as independently optional flags,
+without prompting. When name is not supplied, init MUST use the current
+directory's final path component unchanged as the name. Guided input MUST offer
+the same value as a displayed default accepted by Enter. Init MUST NOT infer any
+other metadata. Only when no input flags are supplied and interaction is available
+MUST init collect input through the guided CLI interaction flow. It MUST NOT
+combine flags and prompt answers in one invocation.
 
-Name and every supplied optional value MUST be strings containing at least one
-non-whitespace character, matching the manifest schema's metadata requirements.
+Name and every supplied optional metadata value MUST be strings containing at
+least one non-whitespace character, matching the manifest metadata requirements.
 The command MUST validate supplied flags without opening prompts, preserve
 accepted values unchanged, and MUST NOT impose additional naming or identity
-rules. Invalid flag values or flags written without a value MUST produce an error rather than
-a replacement question. Absent or interactively skipped optional fields MUST be
-omitted from the manifest, not written as empty strings or `null`.
+rules. Invalid flag values or flags written without a value MUST produce an error
+rather than a replacement question. Absent or interactively skipped optional
+fields MUST be omitted from the manifest, not written as empty strings or `null`.
 
 #### Scenario: Only name is supplied
 
@@ -81,23 +83,41 @@ omitted from the manifest, not written as empty strings or `null`.
 - **THEN** the command exits unsuccessfully and identifies the invalid field
 - **AND** it creates no files or replacement prompts
 
-#### Scenario: Metadata includes JSON-sensitive characters
+#### Scenario: Metadata includes format-sensitive characters
 
-- **WHEN** accepted metadata includes quotes, backslashes, newlines, or non-ASCII characters
-- **THEN** the created manifest is valid JSON and decoding it recovers the original values
+- **WHEN** accepted metadata includes quotes, backslashes, newlines, whitespace, or non-ASCII characters
+- **THEN** the created manifest is valid in the chosen format and decoding it recovers the original strings
 
-### Requirement: Write a minimal readable JSON manifest
+### Requirement: Write a minimal readable manifest in the selected format
 
-A successful initialisation MUST write UTF-8, indented JSON with a trailing
-newline. The JSON object MUST contain `name`, plus `author` and `description`
-only when supplied, for this increment. It MUST NOT add a version, schema address,
-dependency field, or other properties.
+A successful initialisation MUST write a UTF-8 manifest in the selected format,
+ending in a newline. YAML and YML MUST use a readable YAML mapping; TOML MUST use
+readable top-level key/value entries with quoted metadata strings and no `[layer]`
+wrapper; JSON and JSONC MUST use two-space indented JSON. JSONC output MUST NOT require generated
+comments or a header. The object/mapping MUST contain `name`, plus `author` and
+`description` only when supplied, for this increment. It MUST NOT add a version,
+schema address, dependency field, format field, or other properties.
+
+Serialisation MUST preserve accepted metadata as strings, including values that
+would otherwise be interpreted as YAML booleans, numbers, or nulls. Serialisation
+and metadata validation MUST complete before opening the output file.
 
 #### Scenario: Inspect a newly created manifest
 
-- **WHEN** initialisation succeeds
-- **THEN** `layer.json` is readable, indented JSON ending in a newline
+- **WHEN** initialisation succeeds in any supported format
+- **THEN** its fixed filename matches the selected extension and its content is readable in that format with a final newline
 - **AND** its only properties are name and any author or description supplied by the developer
+
+#### Scenario: A string resembles a YAML typed scalar
+
+- **WHEN** accepted metadata is a string such as `true`, `123`, `null`, or `2026-10-16`
+- **THEN** generated YAML uses appropriate quoting or escaping to preserve the original string when decoded
+
+#### Scenario: Minimal TOML output preserves string metadata
+
+- **WHEN** init successfully creates a TOML manifest with quotes, backslashes, newlines, or date-like text in accepted metadata
+- **THEN** `layer.toml` contains appropriately quoted or escaped top-level strings and decoding recovers the exact original values
+- **AND** omitted optional fields remain absent and no `[layer]` wrapper or starter comments are generated
 
 ### Requirement: Use the current directory with a repository-location guard
 
@@ -145,60 +165,107 @@ layout.
 
 ### Requirement: Preserve existing manifests and project files
 
-Initialisation MUST NOT replace an existing entry at `layer.json`, including a
-regular file, directory, or symlink. The no-overwrite guarantee MUST hold if an
-entry appears after an initial check but before creation. The command MUST NOT
-read, validate, repair, or merge an existing manifest. A successful invocation
-MUST create only `layer.json` and MUST leave all existing project files unchanged.
+At its initial target check, init MUST reject an occupied path at any supported
+manifest filename, regardless of the requested output format or content validity.
+This includes regular files, directories, and symlinks, including dangling
+symlinks. The command MUST NOT read, validate, repair, merge, rename, or replace an
+existing manifest. An initial duplicate discovery MUST be reported according to
+the manifest warning policy before refusal.
+
+Creation MUST remain exclusive for the exact chosen output path, including if an
+entry appears after the initial check. The initial check MUST NOT reserve the
+directory or create a lock. A different supported filename appearing after that
+check MUST NOT by itself prevent creation or turn a successful write into an
+error. Init MUST NOT repeat an all-format refusal check at the final write.
+A successful invocation MUST create only its selected manifest and MUST leave
+all pre-existing project files unchanged.
+
+When an entry occupies the manifest path, the diagnostic MUST name the path,
+explain that init does not overwrite existing entries, and suggest a safe next
+step: inspect the entry or run init in the intended different directory. It MUST
+state that this invocation did not change files, without assuming the entry is
+a valid layer or implying that Hydragen read its contents. It MUST NOT recommend
+blind deletion, offer force/overwrite confirmation, or suggest an unimplemented
+command. The occupied path MUST remain intact in the diagnostic.
 
 #### Scenario: A manifest already exists
 
-- **WHEN** `layer.json` already exists, whether its contents are valid JSON or not
-- **THEN** initialisation fails and reports that the path already exists
-- **AND** the existing bytes remain unchanged
+- **WHEN** any supported manifest path is occupied when init performs its initial check, whether its contents are valid or not
+- **THEN** initialisation fails and identifies the existing path, explains the no-overwrite policy, and gives the safe next-step guidance, even if another format was requested
+- **AND** the existing entry and bytes remain unchanged
 
-#### Scenario: A directory or symlink occupies the manifest path
+#### Scenario: A directory or symlink occupies a manifest path
 
-- **WHEN** a directory or symlink, including a dangling symlink, occupies `layer.json`
+- **WHEN** a directory or symlink, including a dangling symlink, occupies any supported manifest path at the initial check
 - **THEN** initialisation fails without replacing the entry or changing a symlink target
+- **AND** its diagnostic names the occupied path and gives guidance accurate for an arbitrary entry, without assuming valid manifest contents
 
 #### Scenario: Repeat initialisation
 
 - **WHEN** initialisation is run again in a directory where it previously succeeded
-- **THEN** the second invocation fails without changing the manifest or other files
+- **THEN** the second invocation fails without changing the manifest or other files, even if it requests a different format
+- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the manifest
 
 #### Scenario: Preserve an existing project
 
 - **WHEN** initialisation succeeds in a directory containing source files, configuration, and Git metadata
 - **THEN** all pre-existing files remain unchanged
-- **AND** no workspace, contribution files, Git metadata, or other project files are created
+- **AND** no workspace, contribution files, Git metadata, lock files, or other project files are created
 
-#### Scenario: Another process creates the manifest first
+#### Scenario: Another process creates the exact target first
 
-- **WHEN** another process creates an entry at `layer.json` before initialisation opens its output
+- **WHEN** another process creates an entry at the chosen manifest path before init opens its output
 - **THEN** initialisation fails rather than overwriting that entry
+- **AND** it does not retry with another format
+- **AND** it gives the same occupied-path policy and recovery guidance without claiming that the other process made no changes
+
+#### Scenario: Another format appears after the initial check
+
+- **WHEN** init's initial check finds no occupied supported manifest paths
+- **AND** a different supported manifest filename appears before the final write
+- **AND** exclusive creation and writing of the chosen target otherwise succeed
+- **THEN** initialisation succeeds without deleting or modifying either manifest
+- **AND** its final observation reports duplicates if both paths are then observed
 
 ### Requirement: Provide predictable command outcomes and help
 
-Successful initialisation MUST exit with status zero and identify the created
-manifest on standard output after writing completes. Guided cliclack prompts and
-session feedback MUST use standard error, not the result stream. For flag-only
-input or any other invocation where interaction is disabled, success and error
-output MUST remain plain text without cliclack banners, prompts, spinners, or
-terminal-control sequences.
+Successful initialisation MUST exit with status zero and identify the manifest
+actually created on standard output after writing completes. Guided cliclack
+prompts and session feedback MUST use standard error, not the result stream.
+Warnings MUST also use standard error. For flag-only input or any other invocation
+where interaction is disabled, success, warning, and error output MUST remain
+plain text without cliclack banners, prompts, spinners, or terminal-control
+sequences.
 
-Usage, validation, location, input, cancellation, and filesystem failures MUST
+Usage, validation, location, input, cancellation, and create/write failures MUST
 exit with a nonzero status and actionable diagnostics on standard error, without
-claiming success. Top-level and init help and version output MUST remain available
-without writing project files, requiring metadata, or opening a prompt session.
+claiming success. A duplicate warning alone MUST NOT cause failure. Top-level and
+init help and version output MUST remain available without writing project files,
+requiring metadata, discovering manifests, or opening a prompt session.
+
+Root and init help MUST adapt ordinary explanatory prose and option descriptions
+to the detected terminal width, using word-boundary wrapping and readable
+continuation hierarchy rather than depending on terminal autowrap. Init option
+descriptions MUST start on a following line so their hierarchy remains clear at
+the representative 40-, 80-, and 100-column review widths. Help MUST remain plain
+and preserve all meaningful usage, defaults, input-route rules, and examples.
+Examples MUST retain argument boundaries and quoting so they can be copied as
+valid shell commands, with deliberate continuations when needed. A token too
+long to fit without splitting MUST remain intact rather than be truncated or
+changed. The review widths MUST NOT be treated as a general minimum-width promise.
+
+Help MUST cap normal wrapping at 100 columns while respecting narrower detected
+widths. When terminal width cannot be determined, help MUST use a 100-column
+fallback layout, without asking questions or opening another terminal. Width
+adaptation MUST NOT alter the command's meaning, exit behaviour, or output channel.
 
 #### Scenario: Request help
 
 - **WHEN** a developer runs `hydragen --help` or `hydragen init --help`
 - **THEN** the command exits successfully and displays relevant usage
-- **AND** it creates no project files and opens no prompts
-- **AND** init help explains the directory-name default and optional name override, optional author and description, and the non-interactive override
-- **AND** it explains that any metadata flag selects flag-only input without follow-up questions
+- **AND** it creates no project files, discovers no manifests, and opens no prompts
+- **AND** init help explains the directory-name default, optional metadata, format choices, YAML default, and the non-interactive override
+- **AND** it explains that any input flag, including format alone, selects flag-only input without follow-up questions
 - **AND** it includes interactive and flag-based examples
 
 #### Scenario: A filesystem write fails
@@ -211,19 +278,40 @@ without writing project files, requiring metadata, or opening a prompt session.
 #### Scenario: Non-interactive output
 
 - **WHEN** valid init runs with interaction disabled
-- **THEN** it reports success and the manifest path only on standard output, with no terminal UI on standard error
+- **THEN** it reports success and the created manifest path only on standard output, with no terminal UI on standard error
+- **AND** any warnings use plain standard error without changing a successful result
 - **AND** errors instead use standard error without success output or terminal UI
 
 #### Scenario: Interactive output
 
 - **WHEN** init collects answers in an interactive terminal and successfully creates the manifest
 - **THEN** cliclack renders the session on standard error
-- **AND** the successful result line and manifest path are reported on standard output after the write
+- **AND** the successful result line and actual manifest path are reported on standard output after the write
 
 #### Scenario: Request version
 
 - **WHEN** a developer runs `hydragen --version`
-- **THEN** it exits successfully with version information and no prompts or project-file changes
+- **THEN** it exits successfully with version information and no manifest discovery, prompts, or project-file changes
+
+#### Scenario: Help at representative terminal widths
+
+- **WHEN** root or init help is requested with `-h` or `--help` at detected widths of 40, 80, or 100 columns
+- **THEN** ordinary prose and descriptions wrap at word boundaries with readable hierarchy, preserving all content
+- **AND** init descriptions follow their option names on subsequent lines
+- **AND** deliberate example continuations retain valid shell argument boundaries and quoting
+- **AND** output is plain stdout, status is zero, and no prompts or files are created
+
+#### Scenario: Captured help without a detectable width
+
+- **WHEN** help is captured and no terminal width can be determined
+- **THEN** it uses the 100-column fallback layout and preserves the same usage information
+- **AND** it does not read answers or open another terminal and remains plain stdout with status zero
+
+#### Scenario: A help token exceeds the available width
+
+- **WHEN** a help token cannot fit at the reviewed width without splitting
+- **THEN** the full token is preserved even if it exceeds that width
+- **AND** surrounding prose still wraps normally without treating an entire long description as an unbreakable token
 
 ### Requirement: Initialisation works without external runtime services
 
@@ -236,3 +324,67 @@ repository's history, configuration, or staging area.
 - **WHEN** valid initialisation is run without terminal input, network access, AI services, or a Git executable
 - **AND** all filesystem and location conditions are satisfied
 - **THEN** it succeeds using the same command-line interface and manifest format
+
+### Requirement: Select a supported initialisation format
+
+Init MUST accept `--format` with exactly the lowercase values `yaml`, `yml`,
+`toml`, `json`, and `jsonc`, corresponding to the fixed supported filenames. Flag-only
+execution MUST default omitted format to `yaml`. Guided execution MUST offer the
+same default in its final selector. Format MUST NOT become manifest metadata or
+allow arbitrary paths, basenames, or extensions. A format flag MUST select only
+the newly created file's format, not override precedence for existing manifests.
+
+#### Scenario: Default output format
+
+- **WHEN** init runs flag-only without an explicit format and all other conditions are satisfied
+- **THEN** it creates `layer.yaml` containing YAML
+
+#### Scenario: Explicit output format
+
+- **WHEN** init receives any supported format flag and all other conditions are satisfied
+- **THEN** it creates the matching fixed filename with content in that format and no other manifest
+
+#### Scenario: TOML-only flag invocation
+
+- **WHEN** init receives `--format toml` without metadata flags and all other initialisation conditions are satisfied
+- **THEN** it creates `layer.toml` using the directory-name default, without questions
+- **AND** author and description are omitted
+
+#### Scenario: Invalid or missing format value
+
+- **WHEN** `--format` has no value or has an unsupported value
+- **THEN** clap reports a usage error without questions, writes, or manifest discovery
+
+### Requirement: Observe duplicate manifests after successful creation
+
+After a successful manifest write, init MUST make a best-effort read-only
+observation of the supported paths. If multiple paths are observed, it MUST emit
+one duplicate warning identifying the current selection according to manifest
+priority and MUST still report success for the file actually created. The warning
+MUST NOT claim to prove another process ran. Init MUST NOT roll back, delete, or
+rewrite either manifest or create a lock to prevent this situation.
+
+If the final observation cannot complete, init MUST warn that the manifest was
+created but duplicate checking failed, without changing creation's successful
+status. Failures to deliver terminal feedback or the result stream MUST retain
+the existing reporting-error semantics and MUST NOT claim no files were changed.
+The observation MUST NOT promise detection of files created after it ran.
+
+#### Scenario: Created file is not the highest-priority manifest
+
+- **WHEN** init creates `layer.json` after an initially empty check and its final observation also finds `layer.yaml`
+- **THEN** it warns that `layer.yaml` takes priority
+- **AND** it exits successfully and reports that it created `layer.json`
+- **AND** both manifests remain unchanged by the observation
+
+#### Scenario: Final observation fails
+
+- **WHEN** the selected manifest is successfully created and written but final duplicate checking encounters an inspection error
+- **THEN** init warns about the failed check and reports the created path with successful status
+- **AND** it does not report cancellation, remove the file, or claim no files changed
+
+#### Scenario: Concurrent initialisation selects different formats
+
+- **WHEN** two init operations both initially observe no supported manifest paths and later create different supported filenames
+- **THEN** both creations can succeed without locks or late all-format rejection
+- **AND** each operation warns about whatever duplicates its own final observation sees

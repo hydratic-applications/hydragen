@@ -67,13 +67,17 @@ hydragen init
 The guided flow uses [cliclack](https://docs.rs/cliclack/latest/cliclack/index.html)
 prompts to ask Name, Author, Description, then Manifest format. The name prompt
 shows the current directory's name as its default: press Enter to accept it, or
-type a different name. Press Enter without text to skip author or description. Invalid
-answers receive inline feedback so you can correct them. The final selector lists
-`yaml`, `yml`, `toml`, `json`, and `jsonc`, in that order, with `yaml` initially
-selected. Press Enter to accept YAML or choose another format. Each choice creates
-the corresponding fixed filename, such as `layer.json` for `json`. No files are
-created until all input, including format, is complete. The identifying name does
-not change the fixed filename.
+type a different name. Press Enter without text to skip author or description.
+Invalid answers receive inline, field-specific feedback so you can correct them.
+For an optional field, the feedback also explains how to clear the field and
+press Enter to skip it. Guided feedback refers to the prompt rather than a
+metadata flag; flag-only errors still identify the relevant flag.
+
+The final selector lists `yaml`, `yml`, `toml`, `json`, and `jsonc`, in that order,
+with `yaml` initially selected. Press Enter to accept YAML or choose another
+format. Each choice creates the corresponding fixed filename, such as
+`layer.json` for `json`. No files are created until all input, including format,
+is complete. The identifying name does not change the fixed filename.
 
 The session explains Enter's behaviour once at the start. Author and description
 have dimmed `(optional)` labels and empty input areas; only the name text prompt
@@ -305,6 +309,13 @@ There is no runtime schema-selection option, and a manifest's `$schema` value
 never selects another validator or triggers retrieval. Changing the maintained
 schema requires rebuilding the application to change its bundled rules.
 
+Validation feedback distinguishes invalid content from an internal schema setup
+failure. A blank metadata value gets field-specific correction guidance; any
+other failed schema rule is reported accurately rather than described as a blank
+value. If the bundled schema or validator cannot be prepared, init stops before
+prompts or writes with an internal-validation diagnostic instead of asking you to
+change valid input. Help and version do not require schema preparation.
+
 Depending on your editor and its extensions, you may be able to associate a
 manifest with this same local schema file through editor configuration. This
 change does not publish a public schema URL, configure automatic associations,
@@ -397,7 +408,10 @@ standard error; the result line remains on standard output. Flag-only output is
 plain text, with no cliclack UI even in a terminal. For example:
 
 ```text
-Error: '/path/to/project/layer.yaml' already exists. Initialisation was cancelled; no files were changed.
+Error: '/path/to/project/layer.yaml' already exists.
+'hydragen init' does not overwrite existing entries.
+Inspect the entry or run 'hydragen init' in a different directory.
+This command did not change any files.
 ```
 
 ### Duplicate warnings
@@ -427,7 +441,9 @@ are not combined or automatically repaired.
 ### Failures and cancellation
 
 There is no overwrite or force option. Init does not read, validate, repair, or
-merge an existing manifest. If an actual write fails, a partial newly created
+merge an existing manifest. The recovery advice applies to any occupied entry,
+including a directory or symlink; it does not imply that an existing manifest is
+valid or recommend deleting it. If an actual write fails, a partial newly created
 manifest can remain; the error identifies its path. Inspect that file before
 removing it and retrying. Init does not promise recovery from a crash or disk
 failure.
@@ -449,6 +465,17 @@ hydragen --version
 ```
 
 Argument-usage errors likewise do not scan manifests.
+
+Help remains plain text and wraps prose to the detected terminal width, capped
+at 100 columns; when width cannot be determined it uses a 100-column layout.
+Init places option descriptions below option names so they remain easy to follow
+in narrower terminals. Its examples use short commands or deliberate shell
+continuations, preserving argument boundaries and quoting when copied. Help
+explains all four input flags, including that format alone selects flag-only
+input, the five format choices, and the YAML default. The 40-, 80-, and 100-column
+verification cases are not a general minimum-width
+guarantee. Help line breaks and diagnostic wording are presentation, not a stable
+machine-readable format; result output and exit/channel conventions are unchanged.
 
 ## Development checks
 
@@ -492,13 +519,15 @@ lifecycle tests exercise exact-target collisions and different-format creation
 after the initial check, including duplicates and failed final observations.
 Other Unix tests cover symlinks, output-reporting failure, repository-inspection
 errors, and an actual write failure using a child-process file-size limit. That
-limit does not affect your shell or other tests. The built CLI requires neither
-a shell nor the terminal test harness.
+limit does not affect your shell or other tests. Width-aware help tests cover
+builder output and real terminal dimensions, while a Unix test executes copied
+help examples to check their shell arguments.
+The built CLI requires neither a shell nor the terminal test harness.
 
 The [manifest specification](openspec/specs/layer-manifest/spec.md) records the
 metadata requirements; format, selection, and reader decisions are in the
-[manifest-formats change](openspec/changes/support-layer-manifest-formats/design.md).
-The [maintained-schema design](openspec/changes/use-maintained-manifest-schema/design.md)
+[manifest-formats change](openspec/changes/archive/2026-10-17-support-layer-manifest-formats/design.md).
+The [maintained-schema design](openspec/changes/archive/2026-10-17-use-maintained-manifest-schema/design.md)
 explains the shared validation boundary. OpenSpec documents are planning and
 decision references, not build, test, or runtime inputs. Archived schemas remain
 historical snapshots and are not synchronized with the maintained schema.
