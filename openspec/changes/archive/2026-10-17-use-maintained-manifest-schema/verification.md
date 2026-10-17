@@ -1,11 +1,11 @@
-# Manifest schema and format integration verification
+# Layer manifest schema and format integration verification
 
 Verified on 2026-10-17 on macOS with Rust 1.96.0.
 
 ## Result
 
 `jammy-gecko` was fast-forward merged into `main` from `e2d50e8` to `9c91f33`
-without conflicts. This brought in `e7a4d28` (manifest formats) and `9c91f33`
+without conflicts. This brought in `e7a4d28` (layer manifest formats) and `9c91f33`
 (a proposal for a future validation command). The proposal was preserved but not
 implemented. The separate `merry-egret` checkout was not modified.
 
@@ -61,7 +61,7 @@ openspec validate use-maintained-manifest-schema --strict
 ```
 
 The full suite has **161 passing tests**: 26 library, 18 binary, 37 captured init,
-7 init lifecycle, 18 real pseudo-terminal, 31 manifest/codec, 6 schema integration,
+7 init lifecycle, 18 real pseudo-terminal, 31 layer manifest/codec, 6 schema integration,
 11 YAML integer, and 7 YAML scalar tests. Cases within these tests cover all five
 formats, metadata combinations, wrong types/null, invalid `$schema`, additional
 data preservation, selected-only schema failure, exact output/string preservation,

@@ -2,18 +2,18 @@
 
 After merging `support-layer-manifest-formats`, the CLI implements `hydragen init`
 with YAML/YML/TOML/JSON/JSONC output and YAML as its default. The library also has
-read-only manifest discovery/loading. `Metadata` in `src/lib.rs`
+read-only layer manifest discovery/loading. `Metadata` in `src/lib.rs`
 represents its output, while `validate_metadata_value` independently enforces the
-manifest's non-blank-string rule using Rust's whitespace predicate. Flags,
+layer manifest's non-blank-string rule using Rust's whitespace predicate. Flags,
 guided answers, and directory-name defaults call that predicate. Before writing,
 the library validates metadata and uses the selected format's serializer.
 
-`src/manifest.rs` already owns discovery, loading, and codecs. Its decoders produce
+`src/layer_manifest.rs` already owns discovery, loading, and codecs. Its decoders produce
 complete JSON-compatible `serde_json::Value` documents under explicit parser
 policies. Loading currently validates only extracted identifying fields, so it
 does not enforce the existing optional `$schema` rule. Schema integration must
 validate the entire decoded document before extraction, preserving additional
-fields in `LoadedManifest.document`.
+fields in `LoadedLayerManifest.document`.
 
 A unit test in the same module embeds a schema from an archived OpenSpec change.
 It checks a few schema properties but does not validate generated content. This
@@ -39,7 +39,7 @@ or filesystem-safety checks.
 - Maintain the current metadata schema at
   `schemas/layer-manifest.schema.json`, independently of OpenSpec history.
 - Make schema validation determine content validity for every init input route
-  and the complete manifest before writing.
+  and the complete layer manifest before writing.
 - Provide reusable validation of JSON-compatible parsed content from all supported
   formats, including the existing loader, without coupling it to a
   command, terminal, or filesystem path.
@@ -55,7 +55,7 @@ or filesystem-safety checks.
 - Adding a new loading workflow, repairing existing files, or adding a CLI command.
 - Further format support or parser-policy redesign, dependency-reference syntax,
   versioning, stricter unknown
-  fields, or broader manifest semantics.
+  fields, or broader layer manifest semantics.
 - Schema generation, generated Rust types, or generated CLI arguments/prompts.
 - Publishing a public schema URL, automatic editor association, a schema-export
   command, or adding `$schema` to init output.
@@ -67,7 +67,7 @@ or filesystem-safety checks.
 ### 1. Maintain the schema as an implementation asset, not an archive dependency
 
 Create `schemas/layer-manifest.schema.json` from the archived schema without
-changing its rules, updating descriptive text to cover all supported manifest
+changing its rules, updating descriptive text to cover all supported layer manifest
 formats rather than only `layer.json`: Draft 2020-12, an object with required non-blank string `name`,
 independently optional non-blank string `author` and `description`, the existing
 optional `$schema` property, and permitted additional properties.
@@ -126,7 +126,7 @@ policy; document the tightened input acceptance and regression evidence.
 
 ### 2. Embed an offline validator and compile it once per process
 
-Add a focused `src/manifest/schema.rs` submodule alongside the existing decoders.
+Add a focused `src/layer_manifest/schema.rs` submodule alongside the existing decoders.
 It embeds the maintained file using
 `include_str!`, parses it, and prepares the validators on first validation use.
 Use standard-library lazy initialization to cache either the prepared validator
@@ -157,11 +157,11 @@ Schema would recreate a second validation implementation.
 
 ### 3. Share the schema between complete-content and field validation
 
-The manifest module exposes a reusable operation accepting
+The layer manifest module exposes a reusable operation accepting
 `&serde_json::Value`, returning success or an owned validation error. It does not
 read files or depend on init's typed writer. The existing loader uses it immediately
 after decoding and before metadata extraction, including shapes that `Metadata`
-cannot construct. The manifest's `$schema` value is validated as content, never
+cannot construct. The layer manifest's `$schema` value is validated as content, never
 used to fetch or select another validator. Keep the original validated document,
 including additional properties. Parser-specific syntax, duplicate-key, type,
 number-range, and unsupported-value policies remain in the decoders.
@@ -170,7 +170,7 @@ Init also needs field validation while a complete object does not yet exist.
 Prepare field validators that reference the maintained document's property
 definitions through an in-memory schema registry. Use an internal resource
 identifier for this registration; it is not a published schema URL and is not
-written into manifests. Reference wrappers contain no independently maintained
+written into layer manifests. Reference wrappers contain no independently maintained
 type, regex, or length constraints.
 
 Keep the complete-object validator and known-field validators in one cached set.
@@ -243,7 +243,7 @@ pattern itself so a different rule cannot inherit misleading non-blank wording.
 
 An invalid bundled schema is an internal error: report it clearly with a nonzero
 exit before prompts or writes. Do not panic, blame user metadata, or ask the user
-to retry the same value. Terminal formatting stays outside manifest validation.
+to retry the same value. Terminal formatting stays outside layer manifest validation.
 
 **Alternatives:** Raw validator output would unnecessarily change established
 prompt feedback. Keeping handwritten checks solely for friendly messages could
@@ -292,7 +292,7 @@ Add a concise `Schemas and implementation assets` section to `AGENTS.md`:
 - Source code, tests, and build scripts must not load or embed `openspec/` files.
   Required assets belong in maintained project locations; documentation may link
   to specifications and decisions.
-- Manifest-content validity comes from the maintained schema, not duplicated
+- Layer manifest content validity comes from the maintained schema, not duplicated
   predicates across flags, prompts, defaults, or output validation.
 - Friendly presentation, input interpretation, repository-location checks, and
   safe file creation remain separate responsibilities.
@@ -347,7 +347,7 @@ are complete.
 
 If validation compatibility or dependency behaviour blocks the change, stop and
 revise this design before release. Any rollback should revert only this change's
-implementation, leaving user manifests, archived history, and unrelated work
+implementation, leaving user layer manifests, archived history, and unrelated work
 untouched; it must not make the archive an executable dependency again.
 
 ## Open Questions
@@ -358,7 +358,7 @@ behaviour, and acceptable responsiveness. These are verification gates, not
 permission to change the agreed rules silently.
 
 Public schema hosting and version selection, editor automation, alternative
-manifest formats, existing-manifest workflows, and dependency semantics remain
+layer manifest formats, existing-layer-manifest workflows, and dependency semantics remain
 outside this change.
 
 ## Implementation verification — 2026-10-17

@@ -16,7 +16,7 @@ directories outside repositories. Temporary paths are normalised to `<project>`
 in occupied-path evidence; existing bytes are checked after execution.
 
 The before init help has a 117-character longest logical line. Guided validation
-refers to `--name`/`--author`; the occupied-manifest error reports cancellation
+refers to `--name`/`--author`; the occupied-layer-manifest error reports cancellation
 without a safe next step.
 
 ## Implemented changes and dependency review
@@ -30,7 +30,7 @@ without a safe next step.
   `src/interaction.rs`. The validator and flag-only errors are unchanged; other
   error variants retain their diagnostic. Optional feedback explicitly explains
   clearing the field and pressing Enter to skip.
-- Occupied-manifest errors now separate the reason, policy, next step, and
+- Occupied-layer-manifest errors now separate the reason, policy, next step, and
   no-change outcome into plain-text lines. They refer to this command's actions,
   remain accurate for arbitrary entries, and preserve the full path.
 - Lockfile review found only clap_builder's new `terminal_size` edge and the
@@ -38,7 +38,7 @@ without a safe next step.
   including clap 4.6.7 and cliclack 0.5.6, did not change. No UI framework or new
   runtime service was introduced.
 
-The library diff changes only the occupied-manifest display string: metadata
+The library diff changes only the occupied-layer-manifest display string: metadata
 validation/serialization, preflight, exclusive creation, writes, and repository
 checks are unchanged. CLI flags, mode detection, successful result output,
 cancellation, and file-failure reporting retain their existing implementations.
@@ -79,7 +79,7 @@ Coverage added or strengthened:
   independent clear-to-skip for both optional fields. Unicode and surrounding
   whitespace remain unchanged, as do default acceptance and literal `Skipped`.
 - Existing valid/malformed files, directories, symlinks/dangling symlinks, repeat
-  init, concurrent creation, a manifest appearing during prompts, and long Unicode
+  init, concurrent creation, a layer manifest appearing during prompts, and long Unicode
   paths retain no-overwrite/preservation checks and gain recovery-advice assertions.
 - The rest of the existing suite still verifies optional-only flags, CI,
   explicit non-interactive mode, individual redirected streams, cancellation/input
@@ -145,12 +145,12 @@ long paths remain intact even when an actual terminal has to wrap them.
   recovery removes specific interruptions to the flow. Retry and optional-skip
   feedback remain predictable. Whether users find the overall CLI enjoyable still
   needs human feedback under R5; test success is not enjoyment evidence.
-- **Functionality:** copied examples produce the expected manifests; accepted
+- **Functionality:** copied examples produce the expected layer manifests; accepted
   input, defaults, channels, exit outcomes, and safety checks remain intact across
   the passing captured and terminal suites.
 - **Ease of use:** help remains complete and scannable at the reviewed widths;
   prompt feedback explains correction/skipping; occupied entries get a safe next
-  action without a destructive suggestion or an assumption of manifest validity.
+  action without a destructive suggestion or an assumption of layer manifest validity.
 
 R1–R3's scoped acceptance checks pass. The foundations already express the relevant
 product goals and need no further change; no glossary term or scenario was added.
@@ -159,7 +159,7 @@ criteria question has only a narrow link to this increment's decisions.
 
 R4's long-input/cursor/resize investigation and R5's broader visual-cohesion and
 human enjoyment review remain open. No theme, prompt-frame, success/cancellation,
-manifest-schema, minimum-width, cross-platform, accessibility, or performance
+layer manifest schema, minimum-width, cross-platform, accessibility, or performance
 target decision is inferred from this work. The earlier audit/evidence remain
 unchanged as the historical before baseline; only the completed remediation
 checklist entries are updated after verification.

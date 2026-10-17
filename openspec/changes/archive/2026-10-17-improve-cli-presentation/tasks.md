@@ -11,14 +11,14 @@
 - [x] 2.2 Update the obsolete flag-oriented prompt wait and add unit/terminal coverage for invalid Name, Author, and Description, correction and clear-to-skip, enabled/disabled colour, no early writes, unchanged Unicode/whitespace/defaults, and literal `Skipped` preservation.
 - [x] 2.3 Recheck flag-only empty/whitespace metadata failures, optional-only flags, non-interactive/CI/redirected execution, and cancellation to confirm presentation changes introduce no questions, acceptance changes, or output-channel regressions.
 
-## 3. Safe existing-manifest recovery guidance
+## 3. Safe existing-layer-manifest recovery guidance
 
-- [x] 3.1 Extend only occupied-manifest diagnostic formatting to name the path, explain no overwrite, give safe inspect/different-directory advice, and describe this invocation's no-change outcome without assuming manifest validity, reading the entry, or recommending deletion/force.
-- [x] 3.2 Strengthen captured and terminal assertions for regular/malformed files, directories, symlinks/dangling symlinks, repeated init, and a manifest appearing during questions; retain byte/target preservation and plain stderr/nonzero/no-success checks, including long-path fidelity.
+- [x] 3.1 Extend only occupied-layer-manifest diagnostic formatting to name the path, explain no overwrite, give safe inspect/different-directory advice, and describe this invocation's no-change outcome without assuming layer manifest validity, reading the entry, or recommending deletion/force.
+- [x] 3.2 Strengthen captured and terminal assertions for regular/malformed files, directories, symlinks/dangling symlinks, repeated init, and a layer manifest appearing during questions; retain byte/target preservation and plain stderr/nonzero/no-success checks, including long-path fidelity.
 
 ## 4. Documentation, evidence, and review
 
-- [x] 4.1 Update README help/examples and the occupied-manifest error example, and add a narrow presentation-decision link under question 10 in `openspec/design-questions.md`; review from a first-time reader's perspective without weakening the foundations or resolving unrelated questions.
+- [x] 4.1 Update README help/examples and the occupied-layer-manifest error example, and add a narrow presentation-decision link under question 10 in `openspec/design-questions.md`; review from a first-time reader's perspective without weakening the foundations or resolving unrelated questions.
 - [x] 4.2 Create `verification.md` in this change with revision/environment, test commands/results, and concise before/after terminal evidence for help, guided validation, and recovery errors; explicitly review all four DX goals, label replay/platform limits accurately, and leave R4/R5 findings separate.
 - [x] 4.3 Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --locked`; validate this change with `openspec validate improve-cli-presentation --strict`, check Markdown links and `git diff --check`, and confirm no unintended command/schema/filesystem/success-output changes.
 - [x] 4.4 Once the fixes and evidence pass, tick only R1–R3 in the earlier repository remediation checklist and its saved Project Plan, leaving R4/R5 and evidence gaps open; present the completed increment for review without automatically archiving, publishing, or applying deferred fixes.

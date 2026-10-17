@@ -44,5 +44,5 @@ behaviour remains unchanged.
   directory, created during implementation, after the documentation update.
 - Audit inputs: `src/main.rs`, `src/interaction.rs`, `src/lib.rs`, CLI documentation,
   existing specifications, and captured-output and terminal tests.
-- No runtime code, command contract, manifest, dependency, or archived-spec changes.
+- No runtime code, command contract, layer manifest, dependency, or archived-spec changes.
   No claim that the existing CLI complies before the audit is performed.

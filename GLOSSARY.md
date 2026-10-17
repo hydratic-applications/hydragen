@@ -12,16 +12,16 @@ Both [root layers](#root-layer) and [dependent layers](#dependent-layer) can hav
 other layers depend on them. Layers can form [dependency](#dependency) chains of
 any depth; there is no fixed maximum number of levels.
 
-Every layer has a [manifest](#manifest) at its repository root, declaring its
-required name, optional author and description, and the other layers it depends
-on. Its filename is one of `layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`,
-or `layer.jsonc`.
+Every layer has a [layer manifest](#layer-manifest) at its repository root,
+declaring its required name, optional author and description, and the other layers
+it depends on. Its filename is one of `layer.yaml`, `layer.yml`, `layer.toml`,
+`layer.json`, or `layer.jsonc`.
 
 ## Root layer
 
 A [layer](#layer) with no [dependencies](#dependency). Its
-[manifest](#manifest) may omit the [dependency](#dependency) list or include an
-empty list; both mean the same thing.
+[layer manifest](#layer-manifest) may omit the [dependency](#dependency) list or
+include an empty list; both mean the same thing.
 
 Its file [contributions](#contribution) are [additions](#addition). With no
 [inherited content](#inherited-content), it cannot have
@@ -34,8 +34,8 @@ A [layer](#layer) that depends on one or more other [layers](#layer). Each
 [dependency](#dependency) may itself be a [root layer](#root-layer) or another
 dependent layer.
 
-It commits its [manifest](#manifest) and only the content needed to describe its
-own [contributions](#contribution): [additions](#addition),
+It commits its [layer manifest](#layer-manifest) and only the content needed to
+describe its own [contributions](#contribution): [additions](#addition),
 [modifications](#modification), and [deletions](#deletion) relative to its
 [dependencies](#dependency).
 Unchanged [inherited content](#inherited-content) is not committed again in the
@@ -47,8 +47,9 @@ editable files and its recorded [contributions](#contribution).
 
 ## Dependency
 
-A [layer](#layer) that another [layer](#layer) declares in its [manifest](#manifest)
-as a source of [inherited content](#inherited-content). Its
+A [layer](#layer) that another [layer](#layer) declares in its
+[layer manifest](#layer-manifest) as a source of
+[inherited content](#inherited-content). Its
 [layer result](#layer-result) provides that content to the
 [dependent layer](#dependent-layer).
 
@@ -113,12 +114,12 @@ terminal. It handles translation between a [dependent layer's](#dependent-layer)
 [contribution capture](#contribution-capture) to reflect edits in the files that
 represent those [contributions](#contribution) for committing.
 
-## Manifest
+## Layer manifest
 
 A file at the root of a [layer's](#layer) repository, named exactly `layer.yaml`,
 `layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc`. The two YAML extensions
 use the same format; the others use TOML, strict JSON, and JSON with comments
-(JSONC), respectively. New manifests default to `layer.yaml`. The
+(JSONC), respectively. New layer manifests default to `layer.yaml`. The
 [layer's](#layer) identifying name does not change the filename.
 
 It declares the [layer's](#layer) required name and optional author and description,
@@ -127,8 +128,8 @@ a non-blank string, with the same meaning in every supported format.
 
 If multiple supported names are occupied, selection follows the fixed order
 `layer.yaml` > `layer.yml` > `layer.toml` > `layer.json` > `layer.jsonc`. Only the
-selected file supplies data; manifests are not merged, and a selected-file error
-does not cause fallback to another format.
+selected file supplies data; layer manifests are not merged, and a selected-file
+error does not cause fallback to another format.
 
 ## Contribution
 

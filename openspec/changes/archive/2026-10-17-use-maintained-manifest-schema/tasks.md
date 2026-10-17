@@ -2,7 +2,7 @@
 
 - [x] 1.1 Create `schemas/layer-manifest.schema.json` from the archived metadata schema, preserving Draft 2020-12, non-blank metadata rules, optional `$schema` handling, and permitted additional properties. Update descriptive text for all supported formats; leave the archive unchanged and introduce no synchronization or archive-equality checks.
 - [x] 1.2 Add `jsonschema` as a runtime dependency, starting with version requirement `0.58.6` and default features disabled; update `Cargo.lock` and verify toolchain compatibility and the absence of HTTP, external-file retrieval, TLS, async, and macro features in its resolved feature graph.
-- [x] 1.3 Introduce `src/manifest/schema.rs` alongside the merged format module with compile-time schema embedding, explicit Draft 2020-12/offline configuration, and process-wide caching of either the prepared validator set or its initialization failure. Ensure no external schema resources are retrieved and help/version paths do not initialize validation.
+- [x] 1.3 Introduce `src/layer_manifest/schema.rs` alongside the merged format module with compile-time schema embedding, explicit Draft 2020-12/offline configuration, and process-wide caching of either the prepared validator set or its initialization failure. Ensure no external schema resources are retrieved and help/version paths do not initialize validation.
 - [x] 1.4 Add an early compatibility test for current non-blank semantics across all metadata fields, including empty strings, ASCII whitespace, NBSP, EM SPACE, U+0085, mixed whitespace/visible text, and preserved Unicode. Resolve any engine/configuration differences without duplicating Rust predicates or changing agreed validity; stop for discussion if compatibility cannot be preserved.
 
 ## 2. Shared content and field validation
@@ -30,7 +30,7 @@
 ## 5. Documentation and maintenance guidance
 
 - [x] 5.1 Update `README.md` to identify the maintained schema, its bundled offline CLI use, metadata-only limits, and real validation tests. Explain reuse of the same file by appropriately configured editors without promising public hosting, automatic association, a schema-export command, or generated `$schema` properties.
-- [x] 5.2 Add `Schemas and implementation assets` guidance to `AGENTS.md`: no executable inputs from `openspec/`; required assets in maintained locations; schema-driven manifest-content validation across all routes; separate presentation/input interpretation and filesystem safety; historical archives neither synchronized nor normal test/build inputs. Preserve documentation links to planning decisions as permitted references.
+- [x] 5.2 Add `Schemas and implementation assets` guidance to `AGENTS.md`: no executable inputs from `openspec/`; required assets in maintained locations; schema-driven layer manifest content validation across all routes; separate presentation/input interpretation and filesystem safety; historical archives neither synchronized nor normal test/build inputs. Preserve documentation links to planning decisions as permitted references.
 - [x] 5.3 Review revised documentation from a first-time reader's perspective and check alignment with `FOUNDATIONS.md`, glossary meanings, and `openspec/design-questions.md`. Make no unrelated product decisions or foundations/glossary edits; record any genuinely relevant question resolution with a decision link, and surface conflicts rather than silently changing scope.
 
 ## 6. Standalone, package, and release verification

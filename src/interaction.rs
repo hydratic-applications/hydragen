@@ -4,8 +4,8 @@ use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::rc::Rc;
 
-use hydragen::manifest::schema;
-use hydragen::{InitError, ManifestFormat, Metadata, validate_metadata_value};
+use hydragen::layer_manifest::schema;
+use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
 
 struct DefaultTheme;
 impl cliclack::Theme for DefaultTheme {}
@@ -182,7 +182,7 @@ fn directory_name_validating(
 
 pub struct InitInput {
     pub metadata: Metadata,
-    pub format: ManifestFormat,
+    pub format: LayerManifestFormat,
 }
 
 pub fn collect_init_input(default_name: &str) -> io::Result<InitInput> {
@@ -210,12 +210,12 @@ fn collect_init_input_ready(
         let description = optional_input("description", "Description")?;
         // The empty-input summary is only for optional metadata, not selections.
         cliclack::reset_theme();
-        let mut selector = cliclack::select("Manifest format");
-        for format in ManifestFormat::ALL {
+        let mut selector = cliclack::select("Layer manifest format");
+        for format in LayerManifestFormat::ALL {
             selector = selector.item(format, format.extension(), "");
         }
         let format = selector
-            .initial_value(ManifestFormat::default())
+            .initial_value(LayerManifestFormat::default())
             .interact()?;
         Ok(InitInput {
             metadata: Metadata {
@@ -241,14 +241,14 @@ fn input_failure_message(error: &io::Error) -> String {
     }
 }
 
-pub fn finish(mode: Mode, manifest: &Path) -> io::Result<()> {
+pub fn finish(mode: Mode, layer_manifest: &Path) -> io::Result<()> {
     if mode == Mode::Guided {
         cliclack::outro("Layer initialised.").map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
-                    "Manifest '{}' was created, but terminal feedback failed: {error}",
-                    manifest.display()
+                    "Layer manifest '{}' was created, but terminal feedback failed: {error}",
+                    layer_manifest.display()
                 ),
             )
         })?;
@@ -256,14 +256,14 @@ pub fn finish(mode: Mode, manifest: &Path) -> io::Result<()> {
     writeln!(
         io::stdout().lock(),
         "Initialised layer: {}",
-        manifest.display()
+        layer_manifest.display()
     )
     .map_err(|error| {
         io::Error::new(
             error.kind(),
             format!(
-                "Manifest '{}' was created, but reporting its path failed: {error}",
-                manifest.display()
+                "Layer manifest '{}' was created, but reporting its path failed: {error}",
+                layer_manifest.display()
             ),
         )
     })
@@ -346,7 +346,11 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::Other);
-        assert!(error.to_string().contains("Internal manifest schema error"));
+        assert!(
+            error
+                .to_string()
+                .contains("Internal layer manifest schema error")
+        );
         assert!(!error.to_string().contains("Supply --name"));
         assert!(!error.to_string().contains("non-blank"));
     }
@@ -490,7 +494,7 @@ mod tests {
     #[test]
     fn unrelated_validation_errors_keep_their_original_diagnostic() {
         let error = InitError::Io {
-            action: "inspect manifest path",
+            action: "inspect layer manifest path",
             path: Path::new("example/layer.json").to_owned(),
             source: io::Error::from(io::ErrorKind::PermissionDenied),
         };

@@ -15,7 +15,7 @@ Captured commands use isolated disposable directories. Terminal sessions use
 variables. Ambient `CI`, `NO_COLOR`, `CLICOLOR`, and `CLICOLOR_FORCE` were unset.
 
 The baseline is the updated DX value and CLI guidance, constrained by the current
-CLI interaction, layer initialisation, and manifest specifications. Reviewed
+CLI interaction, layer initialisation, and layer manifest specifications. Reviewed
 `src/main.rs`, `src/interaction.rs`, `src/lib.rs`, README, all three main specs,
 `tests/init.rs`, and `tests/interactive_init.rs`. The implemented scope remains
 `init`, clap help/version, and their success/failure paths; future commands are
@@ -60,15 +60,15 @@ change. Raw bytes are preserved so observations can be checked independently.
 | Help and version | `help-root`, `help-init`, `version`, `help-normal`, `help-narrow` | Exit 0, stdout only, no writes; help text remains identical at 40 and 100 columns. |
 | Argument errors | `missing-command`, `unknown-option`, `missing-value` | Exit 2, stderr only, no writes; usage or a help hint is supplied. |
 | Flag-only input | `flag-name`, `flag-author`, `flag-description`, `flag-default`, `terminal-flag` | Exit 0, stdout result, no prompts; defaults and supplied metadata recorded. |
-| Invalid flags | `flag-invalid`, `terminal-invalid-flag` | Exit 1, stderr diagnostic, no manifest or replacement prompt. |
+| Invalid flags | `flag-invalid`, `terminal-invalid-flag` | Exit 1, stderr diagnostic, no layer manifest or replacement prompt. |
 | Guided success | `guided-default`, `guided-override`, `guided-author-only`, `guided-description-only` | Exit 0; prompts/completion on stderr, result path on stdout; default acceptance, Unicode override, independent skips, and supplied metadata work. |
 | Guided retry | `guided-retry` | Name and author whitespace fail inline; correction succeeds with exit 0. Passing `invalid_answers_can_be_corrected_without_creating_files_early` also verifies no premature writes. |
-| Cancellation | `cancel-escape`, `cancel-ctrl-c`, `cancel-partial-escape`, `cancel-partial-ctrl-c` | Exit 1, no stdout, no manifest; cancellation and no-change message on stderr. |
+| Cancellation | `cancel-escape`, `cancel-ctrl-c`, `cancel-partial-escape`, `cancel-partial-ctrl-c` | Exit 1, no stdout, no layer manifest; cancellation and no-change message on stderr. |
 | Automation | `terminal-ci`, `terminal-noninteractive`, `terminal-flag` | Exit 0, plain stdout, empty stderr, no questions even with terminal streams. |
 | Each redirected stream | `redirecting_any_single_stream_disables_guided_input` | Passing PTY test redirects stdin, stdout, and stderr independently; all succeed without prompts and retain result-channel rules. |
 | Existing target | `existing-manifest`; `an_existing_manifest_is_reported_before_any_questions` | Exit 1, stderr only, original bytes preserved; passing PTY test confirms rejection before questions. |
 | Repository/default errors | `nested-repository`, `unusable-default`; `repository_location_errors_happen_before_questions` | Exit 1, no writes; identifies repository root or instructs an explicit name. |
-| Reporting failure after write | `a_result_output_failure_does_not_claim_the_manifest_was_not_created` | Passing test closes the result pipe; nonzero outcome says the manifest was created and confirms its bytes, not a false no-change message. |
+| Reporting failure after write | `a_result_output_failure_does_not_claim_the_layer_manifest_was_not_created` | Passing test closes the result pipe; nonzero outcome says the layer manifest was created and confirms its bytes, not a false no-change message. |
 | Other safety failures | `write_failures_report_the_path_without_false_success`, `a_manifest_created_during_questions_is_not_overwritten`, `losing_terminal_input_reports_failure_without_creating_a_manifest` | Passing tests cover partial-write disclosure, creation races, and actual terminal input loss. |
 | Presentation conditions | `guided-nocolour`, `guided-narrow-long`, `help-narrow`, `help-normal`, `guided-override` | NO_COLOR preserves meaning; long/CJK/emoji default is stored unchanged; narrow wrapping needs improvement/review below. |
 
@@ -95,11 +95,11 @@ dislike the CLI. A restrained plain presentation is not inherently a gap.
 | Completion | Needs design review: guided outro plus plain result is deliberate but stylistically mixed (F5) | Needs design review: repetition may or may not help | Meets: success follows creation, stdout path preserved | Meets: completed state and created path are explicit |
 | Cancellation | Needs design review: framed cancellation followed by plain diagnostic (F5) | Needs design review: two messages merit human review | Meets: both keys and partial-input paths fail safely | Meets: cancelled outcome and no files changed are explicit |
 | Plain/automation input and output | Meets: intentionally brief and uncluttered | Needs design review: predictable execution is positive, enjoyment untested | Meets: no prompts/ANSI UI, correct channels and defaults | Meets: optional-only flags work, omission is predictable |
-| Existing-manifest error | Meets: readable plain diagnostic | Needs design review: being blocked may need better guidance | Meets: rejects without reading/overwriting | Gap: no safe next step is stated (F3) |
+| Existing-layer-manifest error | Meets: readable plain diagnostic | Needs design review: being blocked may need better guidance | Meets: rejects without reading/overwriting | Gap: no safe next step is stated (F3) |
 | Repository/default errors | Meets: plain, consistent diagnostics | Needs design review: error experience untested with users | Meets: fails before writes | Meets: root location or explicit-name remedy is given |
 | Difficult failure paths | Not verified visually: test evidence only | Not verified: no usability session | Meets within tested paths: truthful diagnostics and safety | Meets for inspected messages: affected path/state is stated |
 | Narrow/long guided presentation | Gap in replay: broken frame continuity/wrapped words (F4) | Needs design review: actual perceived friction is untested | Meets for recorded session: full value survives and init succeeds; exact redraw unverified | Gap in replay: long default is harder to follow (F4) |
-| No-colour guided presentation | Meets in replay: labels/symbols survive without colour | Needs design review: contrast and preference untested | Meets: defaults/skips and manifest preserved | Meets: meaning does not depend on colour or italics |
+| No-colour guided presentation | Meets in replay: labels/symbols survive without colour | Needs design review: contrast and preference untested | Meets: defaults/skips and layer manifest preserved | Meets: meaning does not depend on colour or italics |
 
 ## Findings
 
@@ -134,7 +134,7 @@ identifies the field, but refers to an input mechanism the user is not using.
 `src/lib.rs` formats that error as a flag. Preserve the common non-blank rule and
 unchanged accepted values, but adapt presentation at the terminal boundary.
 
-### F3: Existing-manifest feedback stops without explaining how to proceed
+### F3: Existing-layer-manifest feedback stops without explaining how to proceed
 
 **Classification:** concrete recovery-guidance opportunity under the new goal;
 not enough evidence to call the existing actionable-diagnostic contract violated.
@@ -143,7 +143,7 @@ not enough evidence to call the existing actionable-diagnostic contract violated
 with no changes. It neither says that the file was deliberately left unread nor
 offers a safe next action. Other target errors are stronger: the repository error
 names the correct root and the unusable-default error says to supply `--name`.
-The manifest diagnostic could say that init does not overwrite existing entries
+The layer manifest diagnostic could say that init does not overwrite existing entries
 and suggest inspecting the entry or choosing a different directory. It must not
 suggest blindly deleting it, assume a valid existing layer, add a force mode,
 or read/repair the entry.
@@ -178,7 +178,7 @@ theme, or forced decoration is recommended by default.
 
 ## Limits and conclusion
 
-No confirmed breach of the existing interaction, manifest, or filesystem-safety
+No confirmed breach of the existing interaction, layer manifest, or filesystem-safety
 contracts was found within the executed cases and inspected passing tests. This
 is not a proof of universal correctness. The new experience goals expose specific
 layout and wording improvements (F1–F4), while F5 requires a preference decision.

@@ -3,7 +3,7 @@
 Developers need to know whether a project conforms to the requirements of the
 particular Hydragen version they are running, including whether its layers,
 contributions, and dependency relationships are valid. Capture this future command
-now so that validation is not mistaken for manifest parsing alone while the layer
+now so that validation is not mistaken for layer manifest parsing alone while the layer
 and dependency model is still being developed.
 
 ## What Changes
@@ -11,12 +11,12 @@ and dependency model is still being developed.
 The following is agreed product intent for a future `hydragen validate` command,
 not an implementation-ready design:
 
-- By default, validate everything applicable to the project: its manifest,
+- By default, validate everything applicable to the project: its layer manifest,
   contributions (including patches and deletion markers), and compatibility with
   its base/dependency layers. Detect invalid or broken layer, contribution, and
   dependency relationships, not just malformed individual files.
 - Allow users to explicitly limit what is validated. Conceptual examples are
-  “validate only the manifest” and “validate patches”; these are use cases, not
+  “validate only the layer manifest” and “validate patches”; these are use cases, not
   settled CLI syntax. Whether selection uses arguments, flags, or subcommands
   remains open.
 - Assess conformance to the requirements supported by the running Hydragen
@@ -39,7 +39,7 @@ Design, specifications, and tasks must follow further exploration and planning.
 
 ### Modified Capabilities
 
-None proposed at this stage. Reuse existing manifest requirements rather than
+None proposed at this stage. Reuse existing layer manifest requirements rather than
 inventing a competing definition of validity. Further planning must identify any
 necessary changes to existing capability requirements explicitly.
 
@@ -48,12 +48,12 @@ necessary changes to existing capability requirements explicitly.
 - Future work will affect CLI command handling, shared validation logic, user
   documentation, and tests. The implementation structure and any additional
   library dependencies are not selected here.
-- Manifest checks should build on the shared discovery, loading, and validation
+- Layer manifest checks should build on the shared discovery, loading, and validation
   work in [support-layer-manifest-formats](../archive/2026-10-17-support-layer-manifest-formats/proposal.md)
   and its [discovery/loading design](../archive/2026-10-17-support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
   That completed change deliberately excludes a validate command and must remain
   separate from this future work.
-- The existing [manifest specification](../../specs/layer-manifest/spec.md) provides
+- The existing [layer manifest specification](../../specs/layer-manifest/spec.md) provides
   metadata and supported-format context, including the synchronized format and
   schema decisions. Neither its metadata schema nor format parsing alone
   defines project-wide validation.
@@ -71,7 +71,7 @@ necessary changes to existing capability requirements explicitly.
   content or dependency relationships.
 - Settling dependency references, patch syntax, composition rules, network
   behaviour, or version declarations merely to make this proposal appear ready.
-- Implementing validation or changing the active manifest-format work in this
+- Implementing validation or changing the active layer manifest format work in this
   proposal-only capture.
 
 ## Planning still required
@@ -80,7 +80,7 @@ Use the relevant [open design questions](../../design-questions.md), especially
 shared sources and references, partially shared files, incompatible updates, and
 patch structure, to guide a later focused exploration:
 
-- Which supported rules make a manifest, contribution, or relationship valid for
+- Which supported rules make a layer manifest, contribution, or relationship valid for
   a particular running version? How should invalid version declarations and
   unsupported versions or features be recognised and reported, without inventing
   a version field or compatibility scheme now?

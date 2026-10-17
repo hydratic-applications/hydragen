@@ -38,9 +38,9 @@ recorded arguments there. Set terminal width/height and environment as above for
 PTY cases. For captures, close stdin and capture stdout and stderr separately.
 For guided runs, wait for the recorded marker before each input. In decoded
 inputs, `\r` is Enter, `\u007f` is Backspace, `\u001b` is Escape, and `\u0003`
-is Ctrl-C. Inspect the resulting manifest only after the command has exited.
+is Ctrl-C. Inspect the resulting layer manifest only after the command has exited.
 
-The existing-manifest case creates `layer.json` containing `keep original` before
+The existing-layer-manifest case creates `layer.json` containing `keep original` before
 execution. The nested-repository case creates a `.git` directory in the parent
 and executes from its `nested` directory. The unusable-default case uses a
 directory whose final component is three spaces. No external repository data is

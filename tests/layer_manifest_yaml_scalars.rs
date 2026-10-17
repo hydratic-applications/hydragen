@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use hydragen::{ManifestError, ManifestFormat as Format, discover};
+use hydragen::{LayerManifestError, LayerManifestFormat as Format, discover};
 use serde_json::{Value, json};
 
 const YAML_FORMATS: [Format; 2] = [Format::Yaml, Format::Yml];
@@ -31,7 +31,7 @@ const BINARY_TAGS: [(&str, &str); 20] = [
     ("%TAG !! !\n---\n", "!!binary"),
 ];
 
-fn read(format: Format, text: &str) -> Result<Value, ManifestError> {
+fn read(format: Format, text: &str) -> Result<Value, LayerManifestError> {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join(format.filename()), text).unwrap();
     discover(directory.path())
@@ -79,7 +79,10 @@ fn assert_binary_rejected(format: Format, text: &str) {
         Err(error) => error,
         Ok(document) => panic!("{format}: expected binary rejection for {text:?}, got {document}"),
     };
-    assert!(matches!(error, ManifestError::Decode { .. }), "{error}");
+    assert!(
+        matches!(error, LayerManifestError::Decode { .. }),
+        "{error}"
+    );
     let message = error.to_string();
     assert!(message.contains(format.filename()), "{message}");
     assert!(
@@ -256,7 +259,10 @@ fn yaml_local_and_legacy_integer_tags_retain_explicit_numeric_semantics() {
                 for spelling in [format!("{tag} {scalar}"), format!("{tag} '{scalar}'")] {
                     for (_, _, text) in positions(&spelling) {
                         let error = read(format, &format!("{prefix}{text}")).unwrap_err();
-                        assert!(matches!(error, ManifestError::Decode { .. }), "{error}");
+                        assert!(
+                            matches!(error, LayerManifestError::Decode { .. }),
+                            "{error}"
+                        );
                         assert!(
                             error.to_string().contains("invalid u64")
                                 || error.to_string().contains("invalid i64"),
@@ -270,7 +276,10 @@ fn yaml_local_and_legacy_integer_tags_retain_explicit_numeric_semantics() {
                 &format!("{prefix}extra: &number {tag} '0X10000000000000000'\nname: *number"),
             )
             .unwrap_err();
-            assert!(matches!(error, ManifestError::Decode { .. }), "{error}");
+            assert!(
+                matches!(error, LayerManifestError::Decode { .. }),
+                "{error}"
+            );
         }
     }
 }

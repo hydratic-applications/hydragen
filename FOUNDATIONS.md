@@ -159,10 +159,11 @@ A **[layer](GLOSSARY.md#layer)** is Hydragen's building block for reuse. A
 **[root layer](GLOSSARY.md#root-layer)** has no dependencies; a
 **[dependent layer](GLOSSARY.md#dependent-layer)** depends on one or more other
 layers. A **[dependency](GLOSSARY.md#dependency)** is a layer declared in another
-layer's **[manifest](GLOSSARY.md#manifest)** at its repository root as a source of
-inherited content. The manifest uses one of five fixed filenames: `layer.yaml`,
-`layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc`. Both root and dependent
-layers can serve as dependencies, and dependency chains have no fixed maximum depth.
+layer's **[layer manifest](GLOSSARY.md#layer-manifest)** at its repository root as a
+source of inherited content. The layer manifest uses one of five fixed filenames:
+`layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc`. Both root
+and dependent layers can serve as dependencies, and dependency chains have no
+fixed maximum depth.
 
 Hydragen uses layers both for content maintained primarily for reuse and for
 functioning projects. These are not separate kinds of layer: any layer can serve
@@ -180,8 +181,8 @@ named after the inherited file with `.patch` appended.
 **[deletion markers](GLOSSARY.md#deletion-marker)** with `.delete` appended to the
 inherited filename. Only dependent layers can have modification or deletion
 contributions, because root layers have no inherited files. A dependent layer
-commits its manifest and its own contributions, not unchanged inherited content.
-See the [glossary](GLOSSARY.md) for the full definitions.
+commits its layer manifest and its own contributions, not unchanged inherited
+content. See the [glossary](GLOSSARY.md) for the full definitions.
 
 The **[layer result](GLOSSARY.md#layer-result)** is the files and directory
 structure produced by applying the layer's contributions to its

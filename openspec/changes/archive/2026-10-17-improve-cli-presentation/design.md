@@ -3,7 +3,7 @@
 The completed `clarify-cli-experience-principles` change established beauty,
 enjoyment, functionality, and ease of use as equal DX goals, then audited the
 prototype. Its [remediation plan](../2026-10-17-clarify-cli-experience-principles/remediation-plan.md)
-identifies help layout (R1), guided validation wording (R2), and occupied-manifest
+identifies help layout (R1), guided validation wording (R2), and occupied-layer-manifest
 recovery guidance (R3) as concrete, local improvements. This change combines
 those three related presentation fixes into one reviewable increment. It does
 not implement every later audit recommendation.
@@ -12,7 +12,7 @@ Current boundaries are suitable: `src/main.rs` owns clap declarations;
 `src/interaction.rs` owns terminal input/feedback; `src/lib.rs` validates metadata
 and creates files without a terminal dependency. The shared validator returns
 `InitError::InvalidMetadata`, whose display text is flag-oriented. Guided
-callbacks currently display that error unchanged. An occupied manifest path has
+callbacks currently display that error unchanged. An occupied layer manifest path has
 a distinct error variant; improving its display does not require new I/O.
 
 Clap 4.6.7 is locked, with only its `derive` feature explicitly enabled. Help
@@ -34,7 +34,7 @@ remain open.
 
 - Readable, width-aware root/init help with complete, copyable examples.
 - Guided validation that names the field and explains recovery in prompt terms.
-- Safe, accurate advice when any existing entry occupies the manifest path.
+- Safe, accurate advice when any existing entry occupies the layer manifest path.
 - Regression tests and before/after evidence for all three fixes, while preserving
   existing input, output, cancellation, and filesystem contracts.
 
@@ -45,7 +45,7 @@ remain open.
   a minimum terminal width; these remain the evidence-gated R4 follow-up.
 - Removing the two output channels or redesigning success/cancellation feedback;
   broader visual cohesion and user-perceived enjoyment remain R5 review topics.
-- New flags/commands, hybrid input, manifest formats/schema work, altered validation
+- New flags/commands, hybrid input, layer manifest formats/schema work, altered validation
   semantics, new file operations, or dependency version upgrades as a side effect.
 - Rewriting the prior audit, its raw evidence, or archived OpenSpec decisions.
 
@@ -127,17 +127,17 @@ second validator would risk inconsistent acceptance rules.
 
 ### Improve occupied-path advice without inspecting the entry
 
-Extend only the `ExistingManifest` display branch in `src/lib.rs`, keeping it
+Extend only the `ExistingLayerManifest` display branch in `src/lib.rs`, keeping it
 plain and free of terminal/layout dependencies. Name the occupied path, explain
 that init never overwrites existing entries, and suggest inspecting the entry or
 running init from the intended different directory. State that this invocation
-did not change files. Do not imply that the entry contains a valid manifest or
+did not change files. Do not imply that the entry contains a valid layer manifest or
 that Hydragen has read it. Retain the recognisable “already exists” reason.
 Use deliberate line breaks between the reason, policy, recovery action, and
 no-change outcome so the advice does not become one long line. This is fixed
 plain-text formatting, not a general width-aware diagnostic renderer.
 
-This advice must cover regular files, malformed manifests, directories, existing
+This advice must cover regular files, malformed layer manifests, directories, existing
 symlinks, dangling symlinks, and an entry that appears during guided input. Keep
 read-only preflight checks and exclusive creation as they are. Do not add a
 confirmation, force flag, deletion instruction, validation/repair operation, or
@@ -163,7 +163,7 @@ Extend the existing suites rather than add a framework:
   Check no early files, input preservation, no sentinel `Skipped`, and the unchanged
   invalid-flag route. Exercise guided feedback with colour enabled and disabled.
 - Strengthen occupied-entry tests with the safe-next-step assertions, retaining
-  preservation checks for files/directories/symlinks and the manifest-appears-during-
+  preservation checks for files/directories/symlinks and the layer-manifest-appears-during-
   questions race. No newly introduced path should invoke prompts or change files.
 
 Create `verification.md` in this change during implementation. Record revision,
@@ -177,7 +177,7 @@ fixed under this proposal.
 
 ### Integrate documentation without replacing the principles
 
-Update README's help/examples and existing-manifest error example to match the
+Update README's help/examples and existing-layer-manifest error example to match the
 implemented interface. Add a brief presentation-decision link under question 10
 in `openspec/design-questions.md`; keep broader unresolved topics intact. Review
 whether any product clarification is warranted after implementation, but none
@@ -215,7 +215,7 @@ baseline rather than editing old observations to resemble the new output.
    the completed remediation checklist entries. Run the full project checks and
    strict OpenSpec validation before handoff.
 
-No manifest migration or invocation change is required. Error prose/help layout
+No layer manifest migration or invocation change is required. Error prose/help layout
 are intentionally changed; success result output, flags, exit behaviour, and
 channels remain compatible. If a fix needs revision, adjust only its presentation
 changes, not unrelated foundations or user work. No archive or publication is

@@ -21,7 +21,7 @@ code can already serve as the starting point for this work.
 
 - Guide terminal users through bare init using cliclack.
 - Preserve a complete flag-based route with no prompts or terminal UI.
-- Keep manifest validation, representation, and no-overwrite guarantees shared.
+- Keep layer manifest validation, representation, and no-overwrite guarantees shared.
 - Default omitted name to the current directory's name in both input routes.
 - Establish a small CLI interaction convention for future commands.
 
@@ -52,7 +52,7 @@ I/O result. These APIs fit the three metadata questions; no selection widgets or
 progress indicators are needed.
 
 Use a small binary-side interaction module to select the mode, collect answers,
-and render feedback. Keep terminal detection and cliclack out of manifest
+and render feedback. Keep terminal detection and cliclack out of layer manifest
 serialization and file creation. Replacing clap or designing a plugin framework
 would add work without improving this increment.
 
@@ -92,7 +92,7 @@ terminal, CI, and explicit-override checks above allow it.
 
 Make the clap representation of name optional during parsing. An omitted name
 uses the directory-name default; a terminal user can also override it through the
-name prompt. Name is still required in the manifest and library validation.
+name prompt. Name is still required in the layer manifest and library validation.
 
 In flag-only input, use a supplied name or the directory-name default, validate
 every supplied value, and omit unsupplied author and description. Invalid metadata
@@ -121,7 +121,7 @@ This does not change validation, skipping, or output routes.
 When Enter skips an optional field, show a dimmed, italic `Skipped` on the completed
 answer line rather than leaving it blank. This distinguishes a deliberate skip
 from an unanswered prompt without introducing a placeholder or default. The
-manifest still omits the field; `Skipped` is not a sentinel metadata value, so
+layer manifest still omits the field; `Skipped` is not a sentinel metadata value, so
 typing that word explicitly remains valid input and records it unchanged.
 
 Cliclack 0.5.6 has no per-input submitted-empty label setting. Use a small
@@ -158,7 +158,7 @@ without duplicating the validation or file-creation logic.
 Supplying name is optional, but a resolved non-blank name remains required in
 `layer.json`. This reduces repetitive input when the directory already has a
 suitable project name and makes bare unattended init useful without changing the
-manifest schema. This decision supersedes the earlier missing-name error and
+layer manifest schema. This decision supersedes the earlier missing-name error and
 no-inferred-default policy in this change; it does not alter the no-hybrid rule.
 
 Resolve the default from the current directory's final path component, after
@@ -188,17 +188,17 @@ require cliclack or duplicate the schema as a second runtime schema.
 Before any prompt, perform read-only checks for an existing entry at `layer.json`,
 the current directory, and the existing repository-location guard. Report known
 failures immediately rather than collecting metadata for a target that cannot be
-initialised. Do not read an existing manifest or offer overwrite, repair, or merge.
+initialised. Do not read an existing layer manifest or offer overwrite, repair, or merge.
 
 Factor these checks so interactive and non-interactive execution share them.
 Keep the checks in the final creation path too: read-only checks before questions
-do not protect against another process creating the manifest while the user is
+do not protect against another process creating the layer manifest while the user is
 answering. The final write must still use exclusive creation and occur only after
 all metadata has been resolved and validated.
 
 ### Preserve output channels and make cancellation safe
 
-Keep the successful result line and manifest path on standard output after a
+Keep the successful result line and layer manifest path on standard output after a
 successful write. Cliclack's interactive prompts and session feedback belong on
 standard error. Verify the selected version's actual stream behaviour in a real
 terminal test; do not assume that styling or automatic cancellation behaviour
@@ -214,7 +214,7 @@ must terminate with a nonzero status, no success message, and no created files.
 Report cancellation clearly rather than panicking or silently accepting defaults.
 Do not depend on the library choosing the right process exit status automatically.
 If rendering feedback fails after a successful file write, do not falsely claim
-that cancellation left the directory unchanged; identify that the manifest was
+that cancellation left the directory unchanged; identify that the layer manifest was
 already created.
 
 ### Keep the convention reusable without adding future commands
@@ -247,8 +247,8 @@ in those child processes so the test environment cannot disable the prompts.
 Wait for prompt labels before sending answers. Bound waits with timeouts, terminate
 children on failure, and test behaviour rather than snapshots of exact borders
 or escape sequences. Cover successful guided input, prompt-free flag-only input,
-optional Enter-to-skip, validation retries, cancellation, EOF, an existing manifest
-before prompts, and a manifest appearing before the final write. Test explicit
+optional Enter-to-skip, validation retries, cancellation, EOF, an existing layer manifest
+before prompts, and a layer manifest appearing before the final write. Test explicit
 non-interactive mode and CI in a terminal too, not just captured-output processes.
 Include bare init in those tests so metadata flags do not hide a broken CI or
 override check by independently selecting flag-only input.
@@ -271,7 +271,7 @@ override check by independently selecting flag-only input.
 
 ## Migration Plan
 
-No manifest migration is needed. Existing invocations with metadata flags continue
+No layer manifest migration is needed. Existing invocations with metadata flags continue
 to use those flags and plain output without prompts, whether or not they have a
 terminal. Omitted optional fields stay omitted. `--non-interactive` remains an
 optional explicit safeguard for scripts and agents; it is not needed just to keep
@@ -301,14 +301,14 @@ the development-only portable-pty 0.9.0 harness.
   the displayed directory-name default and Enter acceptance, typed name overrides,
   optional skips, retries, whitespace and Unicode, Escape/Ctrl-C cancellation,
   input loss with error output still available, early target errors, and a
-  manifest appearing during questions.
+  layer manifest appearing during questions.
 - Directory-name tests verify unchanged spaces and Unicode, author-only and
   description-only flags, and defaulting in CI, explicit non-interactive mode,
   and redirected-stream execution. Unusable directory names produce actionable
   errors, explicit name overrides bypass default derivation, and explicitly
   blank values are rejected rather than replaced with the default.
 - A closed result pipe verifies that an output failure after creation reports
-  that the manifest exists, rather than claiming no files changed. A live input
+  that the layer manifest exists, rather than claiming no files changed. A live input
   pipe verifies that non-interactive execution does not wait for answers or EOF.
 - An initial parallel run encountered macOS pseudo-terminal allocation errors
   before some CLI children started. The harness now serializes terminal sessions
@@ -334,7 +334,7 @@ the development-only portable-pty 0.9.0 harness.
 - Strict OpenSpec validation, `git diff --check`, and local documentation link
   checks passed. The README and CLI guidance were reviewed for first-time readers.
 
-The manifest schema and metadata representation are unchanged. The foundations
+The layer manifest schema and metadata representation are unchanged. The foundations
 and glossary already cover the relevant product values and terms and need no
 revision; CLI implementation conventions are recorded in `AGENTS.md`. The
 requirement to sync the completed `add-layer-init` baseline before syncing this

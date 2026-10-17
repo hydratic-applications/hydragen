@@ -4,7 +4,7 @@
 
 - [x] Improve width-aware help layout without losing information.
 - [x] Make guided validation wording match prompt-based input.
-- [x] Add safe recovery guidance for existing-manifest errors.
+- [x] Add safe recovery guidance for existing-layer-manifest errors.
 - [ ] Verify and improve narrow guided presentation where supported by evidence.
 - [ ] Review overall visual cohesion and remaining evidence gaps with the user.
 
@@ -117,7 +117,7 @@ directly observed, and can likely be corrected with a small presentation adapter
 
 ## R3: Improve existing-target recovery guidance — P2 adherence work
 
-**Finding:** [F3](audit.md#f3-existing-manifest-feedback-stops-without-explaining-how-to-proceed),
+**Finding:** [F3](audit.md#f3-existing-layer-manifest-feedback-stops-without-explaining-how-to-proceed),
 `existing-manifest` and the matching pre-prompt rejection tests.
 
 **Affected goals:** ease of use and the experience of recovering from an error;
@@ -125,7 +125,7 @@ retain readable plain diagnostics and filesystem safety.
 
 **Direction:** explain the deliberate no-overwrite behaviour and suggest safe
 next steps: inspect the existing entry or initialise in the intended different
-directory. Do not assume the entry is a valid manifest, read or validate it,
+directory. Do not assume the entry is a valid layer manifest, read or validate it,
 suggest deletion as a default remedy, add overwrite confirmation/force, or invent
 an unimplemented command as the next action. The same advice must remain accurate
 for files, directories, and dangling symlinks.
@@ -187,7 +187,7 @@ an existing product promise.
   finding instead of implementing speculative fixes.
 - Guidance and long-value display retain readable hierarchy at the reviewed
   widths; any unavoidable limitation is explicit rather than a silent claim.
-- Full names and metadata remain unchanged in the manifest; no truncation or
+- Full names and metadata remain unchanged in the layer manifest; no truncation or
   normalisation is introduced to make presentation easier.
 - Active, invalid, submitted, skipped, and cancelled states remain distinguishable
   without colour. Cursor restoration and cleanup are checked after cancellation.

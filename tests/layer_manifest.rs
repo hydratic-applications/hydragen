@@ -2,12 +2,12 @@ use std::fs;
 use std::path::Path;
 
 use hydragen::{
-    EncodeError, LoadedManifest, ManifestError, ManifestFormat as Format, Metadata, MetadataError,
-    discover, encode_metadata, validate_document,
+    EncodeError, LayerManifestError, LayerManifestFormat as Format, LoadedLayerManifest, Metadata,
+    MetadataError, discover, encode_metadata, validate_document,
 };
 use serde_json::{Value, json};
 
-fn read(format: Format, text: impl AsRef<[u8]>) -> Result<LoadedManifest, ManifestError> {
+fn read(format: Format, text: impl AsRef<[u8]>) -> Result<LoadedLayerManifest, LayerManifestError> {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join(format.filename()), text).unwrap();
     discover(directory.path()).unwrap().load()
@@ -16,6 +16,7 @@ fn read(format: Format, text: impl AsRef<[u8]>) -> Result<LoadedManifest, Manife
 fn reject(format: Format, text: impl AsRef<[u8]>) -> String {
     let error = read(format, text.as_ref()).unwrap_err().to_string();
     assert!(error.contains(format.filename()), "{error}");
+    assert!(error.contains("layer manifest"), "{error}");
     error
 }
 
@@ -119,7 +120,7 @@ fn discovery_ignores_other_names_nested_paths_and_ancestors() {
         "layer.json5",
         "layer.yaml.bak",
         "layer",
-        "manifest.json",
+        "layer-manifest.json",
     ] {
         fs::write(directory.join(filename), "invalid").unwrap();
     }
@@ -133,10 +134,13 @@ fn every_supported_directory_counts_as_occupied() {
         fs::create_dir(directory.path().join(format.filename())).unwrap();
         let discovery = discover(directory.path()).unwrap();
         assert_eq!(discovery.selected().unwrap().format, format);
-        assert!(matches!(
-            discovery.load(),
-            Err(ManifestError::NotRegular { .. })
-        ));
+        let error = discovery.load().unwrap_err();
+        assert!(matches!(error, LayerManifestError::NotRegular { .. }));
+        assert!(
+            error
+                .to_string()
+                .starts_with("Could not read layer manifest")
+        );
     }
 }
 
@@ -146,17 +150,18 @@ fn unexpected_inspection_errors_are_not_absence() {
     let file = directory.path().join("not-a-directory");
     fs::write(&file, "unchanged").unwrap();
     let error = discover(&file).unwrap_err();
-    assert!(error.to_string().contains("inspect manifest path"));
+    assert!(error.to_string().contains("inspect layer manifest path"));
     assert!(error.to_string().contains("layer.yaml"));
     assert_eq!(fs::read_to_string(file).unwrap(), "unchanged");
 }
 
 #[test]
-fn missing_manifest_error_names_directory_and_every_supported_file() {
+fn missing_layer_manifest_error_names_directory_and_every_supported_file() {
     let directory = tempfile::tempdir().unwrap();
     let discovery = discover(directory.path()).unwrap();
     assert!(discovery.selected().is_none());
     let error = discovery.load().unwrap_err().to_string();
+    assert!(error.starts_with("No layer manifest found"), "{error}");
     assert!(error.contains(directory.path().to_str().unwrap()));
     for format in Format::ALL {
         assert!(error.contains(format.filename()));
@@ -189,7 +194,9 @@ fn selected_disappearance_is_an_error_not_new_selection() {
     fs::write(directory.path().join("layer.json"), r#"{"name":"lower"}"#).unwrap();
     let discovery = discover(directory.path()).unwrap();
     fs::remove_file(&selected).unwrap();
-    assert!(matches!(discovery.load(), Err(ManifestError::Io { path, .. }) if path == selected));
+    assert!(
+        matches!(discovery.load(), Err(LayerManifestError::Io { path, .. }) if path == selected)
+    );
     assert_eq!(discovery.candidates.len(), 2);
 }
 
@@ -197,13 +204,13 @@ fn selected_disappearance_is_an_error_not_new_selection() {
 fn invalid_utf8_fails_for_every_format() {
     for format in Format::ALL {
         let error = reject(format, [0xff, 0xfe, b'{', b'}']);
-        assert!(error.contains("read manifest"), "{error}");
+        assert!(error.contains("read layer manifest"), "{error}");
     }
 }
 
 #[cfg(unix)]
 #[test]
-fn symlinks_count_even_when_dangling_and_format_comes_from_manifest_name() {
+fn symlinks_count_even_when_dangling_and_format_comes_from_layer_manifest_name() {
     use std::os::unix::fs::symlink;
     for format in Format::ALL {
         let directory = tempfile::tempdir().unwrap();
@@ -239,7 +246,7 @@ fn nonregular_selected_and_lower_priority_paths_are_never_read() {
     fs::write(directory.path().join("layer.json"), r#"{"name":"lower"}"#).unwrap();
     let discovery = discover(directory.path()).unwrap();
     assert!(
-        matches!(discovery.load(), Err(ManifestError::NotRegular { path: rejected }) if rejected == path)
+        matches!(discovery.load(), Err(LayerManifestError::NotRegular { path: rejected }) if rejected == path)
     );
     assert!(discovery.has_duplicates());
 
@@ -261,12 +268,12 @@ fn nonregular_selected_and_lower_priority_paths_are_never_read() {
 #[cfg(unix)]
 #[test]
 fn fifo_is_rejected_without_opening_for_input() {
-    const CHILD_PATH: &str = "HYDRAGEN_MANIFEST_FIFO_TEST_PATH";
+    const CHILD_PATH: &str = "HYDRAGEN_LAYER_MANIFEST_FIFO_TEST_PATH";
     if let Some(path) = std::env::var_os(CHILD_PATH) {
         let discovery = discover(Path::new(&path)).unwrap();
         assert!(matches!(
             discovery.load(),
-            Err(ManifestError::NotRegular { .. })
+            Err(LayerManifestError::NotRegular { .. })
         ));
         return;
     }
@@ -407,7 +414,7 @@ fn file_metadata_rules_are_the_same_for_every_format() {
                 let mut document = json!({"name":"example"});
                 document[field] = Value::Null;
                 assert!(
-                    matches!(read(format, document.to_string()), Err(ManifestError::Metadata { source: MetadataError::NotString { field: invalid }, .. }) if invalid == field)
+                    matches!(read(format, document.to_string()), Err(LayerManifestError::Metadata { source: MetadataError::NotString { field: invalid }, .. }) if invalid == field)
                 );
             }
         }
@@ -531,7 +538,7 @@ fn empty_nonobjects_and_trailing_input_fail() {
 
 #[test]
 fn ordinary_yaml_strings_tags_aliases_comments_and_additional_data() {
-    let text = "# manifest\nname: &label '  配置 🦀  '\nauthor: *label\ndescription: |\n  first line\n  second line\nextra:\n  values: [true, 123, null]\n  literal: ${UNCHANGED}\n  tagged: !!str 123\n";
+    let text = "# layer manifest\nname: &label '  配置 🦀  '\nauthor: *label\ndescription: |\n  first line\n  second line\nextra:\n  values: [true, 123, null]\n  literal: ${UNCHANGED}\n  tagged: !!str 123\n";
     for format in [Format::Yaml, Format::Yml] {
         let loaded = read(format, text).unwrap();
         assert_eq!(loaded.metadata.name, "  配置 🦀  ");

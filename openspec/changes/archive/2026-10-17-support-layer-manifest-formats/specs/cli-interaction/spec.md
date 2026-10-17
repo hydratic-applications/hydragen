@@ -28,7 +28,7 @@ count as an explicitly supplied input flag.
 
 - **WHEN** init receives `--name` in an otherwise eligible interactive terminal, with or without optional input flags
 - **THEN** it uses only supplied flags and documented defaults without prompts or cliclack presentation
-- **AND** omitted optional metadata fields remain absent from the manifest
+- **AND** omitted optional metadata fields remain absent from the layer manifest
 
 #### Scenario: Optional metadata flags without a name override
 
@@ -66,7 +66,7 @@ count as an explicitly supplied input flag.
 
 ### Requirement: Collect metadata through a guided cliclack session
 
-Guided init MUST use cliclack to collect name, author, description, and manifest
+Guided init MUST use cliclack to collect name, author, description, and layer manifest
 format in that order, without input flags. Init MUST NOT combine input flags and
 prompt answers within one invocation or require a final confirmation.
 
@@ -83,13 +83,13 @@ receive inline validation feedback and another opportunity to answer. Author and
 description MUST be optional independently; an empty answer MUST skip the field,
 while a non-empty whitespace-only answer MUST be rejected with inline feedback.
 Accepted values MUST be preserved unchanged, and skipped fields MUST be absent
-from the manifest rather than written as empty strings or `null`.
+from the layer manifest rather than written as empty strings or `null`.
 After Enter skips an optional field, the completed prompt MUST show a dimmed,
 italic `Skipped` indicator rather than a blank answer. This is presentation only:
 it MUST NOT become a default or a stored metadata value, appear before submission,
 or mark cancellation or a format choice as a skip.
 
-The final Manifest format question MUST be a selector with choices labelled by
+The final Layer manifest format question MUST be a selector with choices labelled by
 the exact filenames `layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`, and
 `layer.jsonc`, in priority order. `layer.yaml` MUST be initially selected and accepted by Enter.
 The selector MUST NOT allow arbitrary filenames or rename the fixed basename.
@@ -99,13 +99,13 @@ guided answers, including format, are complete.
 #### Scenario: Initialise through prompts
 
 - **WHEN** an eligible terminal user runs `hydragen init` without input flags
-- **THEN** cliclack asks for name, author, description, and manifest format in order
-- **AND** only after valid answers, optional skips, and a format choice does init create the manifest
+- **THEN** cliclack asks for name, author, description, and layer manifest format in order
+- **AND** only after valid answers, optional skips, and a format choice does init create the layer manifest
 
 #### Scenario: Skip optional fields
 
 - **WHEN** the user answers the name prompt with a valid name and presses Enter without text at an optional metadata prompt
-- **THEN** that field is omitted from the manifest
+- **THEN** that field is omitted from the layer manifest
 - **AND** its completed prompt shows `Skipped` before the next question or final feedback
 - **AND** skipping author does not prevent supplying description, or vice versa
 
@@ -126,9 +126,9 @@ guided answers, including format, are complete.
 
 - **WHEN** the user completes the metadata questions and presses Enter on the initial format selection
 - **THEN** init creates `layer.yaml` if exclusive creation and writing succeed
-- **AND** no format property is added to the manifest
+- **AND** no format property is added to the layer manifest
 
-#### Scenario: Choose another format without renaming the manifest
+#### Scenario: Choose another format without renaming the layer manifest
 
 - **WHEN** the user chooses `layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc` from the selector
 - **THEN** init creates that exact filename and format if creation succeeds
@@ -138,10 +138,10 @@ guided answers, including format, are complete.
 
 Before opening any prompt session, init MUST perform read-only checks for the
 target directory, the existing repository-location constraints, and occupied paths
-at every supported manifest filename. Known failures MUST produce informative
+at every supported layer manifest filename. Known failures MUST produce informative
 errors without asking questions or changing files. A discovery of duplicates MUST
-be warned about once before existing-manifest refusal, without reading contents.
-Init MUST NOT read or repair an existing manifest or offer an overwrite
+be warned about once before existing-layer-manifest refusal, without reading contents.
+Init MUST NOT read or repair an existing layer manifest or offer an overwrite
 confirmation.
 
 The initial check MUST NOT reserve the directory. The final write MUST retain
@@ -150,9 +150,9 @@ refusal check. A different supported format appearing during the questions MUST
 NOT prevent creation solely because it appeared. Duplicates observed after a
 successful write MUST follow the non-fatal post-creation warning policy.
 
-#### Scenario: Existing manifest before the session
+#### Scenario: Existing layer manifest before the session
 
-- **WHEN** init finds an existing file, directory, or symlink at any supported manifest filename, including malformed content or a dangling symlink
+- **WHEN** init finds an existing file, directory, or symlink at any supported layer manifest filename, including malformed content or a dangling symlink
 - **THEN** it exits unsuccessfully with an informative message before asking for input
 - **AND** all existing entries and file contents remain unchanged
 
@@ -170,7 +170,7 @@ successful write MUST follow the non-fatal post-creation warning policy.
 
 #### Scenario: Another supported format appears during the questions
 
-- **WHEN** the initial check finds no supported manifest paths, another supported filename appears during the questions, and the chosen output path remains available
+- **WHEN** the initial check finds no supported layer manifest paths, another supported filename appears during the questions, and the chosen output path remains available
 - **THEN** init completes exclusive creation and writing without late all-format refusal
 - **AND** it warns about duplicates found in its final observation while preserving success
 
@@ -188,15 +188,15 @@ as cancellation with no files changed.
 
 - **WHEN** the user presses Escape or Ctrl-C while answering any metadata prompt or the format selector
 - **THEN** init exits unsuccessfully with a clear cancellation message
-- **AND** no manifest or other project file is created
+- **AND** no layer manifest or other project file is created
 
 #### Scenario: Input ends or a prompt fails
 
 - **WHEN** input ends unexpectedly or a prompt returns an I/O failure before all input, including format, is resolved
 - **THEN** init exits unsuccessfully with an informative message and no success output
-- **AND** no manifest or other project file is created
+- **AND** no layer manifest or other project file is created
 
 #### Scenario: Feedback fails after creation
 
-- **WHEN** the manifest write succeeds but subsequent interactive feedback fails
-- **THEN** the error explains that the manifest was already created rather than claiming that no files changed
+- **WHEN** the layer manifest write succeeds but subsequent interactive feedback fails
+- **THEN** the error explains that the layer manifest was already created rather than claiming that no files changed

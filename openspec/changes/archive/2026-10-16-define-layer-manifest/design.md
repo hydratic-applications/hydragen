@@ -1,6 +1,6 @@
 ## Context
 
-Layers are Hydragen's core building blocks. Every layer must have a manifest
+Layers are Hydragen's core building blocks. Every layer must have a layer manifest
 declaring its name, with optional author and description metadata. There is no
 implementation yet; this change captures a small part of the format for discussion
 and testing.
@@ -27,19 +27,19 @@ or a list of contributors can be considered later; neither is needed to identify
 an author now.
 
 A layer's intended use as a reusable starting point or a working project does not
-create a different manifest category. No declaration of extensibility is needed.
+create a different layer manifest category. No declaration of extensibility is needed.
 
-### Agreed: manifest filename, location, and format
+### Agreed: layer manifest filename, location, and format
 
-Every layer's manifest is a JSON file named exactly `layer.json` at the root of
+Every layer manifest is a JSON file named exactly `layer.json` at the root of
 its repository. The fixed name and location give developers and tools one
 consistent place to find it. This applies to both root and dependent layers;
 "repository root" means the top-level directory, not a root layer.
 
 The schema validates the file's contents, not its filename or location. Future
-manifest discovery must check those separately.
+layer manifest discovery must check those separately.
 
-### Agreed: dependencies are declared in the manifest
+### Agreed: dependencies are declared in the layer manifest
 
 The `layer.json` file must list the other layers that the layer depends on. This
 keeps a layer's dependency declarations alongside its identifying metadata.
@@ -69,8 +69,8 @@ string validation are agreed above.
 
 ### Deferred: versioning
 
-The manifest does not define or require a `version` field. How versioning works,
-including whether it belongs in the manifest, remains open. Requiring the field
+The layer manifest does not define or require a `version` field. How versioning works,
+including whether it belongs in the layer manifest, remains open. Requiring the field
 now would assume part of that design before we have explored the workflow.
 
 ### Other fields worth considering later
@@ -114,7 +114,7 @@ Checked on 2026-10-16 with Python 3.12.12 and `jsonschema` 4.26.0 using its
 Draft 2020-12 validator. The schema itself is valid, and all 41 instance checks
 passed, including both JSON examples above. The checks cover name-only metadata,
 each optional field independently, all metadata together, missing name, blank
-and non-string values, non-object manifests, and the draft editor-support and
+and non-string values, non-object layer manifests, and the draft editor-support and
 additional-property behaviour.
 
 To repeat the checks, run the following from the repository root. It requires
@@ -150,7 +150,7 @@ for field in ('name', 'author', 'description'):
     for value in ('', ' \t\n', '\u00a0\u2003', None, 42, False, [], {}):
         cases.append((f'invalid {field}: {value!r}', {'name': 'example', field: value}, False))
 for value in (None, False, 42, 'example', []):
-    cases.append((f'non-object manifest: {value!r}', value, False))
+    cases.append((f'non-object layer manifest: {value!r}', value, False))
 examples = re.findall(r'^```json\n(.*?)\n```', (change / 'design.md').read_text(), re.M | re.S)
 assert examples, 'No JSON design examples found'
 for number, example in enumerate(examples, 1):
@@ -172,19 +172,19 @@ Schema valid; 41/41 instance checks passed (including 2 design examples).
 
 A passing result checks metadata only. The draft schema deliberately accepts
 unknown properties without interpreting them, so it cannot establish whether a
-dependency declaration is valid. It also cannot check the manifest's filename or
+dependency declaration is valid. It also cannot check the layer manifest's filename or
 repository-root location. Those limits do not resolve the open dependency design
 or replace the location checks needed in future tooling.
 
 ## Risks / Trade-offs
 
 - Allowing unknown fields also allows misspellings of optional fields. Required
-  fields must still be present; revisit strictness as the manifest develops.
+  fields must still be present; revisit strictness as the layer manifest develops.
 - This metadata draft does not establish how consumers select reproducible shared
   content. Source references and versioning remain separate design work.
 
 ## Open Questions
 
 What naming syntax should be accepted? How should versioning work, and does it
-belong in the manifest? How should dependencies be declared?
+belong in the layer manifest? How should dependencies be declared?
 These remain open; this change adds no application implementation.

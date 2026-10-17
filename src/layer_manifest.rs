@@ -1,4 +1,4 @@
-//! Read-only manifest discovery, selected-only loading, and shared metadata codecs.
+//! Read-only layer manifest discovery, selected-only loading, and shared metadata codecs.
 
 use std::fmt;
 use std::fs;
@@ -13,7 +13,7 @@ mod decode;
 pub mod schema;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ManifestFormat {
+pub enum LayerManifestFormat {
     #[default]
     Yaml,
     Yml,
@@ -22,7 +22,7 @@ pub enum ManifestFormat {
     Jsonc,
 }
 
-impl ManifestFormat {
+impl LayerManifestFormat {
     /// Supported choices, from highest to lowest discovery priority.
     pub const ALL: [Self; 5] = [Self::Yaml, Self::Yml, Self::Toml, Self::Json, Self::Jsonc];
 
@@ -47,27 +47,27 @@ impl ManifestFormat {
     }
 }
 
-impl fmt::Display for ManifestFormat {
+impl fmt::Display for LayerManifestFormat {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.extension())
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ManifestCandidate {
+pub struct LayerManifestCandidate {
     pub path: PathBuf,
-    pub format: ManifestFormat,
+    pub format: LayerManifestFormat,
 }
 
 /// An observation, not a reservation. Retain it to report duplicates even if loading fails.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ManifestDiscovery {
+pub struct LayerManifestDiscovery {
     pub directory: PathBuf,
-    pub candidates: Vec<ManifestCandidate>,
+    pub candidates: Vec<LayerManifestCandidate>,
 }
 
-impl ManifestDiscovery {
-    pub fn selected(&self) -> Option<&ManifestCandidate> {
+impl LayerManifestDiscovery {
+    pub fn selected(&self) -> Option<&LayerManifestCandidate> {
         self.candidates.first()
     }
 
@@ -75,70 +75,73 @@ impl ManifestDiscovery {
         self.candidates.len() > 1
     }
 
-    pub fn load(&self) -> Result<LoadedManifest, ManifestError> {
+    pub fn load(&self) -> Result<LoadedLayerManifest, LayerManifestError> {
         load(self)
     }
 }
 
 /// Inspect only the supported names in this directory, without reading their contents.
-pub fn discover(directory: &Path) -> Result<ManifestDiscovery, ManifestError> {
+pub fn discover(directory: &Path) -> Result<LayerManifestDiscovery, LayerManifestError> {
     let mut candidates = Vec::new();
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let path = directory.join(format.filename());
         match fs::symlink_metadata(&path) {
-            Ok(_) => candidates.push(ManifestCandidate { path, format }),
+            Ok(_) => candidates.push(LayerManifestCandidate { path, format }),
             Err(source) if source.kind() == io::ErrorKind::NotFound => {}
             Err(source) => {
-                return Err(ManifestError::Io {
-                    action: "inspect manifest path",
+                return Err(LayerManifestError::Io {
+                    action: "inspect layer manifest path",
                     path,
                     source,
                 });
             }
         }
     }
-    Ok(ManifestDiscovery {
+    Ok(LayerManifestDiscovery {
         directory: directory.to_owned(),
         candidates,
     })
 }
 
 #[derive(Debug)]
-pub struct LoadedManifest {
+pub struct LoadedLayerManifest {
     pub path: PathBuf,
-    pub format: ManifestFormat,
+    pub format: LayerManifestFormat,
     pub metadata: Metadata,
     /// Complete JSON-compatible data, including uninterpreted additional fields.
     pub document: Value,
 }
 
 /// Read only the candidate selected by the original observation. Never retry a lower priority.
-pub fn load(discovery: &ManifestDiscovery) -> Result<LoadedManifest, ManifestError> {
-    let candidate = discovery.selected().ok_or_else(|| ManifestError::Missing {
-        directory: discovery.directory.clone(),
-    })?;
-    let ManifestCandidate { path, format } = candidate;
-    let io_error = |source| ManifestError::Io {
-        action: "read manifest",
+pub fn load(discovery: &LayerManifestDiscovery) -> Result<LoadedLayerManifest, LayerManifestError> {
+    let candidate = discovery
+        .selected()
+        .ok_or_else(|| LayerManifestError::Missing {
+            directory: discovery.directory.clone(),
+        })?;
+    let LayerManifestCandidate { path, format } = candidate;
+    let io_error = |source| LayerManifestError::Io {
+        action: "read layer manifest",
         path: path.clone(),
         source,
     };
     // Follow symlinks, but do not intentionally open special files such as FIFOs.
     if !fs::metadata(path).map_err(io_error)?.is_file() {
-        return Err(ManifestError::NotRegular { path: path.clone() });
+        return Err(LayerManifestError::NotRegular { path: path.clone() });
     }
     // The string API rejects invalid UTF-8 before any parser can replace or reinterpret it.
     let text = fs::read_to_string(path).map_err(io_error)?;
-    let document = decode::document(&text, *format).map_err(|message| ManifestError::Decode {
-        path: path.clone(),
-        format: *format,
-        message,
-    })?;
-    let metadata = validate_document(&document).map_err(|source| ManifestError::Metadata {
+    let document =
+        decode::document(&text, *format).map_err(|message| LayerManifestError::Decode {
+            path: path.clone(),
+            format: *format,
+            message,
+        })?;
+    let metadata = validate_document(&document).map_err(|source| LayerManifestError::Metadata {
         path: path.clone(),
         source,
     })?;
-    Ok(LoadedManifest {
+    Ok(LoadedLayerManifest {
         path: path.clone(),
         format: *format,
         metadata,
@@ -199,7 +202,9 @@ impl From<schema::Error> for MetadataError {
 impl fmt::Display for MetadataError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotObject => formatter.write_str("Manifest must be one object/mapping document."),
+            Self::NotObject => {
+                formatter.write_str("Layer manifest must be one object/mapping document.")
+            }
             Self::MissingField { field } => {
                 write!(formatter, "Missing required metadata field '{field}'.")
             }
@@ -253,7 +258,7 @@ pub fn validate_document(document: &Value) -> Result<Metadata, MetadataError> {
 }
 
 #[derive(Debug)]
-pub enum ManifestError {
+pub enum LayerManifestError {
     Missing {
         directory: PathBuf,
     },
@@ -267,7 +272,7 @@ pub enum ManifestError {
     },
     Decode {
         path: PathBuf,
-        format: ManifestFormat,
+        format: LayerManifestFormat,
         message: String,
     },
     Metadata {
@@ -276,14 +281,16 @@ pub enum ManifestError {
     },
 }
 
-impl fmt::Display for ManifestError {
+impl fmt::Display for LayerManifestError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Missing { directory } => write!(
                 formatter,
                 "No layer manifest found in '{}'; expected one of: {}.",
                 directory.display(),
-                ManifestFormat::ALL.map(ManifestFormat::filename).join(", ")
+                LayerManifestFormat::ALL
+                    .map(LayerManifestFormat::filename)
+                    .join(", ")
             ),
             Self::Io {
                 action,
@@ -296,7 +303,7 @@ impl fmt::Display for ManifestError {
             ),
             Self::NotRegular { path } => write!(
                 formatter,
-                "Could not read manifest '{}': target must be a regular file (or a symlink to one).",
+                "Could not read layer manifest '{}': target must be a regular file (or a symlink to one).",
                 path.display()
             ),
             Self::Decode {
@@ -305,17 +312,21 @@ impl fmt::Display for ManifestError {
                 message,
             } => write!(
                 formatter,
-                "Could not decode {format} manifest '{}': {message}",
+                "Could not decode {format} layer manifest '{}': {message}",
                 path.display()
             ),
             Self::Metadata { path, source } => {
-                write!(formatter, "Invalid manifest '{}': {source}", path.display())
+                write!(
+                    formatter,
+                    "Invalid layer manifest '{}': {source}",
+                    path.display()
+                )
             }
         }
     }
 }
 
-impl std::error::Error for ManifestError {
+impl std::error::Error for LayerManifestError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
@@ -329,7 +340,7 @@ impl std::error::Error for ManifestError {
 pub enum EncodeError {
     Metadata(MetadataError),
     Serialization {
-        format: ManifestFormat,
+        format: LayerManifestFormat,
         message: String,
     },
 }
@@ -358,7 +369,7 @@ impl std::error::Error for EncodeError {
 /// Encode only init metadata, validating everything before callers open an output file.
 pub fn encode_metadata(
     metadata: &Metadata,
-    format: ManifestFormat,
+    format: LayerManifestFormat,
 ) -> Result<Vec<u8>, EncodeError> {
     let serialization_error = |error: String| EncodeError::Serialization {
         format,
@@ -369,12 +380,16 @@ pub fn encode_metadata(
     validate_document(&value).map_err(EncodeError::Metadata)?;
     // Serialize the struct, not the generic map, to retain name/author/description order.
     let mut text = match format {
-        ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::to_string(metadata)
+        LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
+            serde_saphyr::to_string(metadata)
+                .map_err(|error| serialization_error(error.to_string()))?
+        }
+        LayerManifestFormat::Toml => toml::to_string_pretty(metadata)
             .map_err(|error| serialization_error(error.to_string()))?,
-        ManifestFormat::Toml => toml::to_string_pretty(metadata)
-            .map_err(|error| serialization_error(error.to_string()))?,
-        ManifestFormat::Json | ManifestFormat::Jsonc => serde_json::to_string_pretty(metadata)
-            .map_err(|error| serialization_error(error.to_string()))?,
+        LayerManifestFormat::Json | LayerManifestFormat::Jsonc => {
+            serde_json::to_string_pretty(metadata)
+                .map_err(|error| serialization_error(error.to_string()))?
+        }
     };
     if !text.ends_with('\n') {
         text.push('\n');
