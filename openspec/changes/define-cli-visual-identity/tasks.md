@@ -29,3 +29,7 @@
 
 - [x] 6.1 Reconcile origin/main's explicit layer manifest terminology and renamed APIs across this feature's code, tests, documentation, and delta requirements without losing the approved visual or collision behaviour.
 - [x] 6.2 Review the merged result, pass full validation and terminology/link checks, and commit the merge on the existing feature branch in the default workspace.
+
+## 7. Focused existing layer manifest refusal
+
+- [x] 7.1 Explain the existing file's layer manifest role and no-overwrite rule in two natural lines, remove generic recovery noise, and verify captured and terminal output without changing creation safety.

@@ -18,21 +18,23 @@ A successful invocation MUST create only its selected layer manifest and MUST le
 all pre-existing project files unchanged.
 
 When an entry occupies the layer manifest path, the CLI diagnostic MUST name its
-actual filename and identify the current directory as its location, without repeating
-the absolute directory path. Its headline MUST read `layer.<extension> already
-exists in the current directory.`, substituting the occupied filename even when
-another format was requested. It MUST explain that init does not overwrite
-existing entries and suggest inspecting the entry or running init in the intended
-different directory. It MUST state that this invocation did not change files,
-without assuming the entry is a valid layer or implying that Hydragen read its
-contents. It MUST NOT recommend blind deletion, offer force/overwrite confirmation,
-or suggest an unimplemented command. Other errors and the library's diagnostic
-path context MUST remain unchanged.
+actual filename and identify the current directory as its location, without
+repeating the absolute directory path. Its headline MUST read `This directory
+already has a layer manifest (layer.<extension>).`, substituting the occupied
+filename even when another format was requested. One supporting line MUST read
+`Initialisation creates a new layer manifest; it won’t overwrite an existing one.`
+The refusal MUST contain only these two lines, without separate generic inspection,
+different-directory, or no-files-changed advice. Initialisation MUST still leave
+existing entries unchanged. Naming the entry's layer manifest role MUST NOT imply
+that its contents were read or validated; the same refusal applies to malformed
+files, directories, and symlinks. It MUST NOT recommend blind deletion, offer
+force/overwrite confirmation, or suggest an unimplemented command. Other errors
+and the library's diagnostic path context MUST remain unchanged.
 
 #### Scenario: A layer manifest already exists
 
 - **WHEN** any supported layer manifest path is occupied when init performs its initial check, whether its contents are valid or not
-- **THEN** initialisation fails and names the occupied filename in the current directory, explains the no-overwrite policy, and gives safe next-step guidance, even if another format was requested
+- **THEN** initialisation fails with a two-line refusal identifying the existing layer manifest and its filename and explaining that init creates rather than overwrites a layer manifest, even if another format was requested
 - **AND** the existing entry and bytes remain unchanged
 
 #### Scenario: A directory or symlink occupies a layer manifest path
@@ -45,7 +47,7 @@ path context MUST remain unchanged.
 
 - **WHEN** initialisation is run again in a directory where it previously succeeded
 - **THEN** the second invocation fails without changing the layer manifest or other files, even if it requests a different format
-- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the layer manifest
+- **AND** it explains that initialisation creates rather than overwrites a layer manifest, without offering replacement or appending generic recovery advice
 
 #### Scenario: Preserve an existing project
 
@@ -58,7 +60,7 @@ path context MUST remain unchanged.
 - **WHEN** another process creates an entry at the chosen layer manifest path before init opens its output
 - **THEN** initialisation fails rather than overwriting that entry
 - **AND** it does not retry with another format
-- **AND** it gives the same concise occupied-filename diagnostic, policy, and recovery guidance without claiming that the other process made no changes
+- **AND** it gives the same two-line refusal without claiming that the other process made no changes
 
 #### Scenario: Another format appears after the initial check
 

@@ -101,6 +101,22 @@ prove pixel rendering or contrast in every font or light/dark palette.
 
 ## Current-directory collision refinement
 
+The final wording replaces the earlier filename-first refinement below with:
+
+```text
+Error: This directory already has a layer manifest (layer.yaml).
+  Initialisation creates a new layer manifest; it won’t overwrite an existing one.
+```
+
+The two-line refusal explains the file's role and no-overwrite rule without
+generic recovery or no-files-changed boilerplate. All 186 tests, formatting,
+all-target clippy, strict change validation, and diff checks pass after this
+follow-up. Captured and PTY assertions check the exact two-line refusal, actual
+filename, and normal-foreground supporting sentence while retaining file-safety
+coverage. A separate built-CLI execution requesting JSONC with malformed
+`layer.yaml` present confirmed this output and left the directory unchanged.
+Library errors, unrelated diagnostic paths, and creation behaviour are unchanged.
+
 After the initial implementation commit `4ba0d3b`, the occupied layer manifest CLI
 headline was shortened to `layer.yaml already exists in the current directory.`,
 using the actual occupied filename for every format and retaining the recovery

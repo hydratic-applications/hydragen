@@ -46,20 +46,15 @@ fn assert_failure(output: &Output, message: &str) {
 }
 
 fn assert_occupied_layer_manifest(output: &Output) {
-    assert_failure(output, "already exists");
+    assert_failure(output, "This directory already has a layer manifest (");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    for phrase in [
-        "does not overwrite existing entries",
-        "Inspect the entry",
-        "in a different directory",
-        "This command did not change any files.",
-    ] {
-        assert!(stderr.contains(phrase), "{stderr}");
-    }
-    let advice = stderr
-        .split_once("already exists in the current directory.")
-        .unwrap()
-        .1;
+    let refusal = stderr.split_once("Error: ").unwrap().1;
+    assert_eq!(refusal.lines().count(), 2, "{stderr}");
+    let advice = refusal.lines().nth(1).unwrap().trim();
+    assert_eq!(
+        advice,
+        "Initialisation creates a new layer manifest; it won’t overwrite an existing one."
+    );
     for unsafe_advice in ["delete", "remove", "--force"] {
         assert!(!advice.contains(unsafe_advice), "{stderr}");
     }
@@ -551,7 +546,9 @@ fn occupied_layer_manifest_guidance_uses_the_filename_in_a_long_unicode_director
     let output = init(&directory, &["--name", "example"]);
     assert_occupied_layer_manifest(&output);
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.starts_with("Error: layer.json already exists in the current directory.\n"));
+    assert!(
+        stderr.starts_with("Error: This directory already has a layer manifest (layer.json).\n")
+    );
     assert!(!stderr.contains(&directory.display().to_string()));
     assert!(!stderr.contains(&directory.canonicalize().unwrap().display().to_string()));
     assert_eq!(

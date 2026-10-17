@@ -16,7 +16,7 @@ pub fn init_error_message(error: &(dyn std::error::Error + 'static)) -> String {
         && let Some(filename) = path.file_name()
     {
         return format!(
-            "{} already exists in the current directory.\n'hydragen init' does not overwrite existing entries.\nInspect the entry or run 'hydragen init' in a different directory.\nThis command did not change any files.",
+            "This directory already has a layer manifest ({}).\nInitialisation creates a new layer manifest; it won’t overwrite an existing one.",
             std::path::Path::new(filename).display()
         );
     }
@@ -88,9 +88,9 @@ mod tests {
             let error = InitError::ExistingLayerManifest { path: path.clone() };
             let message = init_error_message(&error);
             assert_eq!(
-                message.lines().next().unwrap(),
+                message,
                 format!(
-                    "{} already exists in the current directory.",
+                    "This directory already has a layer manifest ({}).\nInitialisation creates a new layer manifest; it won’t overwrite an existing one.",
                     format.filename()
                 )
             );

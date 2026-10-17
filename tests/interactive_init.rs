@@ -536,19 +536,17 @@ fn assert_only_files(directory: &Path, expected: &[&str]) {
 
 fn assert_occupied_feedback(stderr: &[u8]) {
     let text = visible_text(stderr);
-    for phrase in [
-        "already exists",
-        "does not overwrite existing entries",
-        "Inspect the entry",
-        "in a different directory",
-        "This command did not change any files.",
-    ] {
-        assert!(text.contains(phrase), "{text}");
-    }
-    let advice = text
-        .split_once("already exists in the current directory.")
-        .unwrap()
-        .1;
+    assert!(
+        text.contains("This directory already has a layer manifest ("),
+        "{text}"
+    );
+    let refusal = text.split_once("Error: ").unwrap().1;
+    assert_eq!(refusal.lines().count(), 2, "{text}");
+    let advice = refusal.lines().nth(1).unwrap().trim();
+    assert_eq!(
+        advice,
+        "Initialisation creates a new layer manifest; it won’t overwrite an existing one."
+    );
     for unsafe_advice in ["delete", "remove", "--force"] {
         assert!(!advice.contains(unsafe_advice), "{text}");
     }
@@ -826,12 +824,9 @@ fn warning_and_error_headlines_are_styled_only_in_eligible_terminals() {
             assert_style(&diagnostics, "Layer manifests are not merged", |style| {
                 style.foreground.is_none() && !style.dim
             });
-            assert_style(&diagnostics, "Inspect the entry", |style| {
-                style.foreground.is_none() && !style.dim
-            });
             assert_style(
                 &diagnostics,
-                "This command did not change any files.",
+                "Initialisation creates a new layer manifest; it won’t overwrite an existing one.",
                 |style| style.foreground.is_none() && !style.dim,
             );
         } else {
@@ -1410,7 +1405,7 @@ fn every_occupied_layer_manifest_path_is_reported_before_any_questions() {
         assert_occupied_feedback(&session.stderr);
         assert!(String::from_utf8_lossy(&session.stderr).contains(format.filename()));
         assert!(visible_text(&session.stderr).contains(&format!(
-            "Error: {} already exists in the current directory.",
+            "Error: This directory already has a layer manifest ({}).",
             format.filename()
         )));
         assert!(!visible_text(&session.stderr).contains(&directory.path().display().to_string()));
@@ -1504,7 +1499,7 @@ fn the_exact_default_target_created_during_questions_is_not_overwritten() {
         fs::read_to_string(directory.path().join("layer.yaml")).unwrap(),
         "another process"
     );
-    assert!(visible_text(&session.stderr).contains("already exists"));
+    assert!(visible_text(&session.stderr).contains("already has a layer manifest"));
     assert_only_files(directory.path(), &["layer.yaml"]);
 }
 

@@ -297,14 +297,26 @@ does not remove paths needed to diagnose write failures or other errors.
 
 ### Name current-directory collisions without repeating the absolute path
 
-When init refuses an occupied layer manifest path, use `layer.<extension> already
-exists in the current directory.` rather than the absolute path. Name the actual
-occupied entry, including when its format differs from the requested format. Keep the
-no-overwrite policy, safe next step, and no-files-changed outcome beneath it.
-Do not call the entry a valid layer manifest: it can be a malformed file,
-directory, or symlink. Adapt this structured error at the CLI boundary for both
-preflight and exclusive-creation collisions; preserve the library error and other
-diagnostic paths unchanged.
+When init refuses an occupied layer manifest path, explain the file's role before
+its name. Use exactly two lines, substituting the actual occupied filename even
+when its format differs from the requested format:
+
+```text
+Error: This directory already has a layer manifest (layer.yaml).
+  Initialisation creates a new layer manifest; it won’t overwrite an existing one.
+```
+
+This tells developers why the existing file prevents initialisation without
+requiring them to recognise `layer.yaml`. The supporting sentence explains both
+what init does and why it refuses. Do not append generic inspection,
+different-directory, or no-files-changed advice; those lines obscure the reason
+for refusal rather than add a necessary action.
+
+Naming the entry's role does not mean its contents are valid or have been read:
+it can be a malformed file, directory, or symlink. Entry-preservation guarantees
+remain unchanged. Adapt this structured error at the CLI boundary for both
+preflight and exclusive-creation collisions; preserve the library error and
+other diagnostic paths unchanged.
 
 ### Preserve the selected grid and spacing
 

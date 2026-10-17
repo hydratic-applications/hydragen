@@ -172,8 +172,9 @@ design everything upfront.
       selects a single success naming the layer manifest filename; guided feedback
       uses stderr without a duplicate stdout result, while flag-only results use stdout.
       [Occupied-entry refusals](changes/define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
-      likewise name the actual filename in the current directory, without
-      assuming it is a valid layer manifest or shortening unrelated diagnostic paths.
+      identify the existing layer manifest and its filename, with one sentence
+      explaining that init creates rather than overwrites it. They do not append
+      generic recovery advice, assume valid contents, or shorten unrelated paths.
       These revise the earlier contracts through the change's delta
       specifications and aligned project guidance. The
       [increment policy](changes/define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)
