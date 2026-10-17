@@ -496,8 +496,8 @@ a shell nor the terminal test harness.
 
 The [manifest specification](openspec/specs/layer-manifest/spec.md) records the
 metadata requirements; format, selection, and reader decisions are in the
-[manifest-formats change](openspec/changes/support-layer-manifest-formats/design.md).
-The [maintained-schema design](openspec/changes/use-maintained-manifest-schema/design.md)
+[manifest-formats change](openspec/changes/archive/2026-10-17-support-layer-manifest-formats/design.md).
+The [maintained-schema design](openspec/changes/archive/2026-10-17-use-maintained-manifest-schema/design.md)
 explains the shared validation boundary. OpenSpec documents are planning and
 decision references, not build, test, or runtime inputs. Archived schemas remain
 historical snapshots and are not synchronized with the maintained schema.

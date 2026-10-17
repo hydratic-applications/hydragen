@@ -42,8 +42,8 @@ design everything upfront.
      new manifests default to YAML. This offers familiar editing formats while
      keeping the governing file predictable: duplicates are warned about, not
      merged, and a selected-file error does not cause fallback. See the
-     [format and priority decision](changes/support-layer-manifest-formats/design.md#fixed-filenames-and-an-explicit-priority-order)
-     and [discovery/loading separation](changes/support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
+     [format and priority decision](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#fixed-filenames-and-an-explicit-priority-order)
+     and [discovery/loading separation](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
      This supersedes the JSON-only part of the historical
      [manifest location decision](changes/archive/2026-10-16-define-layer-manifest/design.md#agreed-manifest-filename-location-and-format),
      not its repository-root location.
@@ -62,7 +62,7 @@ design everything upfront.
      manifest and does not initialise Git or render files. See the historical
      [directory and repository-boundary decision](changes/archive/2026-10-16-add-layer-init/design.md#use-the-current-directory-and-respect-repository-boundaries)
      and [initialisation requirements](specs/layer-initialization/spec.md).
-     The new [creation lifecycle decision](changes/support-layer-manifest-formats/design.md#check-once-for-permission-to-initialise-keep-exact-target-exclusive-creation)
+     The new [creation lifecycle decision](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#check-once-for-permission-to-initialise-keep-exact-target-exclusive-creation)
      replaces JSON-only checks: any occupied supported name initially refuses
      init, but the final write exclusively creates only the chosen path. There is
      no lock or late refusal because a different format appeared. Best-effort
@@ -111,7 +111,7 @@ design everything upfront.
      then Manifest format, with exact filename labels and `layer.yaml` initially
      selected. This keeps format choice within the existing complete, prompt-free
      automation route rather than mixing flags and questions. See the
-     [format/input-route decision](changes/support-layer-manifest-formats/design.md#keep-format-selection-within-the-existing-input-route-policy),
+     [format/input-route decision](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#keep-format-selection-within-the-existing-input-route-policy),
      which supersedes the metadata-only flag list and three-question flow in the
      historical interaction decision.
      The explicit and automatic non-interactive policy still prevents prompts in

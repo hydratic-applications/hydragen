@@ -49,13 +49,13 @@ necessary changes to existing capability requirements explicitly.
   documentation, and tests. The implementation structure and any additional
   library dependencies are not selected here.
 - Manifest checks should build on the shared discovery, loading, and validation
-  work in [support-layer-manifest-formats](../support-layer-manifest-formats/proposal.md)
-  and its [discovery/loading design](../support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
-  That active change deliberately excludes a validate command and must remain
+  work in [support-layer-manifest-formats](../archive/2026-10-17-support-layer-manifest-formats/proposal.md)
+  and its [discovery/loading design](../archive/2026-10-17-support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
+  That completed change deliberately excludes a validate command and must remain
   separate from this future work.
 - The existing [manifest specification](../../specs/layer-manifest/spec.md) provides
-  metadata context; its JSON-only filename wording is being superseded by the
-  active formats change. Neither its metadata schema nor format parsing alone
+  metadata and supported-format context, including the synchronized format and
+  schema decisions. Neither its metadata schema nor format parsing alone
   defines project-wide validation.
 - The [layer model](../../../FOUNDATIONS.md#the-layer-model) and
   [glossary](../../../GLOSSARY.md) establish contributions and dependencies. A
