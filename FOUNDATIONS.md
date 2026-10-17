@@ -89,6 +89,12 @@ useful choice over existing approaches.
    layer result in a workspace; translating ordinary edits into contributions
    is the CLI's responsibility, not a burden on each edit.
 
+   The CLI should be beautiful, enjoyable, functional, and easy to use, with each
+   treated as an equally important design goal. This applies to help, prompts,
+   results, and errors—not only guided flows. The experience should feel
+   intentionally designed, including when plain output is appropriate, without
+   requiring a particular visual style.
+
 3. **Granular reuse — Take what you need.** Let projects share individual needs
    without adopting an entire set of technologies. This includes directory
    structures, configuration in any format, and Markdown skills and rules for

@@ -23,6 +23,22 @@ enum Event {
     Closed,
 }
 
+struct TerminalSettings {
+    cols: u16,
+    rows: u16,
+    colour: Option<bool>,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> Self {
+        Self {
+            cols: 120,
+            rows: 24,
+            colour: None,
+        }
+    }
+}
+
 // Keep stdout and stderr on distinct terminals so stream assertions exercise
 // actual cliclack output rather than relying on a combined terminal transcript.
 struct Session {
@@ -49,10 +65,33 @@ impl Session {
         ci: Option<&str>,
         redirect: Option<(&str, &Path)>,
     ) -> Self {
+        Self::with_settings(
+            directory,
+            arguments,
+            ci,
+            redirect,
+            TerminalSettings::default(),
+        )
+    }
+
+    fn with_settings(
+        directory: &Path,
+        arguments: &[&str],
+        ci: Option<&str>,
+        redirect: Option<(&str, &Path)>,
+        settings: TerminalSettings,
+    ) -> Self {
         let terminal_session = TERMINAL_SESSION
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        Self::spawn_with_lock(directory, arguments, ci, redirect, terminal_session)
+        Self::spawn_with_lock(
+            directory,
+            arguments,
+            ci,
+            redirect,
+            terminal_session,
+            settings,
+        )
     }
 
     fn spawn_with_lock(
@@ -61,11 +100,12 @@ impl Session {
         ci: Option<&str>,
         redirect: Option<(&str, &Path)>,
         terminal_session: MutexGuard<'static, ()>,
+        settings: TerminalSettings,
     ) -> Self {
         let system = native_pty_system();
         let size = PtySize {
-            rows: 24,
-            cols: 120,
+            rows: settings.rows,
+            cols: settings.cols,
             pixel_width: 0,
             pixel_height: 0,
         };
@@ -90,6 +130,18 @@ esac",
         command.env("RESULT_TTY", stdout_terminal.master.tty_name().unwrap());
         command.env_remove("CI");
         command.env_remove("REDIRECT");
+        command.env_remove("COLUMNS");
+        if let Some(colour) = settings.colour {
+            command.env_remove("CLICOLOR_FORCE");
+            command.env_remove("NO_COLOR");
+            command.env_remove("CLICOLOR");
+            if colour {
+                command.env("CLICOLOR_FORCE", "1");
+            } else {
+                command.env("NO_COLOR", "1");
+                command.env("CLICOLOR", "0");
+            }
+        }
         if let Some(ci) = ci {
             command.env("CI", ci);
         }
@@ -168,7 +220,7 @@ esac",
 
     fn choose_format(&mut self, directory: &Path, format: ManifestFormat) {
         self.wait_for("Manifest format");
-        self.wait_for("layer.jsonc");
+        self.wait_for("jsonc");
         assert_no_manifests(directory);
         for _ in 0..ManifestFormat::ALL
             .iter()
@@ -275,6 +327,111 @@ fn assert_only_files(directory: &Path, expected: &[&str]) {
     assert_eq!(actual, expected);
 }
 
+fn assert_occupied_feedback(stderr: &[u8]) {
+    let text = visible_text(stderr);
+    for phrase in [
+        "already exists",
+        "does not overwrite existing entries",
+        "Inspect the entry",
+        "in a different directory",
+        "This command did not change any files.",
+    ] {
+        assert!(text.contains(phrase), "{text}");
+    }
+    let advice = text.split_once("already exists.").unwrap().1;
+    for unsafe_advice in ["delete", "remove", "--force"] {
+        assert!(!advice.contains(unsafe_advice), "{text}");
+    }
+}
+
+#[test]
+fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
+    for cols in [40, 80, 100, 160] {
+        for init in [false, true] {
+            for flag in ["-h", "--help"] {
+                for colour in [false, true] {
+                    let directory = tempdir().unwrap();
+                    let arguments = if init { vec!["init", flag] } else { vec![flag] };
+                    let mut session = Session::with_settings(
+                        directory.path(),
+                        &arguments,
+                        None,
+                        None,
+                        TerminalSettings {
+                            cols,
+                            colour: Some(colour),
+                            ..Default::default()
+                        },
+                    );
+                    assert!(session.finish().success());
+                    assert!(session.stderr.is_empty());
+                    assert!(!session.stdout.contains(&b'\x1b'));
+                    let help = visible_text(&session.stdout);
+                    assert!(help.contains("Usage:"));
+                    for line in help.lines() {
+                        assert!(
+                            line.len() <= usize::from(cols.min(100)),
+                            "{cols} columns: {line:?}"
+                        );
+                    }
+                    if init {
+                        assert!(help.contains("--name <NAME>\r\n"));
+                        assert!(help.contains("hydragen init --name shared-rules\r\n"));
+                        assert!(help.contains("--author \"Example team\" \\\r\n"));
+                        let prose = help.split_whitespace().collect::<Vec<_>>().join(" ");
+                        assert!(
+                            prose.contains(
+                                "Any input flag: flag-only input; no follow-up questions."
+                            )
+                        );
+                        assert!(prose.contains(
+                            "Input flags are --name, --author, --description and --format."
+                        ));
+                        assert!(prose.contains("Format defaults to yaml (layer.yaml)."));
+                        assert!(prose.contains("yaml, yml, toml, json, jsonc"));
+                        assert!(help.contains("hydragen init --format json\r\n"));
+                    }
+                    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
+    for (arguments, success) in [
+        (vec!["--version"], true),
+        (vec![], false),
+        (vec!["init", "--bogus"], false),
+        (vec!["init", "--name"], false),
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &arguments,
+            None,
+            None,
+            TerminalSettings {
+                cols: 40,
+                colour: Some(true),
+                ..Default::default()
+            },
+        );
+        assert_eq!(session.finish().success(), success);
+        assert!(!session.stdout.contains(&b'\x1b'));
+        assert!(!session.stderr.contains(&b'\x1b'));
+        if success {
+            assert!(session.stderr.is_empty());
+            assert!(visible_text(&session.stdout).contains("hydragen 0.1.0"));
+        } else {
+            assert!(session.stdout.is_empty());
+            assert!(visible_text(&session.stderr).contains("help"));
+        }
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
 #[test]
 fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
     let directory = tempdir().unwrap();
@@ -370,30 +527,79 @@ fn optional_fields_can_be_skipped_independently() {
         }
         let transcript = visible_text(&session.stderr);
         let format_summary = transcript.rsplit_once("Manifest format").unwrap().1;
-        assert!(format_summary.contains("layer.yaml"), "{format_summary}");
+        assert!(format_summary.contains("yaml"), "{format_summary}");
+        assert!(!format_summary.contains("layer."), "{format_summary}");
         assert!(!format_summary.contains("Skipped"), "{format_summary}");
     }
 }
 
 #[test]
 fn invalid_answers_can_be_corrected_without_creating_files_early() {
-    let directory = tempdir().unwrap();
-    let mut session = Session::new(directory.path(), &["init"], None);
-    session.wait_for("Name");
-    session.send(b" \r");
-    session.wait_for("non-whitespace");
-    assert_no_manifests(directory.path());
-    session.send(b"\x7fexample\r");
-    session.wait_for("Author (optional");
-    session.send(b" \r");
-    session.wait_for("--author must contain");
-    assert_no_manifests(directory.path());
-    session.send(b"\x7f\r");
-    session.wait_for("Description (optional");
-    session.send(b"\r");
-    session.choose_format(directory.path(), ManifestFormat::Yaml);
-    assert!(session.finish().success());
-    assert_eq!(manifest(directory.path()), json!({"name": "example"}));
+    for colour in [false, true] {
+        for supply_author in [false, true] {
+            let directory = tempdir().unwrap();
+            let mut session = Session::with_settings(
+                directory.path(),
+                &["init"],
+                None,
+                None,
+                TerminalSettings {
+                    colour: Some(colour),
+                    ..Default::default()
+                },
+            );
+            session.wait_for("Name");
+            session.send(b" \r");
+            session.wait_for("Enter a non-blank name.");
+            assert_no_manifests(directory.path());
+            session.send("\x7f  配置 🦀  \r".as_bytes());
+            session.wait_for("Author (optional");
+            session.send(b" \r");
+            session
+                .wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
+            assert_no_manifests(directory.path());
+            if supply_author {
+                session.send("\x7f  Team 配置  \r".as_bytes());
+            } else {
+                session.send(b"\x7f\r");
+            }
+            session.wait_for("Description (optional");
+            if !supply_author {
+                assert!(visible_text(&session.stderr).contains("Skipped"));
+            }
+            session.send(b" \r");
+            session.wait_for(
+                "Enter a non-blank description, or clear the field and press Enter to skip.",
+            );
+            assert_no_manifests(directory.path());
+            if supply_author {
+                session.send(b"\x7f\r");
+            } else {
+                session.send("\x7f  Description 配置  \r".as_bytes());
+            }
+            session.choose_format(directory.path(), ManifestFormat::Yaml);
+            assert!(session.finish().success());
+            let expected = if supply_author {
+                json!({"name": "  配置 🦀  ", "author": "  Team 配置  "})
+            } else {
+                json!({"name": "  配置 🦀  ", "description": "  Description 配置  "})
+            };
+            assert_eq!(manifest(directory.path()), expected);
+            assert_only_files(directory.path(), &["layer.yaml"]);
+            let transcript = visible_text(&session.stderr);
+            assert!(!transcript.contains("--name"));
+            assert!(!transcript.contains("--author"));
+            assert!(!transcript.contains("--description"));
+            assert!(transcript.contains("Skipped"));
+            assert!(!session.stdout.contains(&b'\x1b'));
+            let raw = String::from_utf8_lossy(&session.stderr);
+            let has_style = raw.split("\x1b[").skip(1).any(|part| {
+                part.find('m')
+                    .is_some_and(|end| part[..end].chars().all(|c| c.is_ascii_digit() || c == ';'))
+            });
+            assert_eq!(has_style, colour);
+        }
+    }
 }
 
 #[test]
@@ -402,12 +608,12 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
     let mut session = Session::new(directory.path(), &["init"], None);
     session.wait_for("Name");
     session.send("\u{85}\r".as_bytes());
-    session.wait_for("--name must contain at least one non-whitespace character.");
+    session.wait_for("Enter a non-blank name.");
     assert_no_manifests(directory.path());
     session.send("\x7f\u{feff}\r".as_bytes());
     session.wait_for("Author (optional");
     session.send("\u{85}\r".as_bytes());
-    session.wait_for("--author must contain at least one non-whitespace character.");
+    session.wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
     assert_no_manifests(directory.path());
     session.send(b"\x7f\r");
     session.wait_for("Description (optional");
@@ -439,12 +645,19 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         session.wait_for("Description (optional");
         assert_no_manifests(directory.path());
         session.send(b"2026-10-16\r");
-        session.wait_for("layer.jsonc");
+        session.wait_for("jsonc");
         let transcript = visible_text(&session.stderr);
         let choices = transcript.split_once("Manifest format").unwrap().1;
+        assert!(!choices.contains("layer."), "{choices}");
         let mut previous = 0;
         for choice in ManifestFormat::ALL {
-            let position = choices.find(choice.filename()).unwrap();
+            assert!(
+                choices
+                    .lines()
+                    .any(|line| line.split_whitespace().last() == Some(choice.extension())),
+                "{choices}"
+            );
+            let position = choices.find(choice.extension()).unwrap();
             assert!(position >= previous, "{choices}");
             previous = position;
         }
@@ -472,7 +685,8 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         let transcript = visible_text(&session.stderr);
         assert!(!transcript.contains("Skipped"));
         let summary = transcript.rsplit_once("Manifest format").unwrap().1;
-        assert!(summary.contains(format.filename()), "{summary}");
+        assert!(summary.contains(format.extension()), "{summary}");
+        assert!(!summary.contains("layer."), "{summary}");
     }
 }
 
@@ -608,7 +822,7 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             if answered == 3 {
                 session.send(b"Description\r");
                 session.wait_for("Manifest format");
-                session.wait_for("layer.jsonc");
+                session.wait_for("jsonc");
             }
             assert_no_manifests(directory.path());
             session.send(key);
@@ -647,7 +861,7 @@ fn every_occupied_manifest_path_is_reported_before_any_questions() {
         assert!(!session.finish().success());
         session.assert_no_prompts();
         assert!(session.stdout.is_empty());
-        assert!(String::from_utf8_lossy(&session.stderr).contains("already exists"));
+        assert_occupied_feedback(&session.stderr);
         assert!(String::from_utf8_lossy(&session.stderr).contains(format.filename()));
         assert!(!visible_text(&session.stderr).contains("Warning:"));
         if kind == "file" {
@@ -730,10 +944,11 @@ fn the_exact_default_target_created_during_questions_is_not_overwritten() {
     session.wait_for("Description (optional");
     session.send(b"\r");
     session.wait_for("Manifest format");
-    session.wait_for("layer.jsonc");
+    session.wait_for("jsonc");
     session.send(b"\r");
     assert!(!session.finish().success());
     assert!(session.stdout.is_empty());
+    assert_occupied_feedback(&session.stderr);
     assert_eq!(
         fs::read_to_string(directory.path().join("layer.yaml")).unwrap(),
         "another process"
@@ -771,7 +986,7 @@ fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_
         session.wait_for("Description (optional");
         session.send(b"\r");
         session.wait_for("Manifest format");
-        session.wait_for("layer.jsonc");
+        session.wait_for("jsonc");
         // The output is chosen only after the competing path has appeared.
         for _ in 0..ManifestFormat::ALL
             .iter()
@@ -876,6 +1091,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
             None,
             Some(("stdin-eof", &input_path)),
             terminal_session,
+            TerminalSettings::default(),
         );
         session.wait_for("Name");
         if at_selector {
@@ -888,7 +1104,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
                 input_writer.flush().unwrap();
                 session.wait_for(next_prompt);
             }
-            session.wait_for("layer.jsonc");
+            session.wait_for("jsonc");
         }
         assert_no_manifests(directory.path());
         // Closing every master handle disconnects stdin while stderr remains usable.
