@@ -4,8 +4,9 @@
 
 Implementation began after the author exited explore mode on 2026-10-17. The
 existing uncommitted brand/foundations/design documentation belongs to this
-session and is preserved. No unrelated checkout changes were discarded, and no
-upstream merge, publication, or archive was performed during implementation.
+session and is preserved. No unrelated checkout changes were discarded. The
+initial implementation did not include an upstream merge, publication, or archive;
+the subsequently requested main integration is recorded separately below.
 
 Environment recorded during implementation: macOS 26.5.2 (25F84), Rust 1.96.0,
 Cargo 1.96.0. The checkout base is
@@ -15,8 +16,8 @@ subsequent request to create a feature branch and commit.
 
 Before runtime edits, `cargo test --locked` passed **171 tests**: 26 library,
 23 binary, 40 captured init, 7 lifecycle, 20 terminal integration, and 55 other
-manifest/schema/codec tests. This is baseline evidence, not evidence that the new
-presentation has been implemented.
+tests for layer manifests, schemas, and codecs. This is baseline evidence, not
+evidence that the new presentation has been implemented.
 
 The initial and detailed implementation plans received independent reviews. The
 library audit confirmed that the locked cliclack/console public APIs can support
@@ -34,9 +35,10 @@ the design without new dependencies or a replacement interaction renderer.
 
 ## Runtime verification
 
-The completed implementation passes **186 tests**: 26 library, 32 binary,
-41 captured init, 7 lifecycle, 25 terminal integration, and 55 other
-manifest/schema/codec tests. The original 171-test baseline remains covered.
+Before main integration, the completed implementation passed **186 tests**:
+26 library, 32 binary, 41 captured init, 7 lifecycle, 25 terminal integration, and
+55 other tests for layer manifests, schemas, and codecs. The original 171-test
+baseline remains covered.
 
 Final passing commands:
 
@@ -53,13 +55,13 @@ The independent runtime review approved the implementation and separately reran
 95 affected tests before a final added regression. Its only non-blocking finding,
 missing direct guided-completion failure coverage, was addressed through a small
 injected-outro seam and test. The reviewer approved that follow-up and independently
-ran it. Both `Interrupted` and `BrokenPipe` failures preserve the full manifest
-path, completed-creation wording, original error details, and non-cancellation
-classification.
+ran it. Both `Interrupted` and `BrokenPipe` failures preserve the full layer
+manifest path, completed-creation wording, original error details, and
+non-cancellation classification.
 
-No dependencies, manifest/schema/library logic, or lifecycle test behaviour were
-changed. Runtime motif and presentation assets live in `src/presentation.rs`, not
-OpenSpec or the temporary preview files.
+No dependencies, layer manifest/schema/library logic, or lifecycle test behaviour
+were changed. Runtime motif and presentation assets live in `src/presentation.rs`,
+not OpenSpec or the temporary preview files.
 
 ## Actual Terminal checks
 
@@ -74,8 +76,9 @@ the earlier static ANSI studies.
   description. A three-space Name produced the cross-marked correction state;
   the directory remained empty. Backspacing and entering `shared-rules` resumed
   the flow. Author was skipped, Description supplied, and default YAML accepted.
-  The created manifest contained the expected name and description without author.
-  The ending reported once: `Layer initialised, manifest created at: layer.yaml`.
+  The created layer manifest contained the expected name and description without
+  author.
+  Its single ending confirmed initialisation and identified `layer.yaml`.
 - **Narrow and colour-disabled:** at 32 columns with `NO_COLOR=1`, init used the
   text-only identity and operation opening and still asked for Name. Ctrl-C
   returned to the shell with one cancellation/no-files-changed reason. The
@@ -84,9 +87,10 @@ the earlier static ANSI studies.
   single-line success naming `layer.jsonc`, with no header or session frame. The
   JSONC file contained the supplied name.
 - **Warning and refusal:** adding an existing YAML fixture alongside that JSONC
-  file produced one duplicate warning, then the occupied-manifest error. Priority,
-  no-merge policy, safe recovery, and no-change information were retained. Both
-  existing files remained unchanged, with no prompt or branded opening.
+  file produced one duplicate warning, then the occupied layer manifest error.
+  Priority, no-merge policy, safe recovery, and no-change information were
+  retained. Both existing files remained unchanged, with no prompt or branded
+  opening.
 
 Native Terminal text was inspected through its application read-back. A direct
 window-image capture failed (`could not create image from window`), so no GUI
@@ -97,7 +101,7 @@ prove pixel rendering or contrast in every font or light/dark palette.
 
 ## Current-directory collision refinement
 
-After the initial implementation commit `4ba0d3b`, the occupied-manifest CLI
+After the initial implementation commit `4ba0d3b`, the occupied layer manifest CLI
 headline was shortened to `layer.yaml already exists in the current directory.`,
 using the actual occupied filename for every format and retaining the recovery
 lines. This adapts the structured preflight or creation error only at the CLI
@@ -108,6 +112,37 @@ unit coverage checks every format for both error wrappers and preserves other
 full paths; captured and PTY tests retain entry-preservation checks and now assert
 the shorter headline. The actual built CLI displayed the shorter refusal in the
 normal Terminal window, including when JSONC was requested but YAML was occupied.
+
+## Main terminology integration
+
+The collision refinement was checkpointed as `812fb83` before merging
+`origin/main` at `c7ba290` on the existing feature branch. The merge retains
+main's `layer_manifest` module, `LayerManifest*` types, renamed tests, glossary,
+and explicit “layer manifest” wording. Feature-only code and documentation use
+the same terminology. No compatibility aliases or additional behaviour changes
+were introduced.
+
+An independent final review approved the conflict resolutions and checked that
+the merged library, schemas, base specifications, and lifecycle tests remain
+identical to main. It found no semantic regressions or weakened tests; the approved
+visual geometry, interaction rules, and collision refinement are preserved.
+
+The merged result passes all **186 tests**, formatting, all-target clippy with
+warnings denied, strict validation of this change, and diff checks. The full
+terminal suite still checks the approved header, status styling, prompt label,
+completion streams, retries, cancellation, and fallback rules. All five modified
+requirement titles match the merged main specifications; the documentation review
+also checked local links and glossary anchors.
+
+A separate execution of the built CLI in a disposable directory confirmed
+`Layer initialised, layer manifest created at: layer.jsonc` on stdout. A second
+invocation requesting YAML refused with `layer.jsonc already exists in the
+current directory.` on stderr, without the absolute directory or file changes.
+
+Repository-wide `openspec validate --all --strict` passes six items but reports
+the unrelated proposal-only `add-validate-command` change as missing delta
+specifications. That directory is identical to `origin/main`; this merge does not
+add its missing specifications or claim that repository-wide validation passes.
 
 ## Behaviour and presentation coverage
 
@@ -136,7 +171,7 @@ normal Terminal window, including when JSONC was requested but YAML was occupied
   cliclack retains the familiar editing/retry experience. This is a design review,
   not a claim of new usability-study evidence.
 - **Functionality:** all 186 tests pass, including the unchanged safety and
-  manifest-content coverage and the intentionally revised output contracts.
+  layer manifest content coverage and the intentionally revised output contracts.
 - **Ease of use:** defaults, optional skips, selected format, correction actions,
   cancellation, successful creation, and safe recovery remain explicit without
   relying on colour alone.

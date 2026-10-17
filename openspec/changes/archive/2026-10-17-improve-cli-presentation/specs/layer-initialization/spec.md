@@ -1,14 +1,14 @@
 ## MODIFIED Requirements
 
-### Requirement: Preserve existing manifests and project files
+### Requirement: Preserve existing layer manifests and project files
 
 Initialisation MUST NOT replace an existing entry at `layer.json`, including a
 regular file, directory, or symlink. The no-overwrite guarantee MUST hold if an
 entry appears after an initial check but before creation. The command MUST NOT
-read, validate, repair, or merge an existing manifest. A successful invocation
+read, validate, repair, or merge an existing layer manifest. A successful invocation
 MUST create only `layer.json` and MUST leave all existing project files unchanged.
 
-When an entry occupies the manifest path, the diagnostic MUST name the path,
+When an entry occupies the layer manifest path, the diagnostic MUST name the path,
 explain that init does not overwrite existing entries, and suggest a safe next
 step: inspect the entry or run init in the intended different directory. It MUST
 state that this invocation did not change files, without assuming the entry is
@@ -16,23 +16,23 @@ a valid layer or implying that Hydragen read its contents. It MUST NOT recommend
 blind deletion, offer force/overwrite confirmation, or suggest an unimplemented
 command. The occupied path MUST remain intact in the diagnostic.
 
-#### Scenario: A manifest already exists
+#### Scenario: A layer manifest already exists
 
 - **WHEN** `layer.json` already exists, whether its contents are valid JSON or not
 - **THEN** initialisation fails and reports that the path already exists, explains the no-overwrite policy, and gives the safe next-step guidance
 - **AND** the existing bytes remain unchanged
 
-#### Scenario: A directory or symlink occupies the manifest path
+#### Scenario: A directory or symlink occupies the layer manifest path
 
 - **WHEN** a directory or symlink, including a dangling symlink, occupies `layer.json`
 - **THEN** initialisation fails without replacing the entry or changing a symlink target
-- **AND** its diagnostic names the occupied path and gives guidance accurate for an arbitrary entry, without assuming valid manifest contents
+- **AND** its diagnostic names the occupied path and gives guidance accurate for an arbitrary entry, without assuming valid layer manifest contents
 
 #### Scenario: Repeat initialisation
 
 - **WHEN** initialisation is run again in a directory where it previously succeeded
-- **THEN** the second invocation fails without changing the manifest or other files
-- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the manifest
+- **THEN** the second invocation fails without changing the layer manifest or other files
+- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the layer manifest
 
 #### Scenario: Preserve an existing project
 
@@ -40,7 +40,7 @@ command. The occupied path MUST remain intact in the diagnostic.
 - **THEN** all pre-existing files remain unchanged
 - **AND** no workspace, contribution files, Git metadata, or other project files are created
 
-#### Scenario: Another process creates the manifest first
+#### Scenario: Another process creates the layer manifest first
 
 - **WHEN** another process creates an entry at `layer.json` before initialisation opens its output
 - **THEN** initialisation fails rather than overwriting that entry
@@ -49,7 +49,7 @@ command. The occupied path MUST remain intact in the diagnostic.
 ### Requirement: Provide predictable command outcomes and help
 
 Successful initialisation MUST exit with status zero and identify the created
-manifest on standard output after writing completes. Guided cliclack prompts and
+layer manifest on standard output after writing completes. Guided cliclack prompts and
 session feedback MUST use standard error, not the result stream. For flag-only
 input or any other invocation where interaction is disabled, success and error
 output MUST remain plain text without cliclack banners, prompts, spinners, or
@@ -87,7 +87,7 @@ adaptation MUST NOT alter the command's meaning, exit behaviour, or output chann
 
 #### Scenario: A filesystem write fails
 
-- **WHEN** creating or writing the manifest fails
+- **WHEN** creating or writing the layer manifest fails
 - **THEN** the command exits unsuccessfully and reports the affected path and failure
 - **AND** it does not print a success message
 - **AND** it does not alter pre-existing project files
@@ -95,14 +95,14 @@ adaptation MUST NOT alter the command's meaning, exit behaviour, or output chann
 #### Scenario: Non-interactive output
 
 - **WHEN** valid init runs with interaction disabled
-- **THEN** it reports success and the manifest path only on standard output, with no terminal UI on standard error
+- **THEN** it reports success and the layer manifest path only on standard output, with no terminal UI on standard error
 - **AND** errors instead use standard error without success output or terminal UI
 
 #### Scenario: Interactive output
 
-- **WHEN** init collects answers in an interactive terminal and successfully creates the manifest
+- **WHEN** init collects answers in an interactive terminal and successfully creates the layer manifest
 - **THEN** cliclack renders the session on standard error
-- **AND** the successful result line and manifest path are reported on standard output after the write
+- **AND** the successful result line and layer manifest path are reported on standard output after the write
 
 #### Scenario: Request version
 

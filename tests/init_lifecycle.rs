@@ -1,6 +1,6 @@
 use std::fs;
 
-use hydragen::{InitError, ManifestFormat, Metadata, create_init, initialize, inspect_init};
+use hydragen::{InitError, LayerManifestFormat, Metadata, create_init, initialize, inspect_init};
 
 fn metadata(name: &str) -> Metadata {
     Metadata {
@@ -13,8 +13,8 @@ fn metadata(name: &str) -> Metadata {
 #[test]
 fn independently_prepared_formats_both_succeed_without_a_lock() {
     for (first, second) in [
-        (ManifestFormat::Yaml, ManifestFormat::Json),
-        (ManifestFormat::Json, ManifestFormat::Yaml),
+        (LayerManifestFormat::Yaml, LayerManifestFormat::Json),
+        (LayerManifestFormat::Json, LayerManifestFormat::Yaml),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let prepare = || inspect_init(directory.path()).unwrap().prepare().unwrap();
@@ -28,7 +28,10 @@ fn independently_prepared_formats_both_succeed_without_a_lock() {
         let two = create_init(two, &metadata("second"), second).unwrap();
         let discovery = two.observation.unwrap();
         assert!(discovery.has_duplicates());
-        assert_eq!(discovery.selected().unwrap().format, ManifestFormat::Yaml);
+        assert_eq!(
+            discovery.selected().unwrap().format,
+            LayerManifestFormat::Yaml
+        );
         assert_eq!(two.path.file_name().unwrap(), second.filename());
         assert_eq!(fs::read(&one.path).unwrap(), bytes);
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
@@ -37,8 +40,8 @@ fn independently_prepared_formats_both_succeed_without_a_lock() {
 
 #[test]
 fn alternate_format_after_preparation_is_only_an_observation() {
-    for created in ManifestFormat::ALL {
-        for appeared in ManifestFormat::ALL {
+    for created in LayerManifestFormat::ALL {
+        for appeared in LayerManifestFormat::ALL {
             if created == appeared {
                 continue;
             }
@@ -52,7 +55,7 @@ fn alternate_format_after_preparation_is_only_an_observation() {
             assert!(discovery.has_duplicates());
             assert_eq!(
                 discovery.selected().unwrap().format,
-                ManifestFormat::ALL
+                LayerManifestFormat::ALL
                     .into_iter()
                     .find(|format| *format == created || *format == appeared)
                     .unwrap()
@@ -65,20 +68,23 @@ fn alternate_format_after_preparation_is_only_an_observation() {
 
 #[test]
 fn exact_target_collision_retains_error_and_duplicate_diagnostics_without_retry() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let directory = tempfile::tempdir().unwrap();
         let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
-        for candidate in ManifestFormat::ALL {
+        for candidate in LayerManifestFormat::ALL {
             fs::write(directory.path().join(candidate.filename()), "keep").unwrap();
         }
         let failure = create_init(prepared, &metadata("replacement"), format).unwrap_err();
         assert!(
-            matches!(failure.error, InitError::ExistingManifest { ref path } if path.file_name().unwrap() == format.filename())
+            matches!(failure.error, InitError::ExistingLayerManifest { ref path } if path.file_name().unwrap() == format.filename())
         );
         let discovery = failure.discovery.unwrap();
         assert_eq!(discovery.candidates.len(), 5);
-        assert_eq!(discovery.selected().unwrap().format, ManifestFormat::Yaml);
-        for candidate in ManifestFormat::ALL {
+        assert_eq!(
+            discovery.selected().unwrap().format,
+            LayerManifestFormat::Yaml
+        );
+        for candidate in LayerManifestFormat::ALL {
             assert_eq!(
                 fs::read_to_string(directory.path().join(candidate.filename())).unwrap(),
                 "keep"
@@ -92,7 +98,7 @@ fn exact_target_collision_retains_error_and_duplicate_diagnostics_without_retry(
 #[test]
 fn exact_target_directory_and_dangling_symlink_collisions_preserve_entries() {
     use std::os::unix::fs::symlink;
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         for link in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
@@ -103,7 +109,10 @@ fn exact_target_directory_and_dangling_symlink_collisions_preserve_entries() {
                 fs::create_dir(&path).unwrap();
             }
             let failure = create_init(prepared, &metadata("new"), format).unwrap_err();
-            assert!(matches!(failure.error, InitError::ExistingManifest { .. }));
+            assert!(matches!(
+                failure.error,
+                InitError::ExistingLayerManifest { .. }
+            ));
             if link {
                 assert_eq!(
                     fs::read_link(path).unwrap(),
@@ -126,11 +135,11 @@ fn initial_inspection_retains_duplicates_before_refusal_without_reading_them() {
     assert!(inspection.discovery().has_duplicates());
     assert_eq!(
         inspection.discovery().selected().unwrap().format,
-        ManifestFormat::Yaml
+        LayerManifestFormat::Yaml
     );
     assert!(matches!(
         inspection.prepare(),
-        Err(InitError::ExistingManifest { .. })
+        Err(InitError::ExistingLayerManifest { .. })
     ));
     assert_eq!(
         fs::read_to_string(directory.path().join("layer.json")).unwrap(),
@@ -140,7 +149,7 @@ fn initial_inspection_retains_duplicates_before_refusal_without_reading_them() {
 
 #[test]
 fn prepared_creation_validates_before_opening_the_target() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let directory = tempfile::tempdir().unwrap();
         let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
         let failure = create_init(prepared, &metadata(""), format).unwrap_err();

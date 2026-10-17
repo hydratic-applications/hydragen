@@ -110,7 +110,7 @@ impl Presentation {
 
     pub fn success(self, filename: &str) -> String {
         let message = format!(
-            "Layer initialised, manifest created at: {}",
+            "Layer initialised, layer manifest created at: {}",
             self.style().bold().apply_to(filename)
         );
         if self.decorated {
@@ -264,12 +264,12 @@ mod tests {
             assert_eq!(styled.lines().nth(1).unwrap(), "  Recovery /full/path");
             assert!(console::strip_ansi_codes(&styled).ends_with(&plain));
         }
-        for format in hydragen::ManifestFormat::ALL {
+        for format in hydragen::LayerManifestFormat::ALL {
             let plain = presentation(false).success(format.filename());
             assert_eq!(
                 plain,
                 format!(
-                    "Layer initialised, manifest created at: {}",
+                    "Layer initialised, layer manifest created at: {}",
                     format.filename()
                 )
             );

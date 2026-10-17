@@ -5,17 +5,17 @@ use std::fmt;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 
-use super::ManifestFormat;
+use super::LayerManifestFormat;
 
 mod yaml;
 
-pub(super) fn document(text: &str, format: ManifestFormat) -> Result<Value, String> {
+pub(super) fn document(text: &str, format: LayerManifestFormat) -> Result<Value, String> {
     match format {
-        ManifestFormat::Json => serde_json::from_str::<CheckedValue>(text)
+        LayerManifestFormat::Json => serde_json::from_str::<CheckedValue>(text)
             .map(|value| value.0)
             .map_err(|error| error.to_string()),
-        ManifestFormat::Jsonc => jsonc(text),
-        ManifestFormat::Yaml | ManifestFormat::Yml => {
+        LayerManifestFormat::Jsonc => jsonc(text),
+        LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
             let options = serde_saphyr::options! {
                 strict_booleans: true,
                 duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
@@ -31,7 +31,7 @@ pub(super) fn document(text: &str, format: ManifestFormat) -> Result<Value, Stri
                     .map_err(|error| error.to_string())?;
             Ok(value)
         }
-        ManifestFormat::Toml => {
+        LayerManifestFormat::Toml => {
             let table: toml::Table = toml::from_str(text).map_err(|error| error.to_string())?;
             toml_value(toml::Value::Table(table))
         }
@@ -208,11 +208,11 @@ fn toml_value(value: toml::Value) -> Result<Value, String> {
         toml::Value::Integer(number) => number.into(),
         toml::Value::Float(number) => Value::Number(
             Number::from_f64(number)
-                .ok_or("TOML non-finite numbers are not supported in manifests.")?,
+                .ok_or("TOML non-finite numbers are not supported in layer manifests.")?,
         ),
         toml::Value::Boolean(value) => Value::Bool(value),
         toml::Value::Datetime(_) => return Err(
-            "TOML date/time literals are not supported in manifests; use a quoted string instead."
+            "TOML date/time literals are not supported in layer manifests; use a quoted string instead."
                 .into(),
         ),
         toml::Value::Array(values) => Value::Array(

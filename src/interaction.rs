@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use hydragen::manifest::schema;
-use hydragen::{InitError, ManifestFormat, Metadata, validate_metadata_value};
+use hydragen::layer_manifest::schema;
+use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
 
 use crate::presentation::{self, Presentation};
 
@@ -353,7 +353,7 @@ fn directory_name_validating(
 
 pub struct InitInput {
     pub metadata: Metadata,
-    pub format: ManifestFormat,
+    pub format: LayerManifestFormat,
 }
 
 pub fn collect_init_input(default_name: &str, session: &GuidedSession) -> io::Result<InitInput> {
@@ -389,12 +389,12 @@ fn collect_ready_input(default_name: &str, session: &GuidedSession) -> io::Resul
         let name = metadata_input("name", "Name", Some(default_name), false)?;
         let author = optional_input("author", "Author")?;
         let description = optional_input("description", "Description")?;
-        let mut selector = cliclack::select("Manifest format");
-        for format in ManifestFormat::ALL {
+        let mut selector = cliclack::select("Layer manifest format");
+        for format in LayerManifestFormat::ALL {
             selector = selector.item(format, format.extension(), "");
         }
         let format = selector
-            .initial_value(ManifestFormat::default())
+            .initial_value(LayerManifestFormat::default())
             .interact()?;
         Ok(InitInput {
             metadata: Metadata {
@@ -450,21 +450,21 @@ fn finish_input<T>(
     })
 }
 
-pub fn finish(mode: Mode, manifest: &Path, presentation: Presentation) -> io::Result<()> {
-    let filename = manifest
+pub fn finish(mode: Mode, layer_manifest: &Path, presentation: Presentation) -> io::Result<()> {
+    let filename = layer_manifest
         .file_name()
-        .unwrap_or(manifest.as_os_str())
+        .unwrap_or(layer_manifest.as_os_str())
         .to_string_lossy();
     let message = presentation.success(&filename);
     if mode == Mode::Guided {
-        finish_guided(manifest, &message, |message| cliclack::outro(message))
+        finish_guided(layer_manifest, &message, |message| cliclack::outro(message))
     } else {
         writeln!(io::stdout().lock(), "{message}").map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
-                    "Manifest '{}' was created, but reporting its completion failed: {error}",
-                    manifest.display()
+                    "Layer manifest '{}' was created, but reporting its completion failed: {error}",
+                    layer_manifest.display()
                 ),
             )
         })
@@ -472,7 +472,7 @@ pub fn finish(mode: Mode, manifest: &Path, presentation: Presentation) -> io::Re
 }
 
 fn finish_guided(
-    manifest: &Path,
+    layer_manifest: &Path,
     message: &str,
     outro: impl FnOnce(&str) -> io::Result<()>,
 ) -> io::Result<()> {
@@ -480,8 +480,8 @@ fn finish_guided(
         io::Error::new(
             error.kind(),
             format!(
-                "Manifest '{}' was created, but terminal feedback failed: {error}",
-                manifest.display()
+                "Layer manifest '{}' was created, but terminal feedback failed: {error}",
+                layer_manifest.display()
             ),
         )
     })
@@ -503,11 +503,11 @@ mod tests {
     }
 
     #[test]
-    fn failed_guided_completion_reports_the_created_manifest_not_cancellation() {
-        let manifest = Path::new("/project/shared-rules/layer.jsonc");
-        let message = "Layer initialised, manifest created at: layer.jsonc";
+    fn failed_guided_completion_reports_the_created_layer_manifest_not_cancellation() {
+        let layer_manifest = Path::new("/project/shared-rules/layer.jsonc");
+        let message = "Layer initialised, layer manifest created at: layer.jsonc";
         for kind in [io::ErrorKind::Interrupted, io::ErrorKind::BrokenPipe] {
-            let error = finish_guided(manifest, message, |delivered| {
+            let error = finish_guided(layer_manifest, message, |delivered| {
                 assert_eq!(delivered, message);
                 Err(io::Error::new(kind, "outro delivery failed"))
             })
@@ -515,7 +515,7 @@ mod tests {
             assert_eq!(error.kind(), kind);
             assert_eq!(
                 error.to_string(),
-                "Manifest '/project/shared-rules/layer.jsonc' was created, but terminal feedback failed: outro delivery failed"
+                "Layer manifest '/project/shared-rules/layer.jsonc' was created, but terminal feedback failed: outro delivery failed"
             );
             assert!(!error.to_string().contains("No files were changed"));
             assert!(!is_reported_cancellation(&error));
@@ -595,7 +595,11 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::Other);
-        assert!(error.to_string().contains("Internal manifest schema error"));
+        assert!(
+            error
+                .to_string()
+                .contains("Internal layer manifest schema error")
+        );
         assert!(!error.to_string().contains("Supply --name"));
         assert!(!error.to_string().contains("non-blank"));
     }
@@ -740,7 +744,7 @@ mod tests {
     #[test]
     fn unrelated_validation_errors_keep_their_original_diagnostic() {
         let error = InitError::Io {
-            action: "inspect manifest path",
+            action: "inspect layer manifest path",
             path: Path::new("example/layer.json").to_owned(),
             source: io::Error::from(io::ErrorKind::PermissionDenied),
         };

@@ -21,6 +21,11 @@
 - [x] 4.2 Review actual runtime appearance at normal and narrow widths with colour enabled/disabled, record the environment and evidence separately from static studies, and assess all four DX goals.
 - [x] 4.3 Obtain an independent runtime review, address actionable findings, and pass formatting, clippy, locked tests, strict change validation, and diff checks before handoff.
 
-## 5. Concise occupied-manifest feedback
+## 5. Concise occupied layer manifest feedback
 
 - [x] 5.1 Shorten CLI collision headlines to the occupied filename and current-directory context, preserving library/other diagnostic paths, recovery guidance, and preflight/creation safety; verify captured and terminal regressions.
+
+## 6. Layer manifest terminology and main integration
+
+- [x] 6.1 Reconcile origin/main's explicit layer manifest terminology and renamed APIs across this feature's code, tests, documentation, and delta requirements without losing the approved visual or collision behaviour.
+- [x] 6.2 Review the merged result, pass full validation and terminology/link checks, and commit the merge on the existing feature branch in the default workspace.

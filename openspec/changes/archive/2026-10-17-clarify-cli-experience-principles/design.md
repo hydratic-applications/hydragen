@@ -46,7 +46,7 @@ targets, or settle broader product success criteria.
   dependency, command, output format, or performance threshold.
 - Audit unimplemented dependency management, rendering, watch, or contribution
   capture workflows, or resolve other backlog items.
-- Rewrite archived decisions, change manifest semantics, or claim compliance
+- Rewrite archived decisions, change layer manifest semantics, or claim compliance
   before observation and review.
 
 ## Decisions
@@ -133,7 +133,7 @@ Cover the following implemented surfaces:
   explicitly invalid metadata, success feedback, and lack of follow-up prompts.
 - Automation: explicit non-interactive mode, CI with a terminal, and each standard
   stream redirected in turn; check prompt suppression and output channels.
-- Errors: existing manifest, incorrect repository location, unusable directory-name
+- Errors: existing layer manifest, incorrect repository location, unusable directory-name
   default, and post-write reporting failure. Use existing tests for difficult
   failure paths rather than unsafe manual filesystem or process manipulation.
 - Presentation conditions: ordinary and narrow terminal widths, supported colour

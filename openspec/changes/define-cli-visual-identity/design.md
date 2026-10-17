@@ -268,17 +268,18 @@ stop, and a failed operation; separate colours are not needed for those meanings
 The yellow `▲` pairing remains reserved for warnings; rejected input uses the red
 `✕` pairing even though it can be corrected in place.
 
-### Report init completion once, naming the manifest rather than its directory
+### Report init completion once, naming the layer manifest rather than its directory
 
 Use this success wording, substituting the filename actually created:
 
-> Layer initialised, manifest created at: layer.yaml
+> Layer initialised, layer manifest created at: layer.yaml
 
 The terminal form prefixes it with the green checkmark and bolds `layer.yaml`.
 Use `layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc` when that is the
 selected format. Do not repeat the absolute directory: init runs in the directory
 chosen by the developer, so the useful confirmation is the successful action and
-the manifest filename. Do not append a second success or path-only result line.
+the layer manifest filename. Do not append a second success or path-only result
+line.
 
 For guided init, use one cliclack-style completion on stderr with no separate
 stdout result. For flag-only init, use one result line on stdout, styled when
@@ -287,23 +288,23 @@ errors remain on stderr. This keeps one visible completion in either input route
 
 These intentionally revise the old output contracts: plain flag-only output
 becomes conditional on presentation conditions, and successful guided init no
-longer reports the manifest separately on stdout. The change's delta
+longer reports the layer manifest separately on stdout. The change's delta
 specifications and `AGENTS.md` guidance explicitly identify those replacements.
 
 Keep truthful post-write failure reporting. If writing completed but feedback
-failed, explain that the manifest was created. The shortened success location
+failed, explain that the layer manifest was created. The shortened success location
 does not remove paths needed to diagnose write failures or other errors.
 
 ### Name current-directory collisions without repeating the absolute path
 
-For init's occupied-manifest refusal, use `layer.<extension> already exists in
-the current directory.` rather than the absolute path. Name the actual occupied
-entry, including when its format differs from the requested format. Keep the
+When init refuses an occupied layer manifest path, use `layer.<extension> already
+exists in the current directory.` rather than the absolute path. Name the actual
+occupied entry, including when its format differs from the requested format. Keep the
 no-overwrite policy, safe next step, and no-files-changed outcome beneath it.
-Do not call the entry a valid manifest: it can be a malformed file, directory, or
-symlink. Adapt this structured error at the CLI boundary for both preflight and
-exclusive-creation collisions; preserve the library error and other diagnostic
-paths unchanged.
+Do not call the entry a valid layer manifest: it can be a malformed file,
+directory, or symlink. Adapt this structured error at the CLI boundary for both
+preflight and exclusive-creation collisions; preserve the library error and other
+diagnostic paths unchanged.
 
 ### Preserve the selected grid and spacing
 

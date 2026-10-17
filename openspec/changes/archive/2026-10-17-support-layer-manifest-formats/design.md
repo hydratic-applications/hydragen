@@ -5,7 +5,7 @@ serialises to pretty JSON, `preflight` checks the repository location and the
 single `layer.json` path, and `initialize` repeats that check before exclusive
 creation. `src/main.rs` chooses between metadata flags and guided input.
 `src/interaction.rs` contains the interaction policy and cliclack presentation.
-There is no existing manifest reader or manifest-dependent command to extend.
+There is no existing layer manifest reader or layer-manifest-dependent command to extend.
 
 `tests/init.rs` exercises captured CLI output, filesystem safety, and same-path
 concurrency. `tests/interactive_init.rs` has a bounded pseudo-terminal harness
@@ -13,7 +13,7 @@ with child cleanup. Both assume JSON output and a three-question guided flow.
 
 The foundations emphasise familiar editing, low mental overhead, and clear source
 selection. Supporting established formats serves those values; a deterministic
-choice and visible duplicates avoid hiding which manifest governs a layer.
+choice and visible duplicates avoid hiding which layer manifest governs a layer.
 Open design questions 3 and 9 are affected: the JSON-only filename decision and
 the list of flags/questions selecting each input route. Dependency syntax,
 versioning, and broader workspace layout are not affected.
@@ -31,8 +31,8 @@ versioning, and broader workspace layout are not affected.
 
 **Non-goals:**
 
-- Conversion, repair, merging manifests, custom filenames, read-format overrides,
-  automatic migration, or comment-preserving edits of existing manifests.
+- Conversion, repair, merging layer manifests, custom filenames, read-format overrides,
+  automatic migration, or comment-preserving edits of existing layer manifests.
 - Other formats such as JSON5, HJSON, INI, XML, and executable configuration.
 - Dependency syntax, fetching, rendering, capture, watching, lock files, or
   serialising concurrent initialisation across different filenames.
@@ -55,7 +55,7 @@ and an ordered list:
 5. `jsonc` → `layer.jsonc`
 
 `yaml` and `yml` are separate filename choices using the same YAML implementation.
-The enum does not let users supply a path or change `layer`. A manifest's `name`
+The enum does not let users supply a path or change `layer`. A layer manifest's `name`
 field is identifying metadata, unrelated to its filename.
 
 There is no universal cross-format precedence. Docker Compose explicitly prefers
@@ -77,7 +77,7 @@ to predict. Existing JSON-only layers are unaffected.
 
 ### Separate discovery, loading, validation, and presentation
 
-Add a focused `src/manifest.rs` module, exported through `src/lib.rs`. Keep init's
+Add a focused `src/layer_manifest.rs` module, exported through `src/lib.rs`. Keep init's
 repository-boundary and creation logic in the existing library unless its size
 justifies a small init module; avoid unrelated refactoring.
 
@@ -93,15 +93,15 @@ Use these conceptual interfaces; exact Rust names can follow surrounding style:
   decoded document including uninterpreted additional fields.
 - **Validation:** require an object/mapping, inspect known field types and
   presence, then reuse common non-blank validation without normalising strings.
-  Use a manifest/metadata error that does not describe a read failure as an init
+  Use a layer manifest/metadata error that does not describe a read failure as an init
   flag error; init can wrap or format it for its own input route.
 - **CLI diagnostics:** render discovery data before calling loading or refusing
-  existing manifests. Discovery must survive a later error; a success-only loader
+  existing layer manifests. Discovery must survive a later error; a success-only loader
   result is insufficient. Library functions never write to terminal streams.
 
 Discovery operates on the supplied layer root only; it does not settle how future
 commands locate a layer from a subdirectory. Keep init's existing canonicalisation
-and Git-location check. Future manifest-dependent commands must discover, report
+and Git-location check. Future layer-manifest-dependent commands must discover, report
 duplicates, then load through this shared API, not invent local filename searches.
 No global scan before clap help/version handling is added.
 
@@ -116,12 +116,12 @@ reporting now, and establishes the convention for future commands.
 Use `symlink_metadata` as the existing preflight does, so a dangling symlink or a
 directory is not mistaken for an absent path. All occupied supported names count
 for initialisation refusal and selection; do not silently skip an unusable higher
-priority entry. Ignore unrelated filenames and nested manifests.
+priority entry. Ignore unrelated filenames and nested layer manifests.
 
 For read-only loading, a symlink resolving to a regular file is readable, while
-its manifest filename still determines format. Report a selected dangling symlink,
+its layer manifest filename still determines format. Report a selected dangling symlink,
 directory, or other non-regular target as a path-specific error. Check target kind
-before reading so a FIFO does not make ordinary manifest loading wait for input.
+before reading so a FIFO does not make ordinary layer manifest loading wait for input.
 These are normal local filesystem checks, not a hostile-filesystem sandbox or a
 promise to prevent every race involving a path replaced between inspection and
 opening. Do not add case-folding or accept extra spellings beyond the host
@@ -173,15 +173,15 @@ Input contracts:
   literal strings, multiline strings, dotted keys, tables, inline tables, and
   arrays of tables for otherwise supported data. Let the parser enforce duplicate
   key and invalid table-redefinition rules; do not confuse a valid sequence of
-  array-of-table entries with duplicate manifest keys.
+  array-of-table entries with duplicate layer manifest keys.
 - Parse TOML into its native typed table/value representation before converting
   to shared decoded data. Do not silently stringify numbers, booleans, or native
-  date/time values to make them pass string metadata validation. The manifest's
+  date/time values to make them pass string metadata validation. The layer manifest's
   shared JSON-compatible data model has no native date/time type: reject such
   literals with guidance to use a quoted string, rather than allowing Serde's
-  internal datetime representation to leak into the manifest. Likewise reject
+  internal datetime representation to leak into the layer manifest. Likewise reject
   non-finite numbers. TOML has no null value syntax; omitted optional keys remain
-  absent and are not synthesised as null. These are manifest data constraints,
+  absent and are not synthesised as null. These are layer manifest data constraints,
   not a hand-written replacement for TOML syntax parsing.
 - Decode values before metadata type validation. A YAML `name: true`, `name: 123`,
   `name: null`, or empty value must not become a valid string merely because the
@@ -192,7 +192,7 @@ Input contracts:
   nested objects, before a generic map can discard them. Check decoded key names
   so escaped spellings of the same JSON key are duplicates. For strict JSON, use
   a duplicate-checking Serde map visitor rather than plain `Value` deserialisation.
-- Keep the decoded data compatible with JSON-style manifest data: string-keyed
+- Keep the decoded data compatible with JSON-style layer manifest data: string-keyed
   objects, arrays, strings, booleans, finite numbers, and null for uninterpreted
   fields. Reject complex YAML keys, TOML native date/time literals, and non-finite
   numbers instead of silently changing their meaning. Known metadata fields
@@ -235,8 +235,8 @@ aliases, and parser limits remain the library's responsibility.
 Add regressions for both extensions, each metadata field, nested additional
 values, arrays, mapping keys, signed/boundary/very-large forms, and corresponding
 quoted/explicit-string positive controls. The guard is compatibility hardening,
-not a relaxation of the manifest contract. Its extra parser-event inspection is
-limited to YAML reads; init still never parses existing manifest contents.
+not a relaxation of the layer manifest contract. Its extra parser-event inspection is
+limited to YAML reads; init still never parses existing layer manifest contents.
 
 Evaluation sources: [yaml_serde 0.10.7](https://crates.io/api/v1/crates/yaml_serde/0.10.7),
 [serde_norway 0.9.42](https://crates.io/api/v1/crates/serde_norway/0.9.42), and
@@ -246,9 +246,9 @@ is retained in the approved temporary workspace as
 
 #### Coordinate with the maintained-schema plan
 
-A separate saved project plan, **Make the maintained manifest schema drive CLI
+A separate saved project plan, **Make the maintained layer manifest schema drive CLI
 validation**, proposes a maintained `schemas/layer-manifest.schema.json`, an
-embedded validator, and `src/manifest.rs`. That implementation is not present in
+embedded validator, and `src/layer_manifest.rs`. That implementation is not present in
 this checkout. Its ownership/validation work and this format work overlap in the
 same module and init callers; they must not establish competing validation rules.
 
@@ -289,13 +289,13 @@ where it controls the route. Keep terminal, CI, and `--non-interactive` behaviou
 description, and asks nothing. An invalid or missing format value is a clap error,
 not an invitation to prompt. `--format` is not a read-time precedence override.
 
-Bare eligible terminal init asks Name, Author, Description, then Manifest format.
+Bare eligible terminal init asks Name, Author, Description, then Layer manifest format.
 Use a cliclack select with choices in priority order and `layer.yaml` preselected;
 each label includes its exact filename. Enter accepts it. Keep all answers in
 memory until every question completes. Escape, Ctrl-C, or input failure at the
 new selector follows the existing no-files/nonzero cancellation path.
 
-Return metadata and format as separate init inputs, not as a new manifest field.
+Return metadata and format as separate init inputs, not as a new layer manifest field.
 Update the existing optional-field presentation carefully: the custom skipped
 placeholder theme must not mislabel a format selection as `Skipped`.
 
@@ -332,7 +332,7 @@ creation, and observation steps:
 1. **Inspect/prepare at command start:** canonicalise the directory, keep repository
    boundary checks, and discover all five paths. Make duplicate data available to
    the CLI, then refuse any occupied name before guided input or writes. No
-   existing manifest content is read. This check does not reserve the directory.
+   existing layer manifest content is read. This check does not reserve the directory.
 2. **Create using that prepared target:** after flags/defaults or all guided
    answers are complete, serialise the requested format and open only its fixed
    target with `create_new(true)`. Do not repeat the all-format refusal check.
@@ -357,7 +357,7 @@ failures can leave a partial newly created file; failures to report a created
 result retain the existing explicit reporting-error semantics.
 
 **Alternatives rejected:** lock files, late all-format rejection, cleanup/rollback
-of a successfully created manifest, and guarantees that a post-write observation
+of a successfully created layer manifest, and guarantees that a post-write observation
 can detect files created after it. The user chose low overhead and observation
 over cross-format serialisation; a warning describes observed state, not proof of
 another running process.
@@ -365,7 +365,7 @@ another running process.
 ### Warn once, before a dependent failure, with truthful wording
 
 Use plain stderr diagnostics for duplicate warnings, including flag-only and CI
-execution. Do not add a logging framework or a generic startup manifest scan.
+execution. Do not add a logging framework or a generic startup layer manifest scan.
 Use the same message builder for init and future reader command callers. Include
 the directory, every occupied filename in priority order, the selected filename,
 and the complete priority order (or an equally clear explanation of selection).
@@ -378,18 +378,18 @@ Warning: Multiple layer manifests found in '/project': layer.yaml, layer.json. U
 
 For an initial init refusal, use wording such as `layer.yaml takes priority`
 rather than claiming init loaded an existing file. For post-creation duplicates,
-identify the chosen manifest under the same rule, followed by the ordinary
+identify the chosen layer manifest under the same rule, followed by the ordinary
 success line naming the file init actually created. The warning itself never
 changes exit status. Explain that duplicates are not merged and should be reduced
-to the one intended manifest; do not automatically remove them.
+to the one intended layer manifest; do not automatically remove them.
 
-The initial existing-manifest path reports once and stops. A successful creation
+The initial existing-layer-manifest path reports once and stops. A successful creation
 started with no candidates, so only its final discovery can produce the duplicate
 warning. Avoid re-rendering the same discovery through nested helpers. Future
 commands touching multiple layers should report once for each affected directory
 within their command context; no unused global cache is needed in this increment.
 
-Help/version and clap usage failures do not inspect project manifests. Known
+Help/version and clap usage failures do not inspect project layer manifests. Known
 repository-location failures may stop before discovery; do not scan unrelated
 directories merely to emit a warning.
 
@@ -401,10 +401,10 @@ directories merely to emit a warning.
   and concurrency limits. State that only init
   exists and that loading is currently a library capability, not a CLI command.
 - Foundations: replace the JSON-only statement in the layer model with the shared
-  manifest concept and supported fixed filenames. Keep parsing details in the
+  layer manifest concept and supported fixed filenames. Keep parsing details in the
   specifications/README; preserve the eight guiding values and unrelated material.
-- Glossary: update Layer, Root layer, and Manifest, using links to the existing
-  Manifest heading rather than inventing a new term for each format.
+- Glossary: update Layer, Root layer, and Layer manifest, using links to the existing
+  Layer manifest heading rather than inventing a new term for each format.
 - AGENTS: extend input flags to include `--format`, record the YAML default and
   separate routes, and clarify initial checks versus exclusive final creation.
 - Design questions: mark the filename and input-route decisions as superseded by
@@ -426,7 +426,7 @@ todo as part of this work.
 The detailed checklist is in [tasks.md](tasks.md). Implement in four reviewable
 increments, each with the tests for the behaviour it introduces:
 
-1. **Manifest core:** format mapping, discovery, error/data contracts, parsers,
+1. **Layer manifest core:** format mapping, discovery, error/data contracts, parsers,
    validation, and output codecs. Prove parser policy with focused tests before
    integrating CLI changes.
 2. **Flag-only init and filesystem lifecycle:** explicit format/default handling,
@@ -458,7 +458,7 @@ Verification must cover:
   inspection errors, with no new runtime services or Git subprocesses.
 - CLI defaults and all format values, missing/invalid flag values, format-only
   terminal invocations, CI/redirected streams, help/version, stderr/stdout
-  separation, and no warning for a single manifest.
+  separation, and no warning for a single layer manifest.
 - Guided default and non-default selections, cancellation at the format selector,
   no early writes, existing entries before questions, and alternate formats
   appearing during the questions without causing late refusal.
@@ -494,7 +494,7 @@ the perspective of a developer who has not read this conversation.
   during prompts. Do not simply expand the existing repeated preflight loop.
 - **Duplicate observations are snapshots** → Document that other processes can
   create files after the final check, and never imply the warning proves a race
-  or that no warning guarantees exactly one manifest forever.
+  or that no warning guarantees exactly one layer manifest forever.
 - **Comment-aware formats invite expectations about editing** → Keep this change
   read-only for existing files, with no promise to rewrite or preserve comments
   in a future mutation feature.
@@ -511,7 +511,7 @@ migration. Removing unwanted duplicate files is a deliberate user action.
 
 No data migration or destructive rollback is required. The implementation should
 land with updated help/docs and tests together; if a regression is discovered,
-stop using the affected build rather than converting or deleting manifests
+stop using the affected build rather than converting or deleting layer manifests
 automatically. Never create a JSON duplicate merely to support an older build.
 
 ## Remaining assumptions and missing implementation evidence
@@ -545,13 +545,13 @@ runtime evidence:
   `toml` 1.1.8+spec-1.1.0, with the intended limited feature sets in Cargo files.
 - The user-approved [YAML overflow guard](#yaml-integer-overflow-compatibility-guard)
   closes the investigated implicit-number-to-string fallback. The dependency was
-  retained after bounded evaluation of alternatives. No manifest rule was relaxed.
+  retained after bounded evaluation of alternatives. No layer manifest rule was relaxed.
 - JSONC requires additional validation of parser-provided original string-token
   ranges and whitespace gaps using `serde_json`: disabling extension switches
   alone still accepted raw control characters and non-JSON whitespace. This uses
   the maintained parser's tokens, not a new tokenizer or comment-stripping pass.
 - `cargo test --locked`: **122 passed**, comprising 11 library, 15 binary,
-  33 captured init, 7 lifecycle, 17 real-terminal init, 31 manifest, and
+  33 captured init, 7 lifecycle, 17 real-terminal init, 31 layer manifest, and
   8 YAML integer regression tests. This includes all 32 discovery subsets,
   independent output expectations, selected-only errors, exact-target collisions,
   different-format interleavings, post-write observation failures, and selector

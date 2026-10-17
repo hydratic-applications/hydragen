@@ -18,7 +18,7 @@ receive inline validation feedback and another opportunity to answer. Author and
 description MUST be optional independently; an empty answer MUST skip the field,
 while a non-empty whitespace-only answer MUST be rejected with inline feedback. Accepted
 values MUST be preserved unchanged, and skipped fields MUST be absent from the
-manifest rather than written as empty strings or `null`.
+layer manifest rather than written as empty strings or `null`.
 After Enter skips an optional field, the completed prompt MUST show a dimmed, italic
 `Skipped` indicator rather than a blank answer. This is presentation only: it
 MUST NOT become a default or a stored metadata value, appear before submission,
@@ -36,12 +36,12 @@ starting prompts. The meaning of guided feedback MUST remain clear without colou
 
 - **WHEN** an eligible terminal user runs `hydragen init` without metadata flags
 - **THEN** cliclack asks for name, author, and description in order
-- **AND** only after valid answers or optional skips does init create the manifest
+- **AND** only after valid answers or optional skips does init create the layer manifest
 
 #### Scenario: Skip optional fields
 
 - **WHEN** the user answers the name prompt with a valid name and presses Enter without text at an optional prompt
-- **THEN** that field is omitted from the manifest
+- **THEN** that field is omitted from the layer manifest
 - **AND** its completed prompt shows `Skipped` before the next question or final feedback
 - **AND** skipping author does not prevent supplying description, or vice versa
 
@@ -63,7 +63,7 @@ starting prompts. The meaning of guided feedback MUST remain clear without colou
 - **WHEN** a whitespace-only answer is submitted for Author or Description
 - **THEN** its feedback explains both supplying a non-blank answer and clearing the field then pressing Enter to skip
 - **AND** clearing the input and pressing Enter skips only that field and shows its submitted-skip feedback
-- **AND** the manifest omits the skipped field after the remaining input is complete
+- **AND** the layer manifest omits the skipped field after the remaining input is complete
 
 #### Scenario: Flag-only validation retains flag context
 

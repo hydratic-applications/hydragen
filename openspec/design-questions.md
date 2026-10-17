@@ -14,7 +14,7 @@ design everything upfront.
    individual developers, teams, or both? Which ecosystems should it support first,
    and how broad should support beyond them be?
    - **Initial implementation scope:** Start with `hydragen init`, which creates a
-     layer's identifying manifest without requiring a root/dependent type choice.
+     layer manifest without requiring a root/dependent type choice.
      Dependency management and inheritance are later increments; this does not
      settle the broader audience or ecosystem questions. See the
      [initialisation proposal](changes/archive/2026-10-16-add-layer-init/proposal.md) and
@@ -24,34 +24,38 @@ design everything upfront.
    decide which to use? How does a consumer select a source and version, and which
    commands support that workflow? Should references pin a version, follow updates
    automatically, or support both by consumer choice?
-   - **Partial resolution:** Every layer has a manifest declaring its required
+   - **Partial resolution:** Every layer has a layer manifest declaring its required
      name, optional author and description, and the other layers it depends on. Name
      and any supplied author or description must be non-blank strings. An
      omitted dependency list and an empty list both mean no dependencies. See the
-     [manifest decision and draft schema choices](changes/archive/2026-10-16-define-layer-manifest/design.md#decisions).
+     [layer manifest decision and draft schema choices](changes/archive/2026-10-16-define-layer-manifest/design.md#decisions).
      Source locations, reference syntax, and how versioning works (including
-     whether it belongs in the manifest) remain open.
+     whether it belongs in the layer manifest) remain open.
+   - **Terminology decision:** Use “layer manifest” in full throughout Hydragen's
+     documentation, CLI, code, and tests to distinguish it from other tools'
+     manifests. File contents and behavior do not change. See the
+     [terminology decision](changes/use-layer-manifest-terminology/design.md).
 3. **Files and tool dependency.** Are shared files committed into a consumer's
    repository, or created or linked by Hydragen when needed? What project layout
    does this require? Can collaborators and continuous integration (CI) build,
    run, and edit the project without Hydragen installed? What must work after a
    plain clone?
-   - **Filename and format resolution:** The manifest remains at the layer's
+   - **Filename and format resolution:** The layer manifest remains at the layer's
      repository root, with one of five fixed filenames. Selection follows
      `layer.yaml` > `layer.yml` > `layer.toml` > `layer.json` > `layer.jsonc`;
-     new manifests default to YAML. This offers familiar editing formats while
+     new layer manifests default to YAML. This offers familiar editing formats while
      keeping the governing file predictable: duplicates are warned about, not
      merged, and a selected-file error does not cause fallback. See the
      [format and priority decision](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#fixed-filenames-and-an-explicit-priority-order)
      and [discovery/loading separation](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#separate-discovery-loading-validation-and-presentation).
      This supersedes the JSON-only part of the historical
-     [manifest location decision](changes/archive/2026-10-16-define-layer-manifest/design.md#agreed-manifest-filename-location-and-format),
+     [layer manifest location decision](changes/archive/2026-10-16-define-layer-manifest/design.md#agreed-layer-manifest-filename-location-and-format),
      not its repository-root location.
    - **Partial resolution:** The CLI renders the layer result of a dependent layer
      into its workspace. The layer result is the files and directory structure
      produced by applying its contributions to inherited content; the workspace
      is the directory where developers and agents edit those files. Workspace
-     files are not committed; the repository records the manifest
+     files are not committed; the repository records the layer manifest
      and the layer's own contributions. The CLI handles translation between the
      two. See [the layer model](../FOUNDATIONS.md#the-layer-model).
      Directory layout, how files are made available, and installation requirements
@@ -59,7 +63,7 @@ design everything upfront.
    - **Initialisation decision:** `hydragen init` targets the current directory,
      permits initialisation before Git setup, and refuses a location below a
      detected conventional Git working-tree root. It creates only the selected
-     manifest and does not initialise Git or render files. See the historical
+     layer manifest and does not initialise Git or render files. See the historical
      [directory and repository-boundary decision](changes/archive/2026-10-16-add-layer-init/design.md#use-the-current-directory-and-respect-repository-boundaries)
      and [initialisation requirements](specs/layer-initialization/spec.md).
      The new [creation lifecycle decision](changes/archive/2026-10-17-support-layer-manifest-formats/design.md#check-once-for-permission-to-initialise-keep-exact-target-exclusive-creation)
@@ -108,7 +112,7 @@ design everything upfront.
      missing values. Format alone therefore uses the directory-name default and
      omits author and description. Omitted format defaults to `layer.yaml` without
      counting as a supplied flag. Guided input asks Name, Author, Description,
-     then Manifest format, with extension-only labels (`yaml`, `yml`, `toml`,
+     then Layer manifest format, with extension-only labels (`yaml`, `yml`, `toml`,
      `json`, `jsonc`) and `yaml` initially selected. The prompt already identifies
      the choice as a format, so repeating `layer.` adds no useful distinction;
      generated filenames remain unchanged. See the
@@ -122,7 +126,7 @@ design everything upfront.
      The explicit and automatic non-interactive policy still prevents prompts in
      unattended environments. Supplying name is optional: both routes default it
      to the current directory's name, with Enter accepting the displayed prompt
-     default. The manifest still requires a non-blank name. See the
+     default. The layer manifest still requires a non-blank name. See the
      [directory-name default decision](changes/archive/2026-10-16-add-interactive-init/design.md#default-name-to-the-current-directory).
      Historical context: the [separate-input-route decision](changes/archive/2026-10-16-add-interactive-init/design.md#separate-guided-and-flag-only-input),
      [mode-selection decision](changes/archive/2026-10-16-add-interactive-init/design.md#select-interactive-mode-conservatively),
@@ -146,7 +150,7 @@ design everything upfront.
       This does not select real projects or settle the broader success criteria.
       The [presentation increment](changes/archive/2026-10-17-improve-cli-presentation/design.md#decisions)
       applies this review to width-aware help, prompt-specific validation feedback,
-      and safe occupied-manifest recovery advice without selecting a visual theme
+      and safe recovery advice for occupied layer manifest paths without selecting a visual theme
       or minimum terminal width.
       The subsequent [visual-identity increment](changes/define-cli-visual-identity/design.md#decisions)
       implements init's selected dense 16-by-8 braille motif, separate brand and
@@ -164,12 +168,12 @@ design everything upfront.
       also use red, with rejected input sharing the red-cross error pairing rather
       than a recoloured warning triangle. Placement, wording, and behaviour
       distinguish editable input errors, deliberate stops, and operational failures.
-      The [completion decision](changes/define-cli-visual-identity/design.md#report-init-completion-once-naming-the-manifest-rather-than-its-directory)
-      selects a single success naming the manifest filename; guided feedback uses
-      stderr without a duplicate stdout result, while flag-only results use stdout.
+      The [completion decision](changes/define-cli-visual-identity/design.md#report-init-completion-once-naming-the-layer-manifest-rather-than-its-directory)
+      selects a single success naming the layer manifest filename; guided feedback
+      uses stderr without a duplicate stdout result, while flag-only results use stdout.
       [Occupied-entry refusals](changes/define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
       likewise name the actual filename in the current directory, without
-      assuming it is a valid manifest or shortening unrelated diagnostic paths.
+      assuming it is a valid layer manifest or shortening unrelated diagnostic paths.
       These revise the earlier contracts through the change's delta
       specifications and aligned project guidance. The
       [increment policy](changes/define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Hydragen layer manifest metadata (draft)",
-  "description": "Initial metadata requirements for parsed YAML/YML, TOML, JSON, or JSONC manifest content at the root of a layer's repository. Name is required; author and description are optional. This schema validates contents, not filename or location, and does not yet validate dependency references or other layer behaviour.",
+  "description": "Initial metadata requirements for parsed YAML/YML, TOML, JSON, or JSONC layer manifest content at the root of a layer's repository. Name is required; author and description are optional. This schema validates contents, not filename or location, and does not yet validate dependency references or other layer behaviour.",
   "type": "object",
   "required": ["name"],
   "$defs": {

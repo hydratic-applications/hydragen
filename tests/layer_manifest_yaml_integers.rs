@@ -3,7 +3,8 @@
 use std::fs;
 
 use hydragen::{
-    ManifestError, ManifestFormat as Format, Metadata, MetadataError, discover, encode_metadata,
+    LayerManifestError, LayerManifestFormat as Format, Metadata, MetadataError, discover,
+    encode_metadata,
 };
 use serde_json::{Value, json};
 
@@ -50,7 +51,7 @@ const INTEGER_SPELLINGS: [(&str, &str); 21] = [
     ),
 ];
 
-fn read(format: Format, text: &str) -> Result<Value, ManifestError> {
+fn read(format: Format, text: &str) -> Result<Value, LayerManifestError> {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join(format.filename()), text).unwrap();
     discover(directory.path())
@@ -121,7 +122,7 @@ fn assert_number_at_every_position(format: Format, scalar: &str, expected: &Valu
             assert!(
                 matches!(
                     read(format, &text),
-                    Err(ManifestError::Metadata {
+                    Err(LayerManifestError::Metadata {
                         source: MetadataError::NotString { .. },
                         ..
                     })
@@ -130,7 +131,10 @@ fn assert_number_at_every_position(format: Format, scalar: &str, expected: &Valu
             );
         } else if key {
             let error = read(format, &text).unwrap_err();
-            assert!(matches!(error, ManifestError::Decode { .. }), "{error}");
+            assert!(
+                matches!(error, LayerManifestError::Decode { .. }),
+                "{error}"
+            );
             assert!(error.to_string().contains("string object key"), "{error}");
         } else {
             assert_eq!(
@@ -280,7 +284,10 @@ fn yaml_integer_radix_boundaries_cover_sign_case_and_underscore_combinations() {
                     let overflow = spelling(magnitude + 1);
                     for (pointer, key, text) in positions(&overflow) {
                         let error = read(format, &text).unwrap_err();
-                        assert!(matches!(error, ManifestError::Decode { .. }), "{error}");
+                        assert!(
+                            matches!(error, LayerManifestError::Decode { .. }),
+                            "{error}"
+                        );
                         assert!(
                             error.to_string().contains("i64/u64 range"),
                             "{format} {pointer} key={key}: {error}"

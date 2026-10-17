@@ -38,7 +38,7 @@ fn inspect_scalar_events(text: &str, budget: &Budget) -> Result<(), String> {
             )
         }) {
             return Err(format!(
-                "YAML binary tags are not supported in manifests at line {}, column {}; use an ordinary string or !!str for text.",
+                "YAML binary tags are not supported in layer manifests at line {}, column {}; use an ordinary string or !!str for text.",
                 span.start.line(),
                 span.start.col() + 1,
             ));

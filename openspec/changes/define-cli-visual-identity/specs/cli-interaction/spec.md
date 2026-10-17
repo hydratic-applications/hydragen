@@ -66,7 +66,7 @@ changing validation, editing, input preservation, or retry behaviour.
 - **WHEN** a guided metadata answer is rejected
 - **THEN** its marker, frame, and correction feedback use the red error treatment
 - **AND** the current answer remains available to edit, without a separate command-level failure announcement
-- **AND** correcting the answer continues the guided flow with no early manifest creation
+- **AND** correcting the answer continues the guided flow with no early layer manifest creation
 
 #### Scenario: Colour-disabled guided interaction
 
@@ -105,7 +105,7 @@ from compact status styling and MUST NOT be enabled by colour preferences.
 
 - **WHEN** init receives `--name` in an otherwise eligible interactive terminal, with or without optional input flags
 - **THEN** it uses only supplied flags and documented defaults without prompts or guided session presentation
-- **AND** omitted optional metadata fields remain absent from the manifest
+- **AND** omitted optional metadata fields remain absent from the layer manifest
 - **AND** eligible compact status styling does not turn it into a guided session
 
 #### Scenario: Optional metadata flags without a name override
@@ -145,9 +145,9 @@ from compact status styling and MUST NOT be enabled by colour preferences.
 
 ### Requirement: Collect metadata through a guided cliclack session
 
-Guided init MUST use cliclack to collect name, author, description, and manifest
-format in that order, without input flags. Init MUST NOT combine input flags and
-prompt answers within one invocation or require a final confirmation.
+Guided init MUST use cliclack to collect name, author, description, and layer
+manifest format in that order, without input flags. Init MUST NOT combine input
+flags and prompt answers within one invocation or require a final confirmation.
 
 Before the first prompt, the session MUST explain once that Enter accepts the
 default or skips an optional field. Optional metadata prompts MUST be labelled
@@ -162,14 +162,14 @@ receive inline validation feedback and another opportunity to answer. Author and
 description MUST be optional independently; an empty answer MUST skip the field,
 while a non-empty whitespace-only answer MUST be rejected with inline feedback.
 Accepted values MUST be preserved unchanged, and skipped fields MUST be absent
-from the manifest rather than written as empty strings or `null`.
+from the layer manifest rather than written as empty strings or `null`.
 After Enter skips an optional field, the completed prompt MUST show a dimmed,
 italic `Skipped` indicator rather than a blank answer. This is presentation only:
 it MUST NOT become a default or a stored metadata value, appear before submission,
 or mark cancellation or a format choice as a skip.
 
-The final Manifest format question MUST be a selector with choices labelled by
-the extensions `yaml`, `yml`, `toml`, `json`, and `jsonc`, without a leading dot or
+The final `Layer manifest format` question MUST be a selector with choices labelled
+by the extensions `yaml`, `yml`, `toml`, `json`, and `jsonc`, without a leading dot or
 `layer.` prefix, in priority order. `yaml` MUST be initially selected and accepted
 by Enter. The completed prompt MUST also show the extension alone.
 The selector MUST NOT allow arbitrary filenames or rename the fixed basename.
@@ -194,13 +194,13 @@ to retry valid metadata or mislabelling them as invalid answers.
 #### Scenario: Initialise through prompts
 
 - **WHEN** an eligible terminal user runs `hydragen init` without input flags
-- **THEN** cliclack asks for name, author, description, and manifest format in order
-- **AND** only after valid answers, optional skips, and a format choice does init create the manifest
+- **THEN** cliclack asks for name, author, description, and layer manifest format in order
+- **AND** only after valid answers, optional skips, and a format choice does init create the layer manifest
 
 #### Scenario: Skip optional fields
 
 - **WHEN** the user answers the name prompt with a valid name and presses Enter without text at an optional metadata prompt
-- **THEN** that field is omitted from the manifest
+- **THEN** that field is omitted from the layer manifest
 - **AND** its completed prompt shows `Skipped` before the next question or final feedback
 - **AND** skipping author does not prevent supplying description, or vice versa
 
@@ -222,7 +222,7 @@ to retry valid metadata or mislabelling them as invalid answers.
 - **WHEN** a whitespace-only answer is submitted for Author or Description
 - **THEN** its feedback explains both supplying a non-blank answer and clearing the field then pressing Enter to skip
 - **AND** clearing the input and pressing Enter skips only that field and shows its submitted-skip feedback
-- **AND** the manifest omits the skipped field after the remaining input is complete
+- **AND** the layer manifest omits the skipped field after the remaining input is complete
 
 #### Scenario: Flag-only validation retains flag context
 
@@ -241,9 +241,9 @@ to retry valid metadata or mislabelling them as invalid answers.
 
 - **WHEN** the user completes the metadata questions and presses Enter on the initial format selection
 - **THEN** init creates `layer.yaml` if exclusive creation and writing succeed
-- **AND** no format property is added to the manifest
+- **AND** no format property is added to the layer manifest
 
-#### Scenario: Choose another format without renaming the manifest
+#### Scenario: Choose another format without renaming the layer manifest
 
 - **WHEN** the user chooses `yml`, `toml`, `json`, or `jsonc` from the selector
 - **THEN** init creates the corresponding fixed `layer.<extension>` filename in that format if creation succeeds
@@ -269,16 +269,16 @@ MUST retain their distinct cause and red error treatment when styled.
 
 - **WHEN** the user presses Escape or Ctrl-C while answering any metadata prompt or the format selector
 - **THEN** init exits unsuccessfully with clear cancellation feedback and one no-files-changed report
-- **AND** no manifest or other project file is created
+- **AND** no layer manifest or other project file is created
 - **AND** it neither prints a success nor reports cancellation as an unexpected operational error
 
 #### Scenario: Input ends or a prompt fails
 
 - **WHEN** input ends unexpectedly or a prompt returns an I/O failure before all input, including format, is resolved
 - **THEN** init exits unsuccessfully with an informative message and no success output
-- **AND** no manifest or other project file is created
+- **AND** no layer manifest or other project file is created
 
 #### Scenario: Feedback fails after creation
 
-- **WHEN** the manifest write succeeds but subsequent interactive feedback fails
-- **THEN** the error explains that the manifest was already created rather than claiming that no files changed
+- **WHEN** the layer manifest write succeeds but subsequent interactive feedback fails
+- **THEN** the error explains that the layer manifest was already created rather than claiming that no files changed

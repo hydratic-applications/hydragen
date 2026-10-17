@@ -30,7 +30,7 @@ implementation.
 - Use the same red-cross pairing for rejected input as for other errors, and red
   cancellation feedback. Preserve cliclack's interaction handling and distinguish
   correction, cancellation, and failure through placement, wording, and behaviour.
-- Report init completion once as “Layer initialised, manifest created at:
+- Report init completion once as “Layer initialised, layer manifest created at:
   layer.yaml”, using the actual filename instead of an absolute directory path.
   Guided completion uses stderr without a second stdout result; flag-only
   completion uses stdout and can be styled in a terminal.
@@ -51,8 +51,8 @@ None selected.
 ## Impact
 
 Changes affect binary-side presentation, integration/PTY tests, and user/developer
-guidance, not manifest content or filesystem behaviour. The delta specifications
-and revised `AGENTS.md` guidance identify the replacements for always-plain
+guidance, not layer manifest content or filesystem behaviour. The delta
+specifications and revised `AGENTS.md` guidance identify the replacements for always-plain
 flag-only output and the separate guided stdout result. Preserve input-route,
 cancellation, and safety semantics. No dependency, replacement prompt renderer,
 help redesign, or new command is needed.

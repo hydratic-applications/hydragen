@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Barrier};
 
-use hydragen::ManifestFormat;
+use hydragen::LayerManifestFormat;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -22,16 +22,16 @@ fn init(directory: &Path, arguments: &[&str]) -> Output {
 }
 
 fn assert_success(output: &Output) {
-    assert_success_in_format(output, ManifestFormat::Yaml);
+    assert_success_in_format(output, LayerManifestFormat::Yaml);
 }
 
-fn assert_success_in_format(output: &Output, format: ManifestFormat) {
+fn assert_success_in_format(output: &Output, format: LayerManifestFormat) {
     assert!(output.status.success(), "{output:?}");
     assert!(output.stderr.is_empty(), "{output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
         format!(
-            "Layer initialised, manifest created at: {}\n",
+            "Layer initialised, layer manifest created at: {}\n",
             format.filename()
         )
     );
@@ -45,7 +45,7 @@ fn assert_failure(output: &Output, message: &str) {
     assert!(!output.stderr.contains(&b'\x1b'));
 }
 
-fn assert_occupied_manifest(output: &Output) {
+fn assert_occupied_layer_manifest(output: &Output) {
     assert_failure(output, "already exists");
     let stderr = String::from_utf8_lossy(&output.stderr);
     for phrase in [
@@ -73,7 +73,10 @@ fn non_interactive_override_is_accepted_before_and_after_init() {
     ] {
         let directory = tempdir().unwrap();
         assert_success(&command(directory.path()).args(arguments).output().unwrap());
-        assert_eq!(read_manifest(directory.path()), json!({"name": "example"}));
+        assert_eq!(
+            read_layer_manifest(directory.path()),
+            json!({"name": "example"})
+        );
     }
 }
 
@@ -88,7 +91,7 @@ fn ci_and_explicit_override_use_the_directory_name_without_prompts() {
             .unwrap();
         assert_success(&output);
         assert_eq!(
-            read_manifest(directory.path()),
+            read_layer_manifest(directory.path()),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
     }
@@ -97,7 +100,7 @@ fn ci_and_explicit_override_use_the_directory_name_without_prompts() {
 #[test]
 fn captured_results_and_diagnostics_stay_plain_even_when_colour_is_forced() {
     for ci in ["", "false", "0", "true", "1"] {
-        for format in ManifestFormat::ALL {
+        for format in LayerManifestFormat::ALL {
             let directory = tempdir().unwrap();
             let run = |arguments: &[&str]| {
                 command(directory.path())
@@ -118,13 +121,13 @@ fn captured_results_and_diagnostics_stay_plain_even_when_colour_is_forced() {
             let output = run(&["init", "--format", format.extension()]);
             assert_success_in_format(&output, format);
             let original = fs::read(directory.path().join(format.filename())).unwrap();
-            let duplicate = ManifestFormat::ALL
+            let duplicate = LayerManifestFormat::ALL
                 .into_iter()
                 .find(|other| *other != format)
                 .unwrap();
             fs::write(directory.path().join(duplicate.filename()), "keep").unwrap();
             let refused = run(&["init"]);
-            assert_occupied_manifest(&refused);
+            assert_occupied_layer_manifest(&refused);
             let stderr = String::from_utf8_lossy(&refused.stderr);
             assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
             assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
@@ -184,19 +187,19 @@ fn a_live_input_pipe_is_not_read_or_awaited() {
     }
     assert_success(&child.wait_with_output().unwrap());
     assert_eq!(
-        read_manifest(directory.path()),
+        read_layer_manifest(directory.path()),
         json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
     );
 }
 
 #[cfg(unix)]
 #[test]
-fn a_result_output_failure_does_not_claim_the_manifest_was_not_created() {
+fn a_result_output_failure_does_not_claim_the_layer_manifest_was_not_created() {
     use std::io::Write;
 
     let directory = tempdir().unwrap();
     // Delay exec until the parent has closed the result pipe's reader. This
-    // deterministically exercises a reporting failure after manifest creation.
+    // deterministically exercises a reporting failure after layer manifest creation.
     let mut child = Command::new("/bin/sh")
         .args([
             "-c",
@@ -218,19 +221,25 @@ fn a_result_output_failure_does_not_claim_the_manifest_was_not_created() {
     let output = child.wait_with_output().unwrap();
     assert_failure(&output, "was created");
     assert!(!String::from_utf8_lossy(&output.stderr).contains("No files were changed"));
-    assert_eq!(read_manifest(directory.path()), json!({"name": "example"}));
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name": "example"})
+    );
 }
 
-fn read_manifest(directory: &Path) -> Value {
+fn read_layer_manifest(directory: &Path) -> Value {
     // Independent parser validation: do not rely on Hydragen's matching reader.
-    independently_read_format(directory, ManifestFormat::Yaml)
+    independently_read_format(directory, LayerManifestFormat::Yaml)
 }
 
 #[test]
-fn initialises_without_git_and_creates_only_the_manifest() {
+fn initialises_without_git_and_creates_only_the_layer_manifest() {
     let directory = tempdir().unwrap();
     assert_success(&init(directory.path(), &["--name", "example"]));
-    assert_eq!(read_manifest(directory.path()), json!({"name": "example"}));
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name": "example"})
+    );
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
@@ -254,7 +263,7 @@ fn accepts_independent_optional_fields() {
         let mut flags = vec!["--name", "example"];
         flags.extend(arguments);
         assert_success(&init(directory.path(), &flags));
-        assert_eq!(read_manifest(directory.path()), expected);
+        assert_eq!(read_layer_manifest(directory.path()), expected);
     }
 }
 
@@ -267,7 +276,7 @@ fn preserves_whitespace_escaping_and_unicode() {
         &["--name", text, "--author", text, "--description", text],
     ));
     assert_eq!(
-        read_manifest(directory.path()),
+        read_layer_manifest(directory.path()),
         json!({"name": text, "author": text, "description": text})
     );
 }
@@ -283,7 +292,7 @@ fn omitted_name_defaults_to_the_current_directory() {
         let directory = tempdir().unwrap();
         let output = init(directory.path(), &arguments);
         assert_success(&output);
-        let result = read_manifest(directory.path());
+        let result = read_layer_manifest(directory.path());
         assert_eq!(
             result["name"],
             directory.path().file_name().unwrap().to_str().unwrap()
@@ -413,11 +422,11 @@ fn copied_help_examples_keep_their_shell_arguments() {
             .output()
             .unwrap();
         let format = if index == 4 {
-            assert_success_in_format(&output, ManifestFormat::Json);
-            ManifestFormat::Json
+            assert_success_in_format(&output, LayerManifestFormat::Json);
+            LayerManifestFormat::Json
         } else {
             assert_success(&output);
-            ManifestFormat::Yaml
+            LayerManifestFormat::Yaml
         };
         let expected = match index {
             0 | 3 | 4 => json!({"name": format!("example-{index}")}),
@@ -439,7 +448,7 @@ fn directory_name_default_preserves_spaces_and_unicode() {
     fs::create_dir(&directory).unwrap();
     assert_success(&init(&directory, &[]));
     assert_eq!(
-        read_manifest(&directory),
+        read_layer_manifest(&directory),
         json!({"name": " My Project 配置 🦀 "})
     );
 }
@@ -453,7 +462,7 @@ fn an_unusable_directory_name_needs_an_explicit_override() {
     assert_failure(&init(&directory, &[]), "Supply --name explicitly");
     assert!(!directory.join("layer.yaml").exists());
     assert_success(&init(&directory, &["--name", "explicit"]));
-    assert_eq!(read_manifest(&directory), json!({"name": "explicit"}));
+    assert_eq!(read_layer_manifest(&directory), json!({"name": "explicit"}));
 }
 
 #[test]
@@ -518,43 +527,46 @@ fn a_nested_repository_uses_its_own_root() {
 }
 
 #[test]
-fn refuses_existing_manifests_even_when_malformed() {
+fn refuses_existing_layer_manifests_even_when_malformed() {
     for original in [b"not valid JSON".as_slice(), b"{\"name\":\"existing\"}\n"] {
         let directory = tempdir().unwrap();
         let path = directory.path().join("layer.json");
         fs::write(&path, original).unwrap();
         let output = init(directory.path(), &["--name", "replacement"]);
-        assert_occupied_manifest(&output);
+        assert_occupied_layer_manifest(&output);
         assert!(String::from_utf8_lossy(&output.stderr).contains("layer.json"));
         assert_eq!(fs::read(path).unwrap(), original);
     }
 }
 
 #[test]
-fn occupied_manifest_guidance_uses_the_filename_in_a_long_unicode_directory() {
+fn occupied_layer_manifest_guidance_uses_the_filename_in_a_long_unicode_directory() {
     let parent = tempdir().unwrap();
     let directory = parent
         .path()
         .join(format!("Project 配置 🦀 {}", "long-name-".repeat(15)));
     fs::create_dir(&directory).unwrap();
     let path = directory.join("layer.json");
-    fs::write(&path, "not a valid manifest").unwrap();
+    fs::write(&path, "not a valid layer manifest").unwrap();
     let output = init(&directory, &["--name", "example"]);
-    assert_occupied_manifest(&output);
+    assert_occupied_layer_manifest(&output);
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.starts_with("Error: layer.json already exists in the current directory.\n"));
     assert!(!stderr.contains(&directory.display().to_string()));
     assert!(!stderr.contains(&directory.canonicalize().unwrap().display().to_string()));
-    assert_eq!(fs::read_to_string(&path).unwrap(), "not a valid manifest");
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "not a valid layer manifest"
+    );
     assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
 }
 
 #[test]
-fn repeated_init_leaves_the_manifest_unchanged() {
+fn repeated_init_leaves_the_layer_manifest_unchanged() {
     let directory = tempdir().unwrap();
     assert_success(&init(directory.path(), &["--name", "first"]));
     let original = fs::read(directory.path().join("layer.yaml")).unwrap();
-    assert_occupied_manifest(&init(directory.path(), &["--name", "second"]));
+    assert_occupied_layer_manifest(&init(directory.path(), &["--name", "second"]));
     assert_eq!(
         fs::read(directory.path().join("layer.yaml")).unwrap(),
         original
@@ -562,12 +574,12 @@ fn repeated_init_leaves_the_manifest_unchanged() {
 }
 
 #[test]
-fn a_directory_at_the_manifest_path_is_not_replaced() {
+fn a_directory_at_the_layer_manifest_path_is_not_replaced() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("layer.json");
     fs::create_dir(&path).unwrap();
     fs::write(path.join("keep.txt"), "keep").unwrap();
-    assert_occupied_manifest(&init(directory.path(), &["--name", "example"]));
+    assert_occupied_layer_manifest(&init(directory.path(), &["--name", "example"]));
     assert_eq!(fs::read_to_string(path.join("keep.txt")).unwrap(), "keep");
 }
 
@@ -584,7 +596,7 @@ fn existing_and_dangling_symlinks_are_not_followed_or_replaced() {
         }
         let path = directory.path().join("layer.json");
         symlink(&target, &path).unwrap();
-        assert_occupied_manifest(&init(directory.path(), &["--name", "example"]));
+        assert_occupied_layer_manifest(&init(directory.path(), &["--name", "example"]));
         assert_eq!(fs::read_link(path).unwrap(), target);
         if target_exists {
             assert_eq!(fs::read_to_string(target).unwrap(), "keep");
@@ -624,14 +636,14 @@ fn concurrent_init_has_one_winner_without_overwriting_it() {
         if output.status.success() {
             assert_success(output);
         } else {
-            assert_occupied_manifest(output);
+            assert_occupied_layer_manifest(output);
         }
     }
     let (winner, _) = outputs
         .iter()
         .find(|(_, output)| output.status.success())
         .unwrap();
-    assert_eq!(read_manifest(directory.path())["name"], *winner);
+    assert_eq!(read_layer_manifest(directory.path())["name"], *winner);
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
@@ -645,7 +657,10 @@ fn runs_without_stdin_git_or_service_configuration() {
         .output()
         .unwrap();
     assert_success(&output);
-    assert_eq!(read_manifest(directory.path()), json!({"name": "example"}));
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name": "example"})
+    );
 }
 
 #[cfg(unix)]
@@ -678,7 +693,7 @@ fn write_failures_report_the_path_without_false_success() {
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert_failure(&output, "write manifest");
+    assert_failure(&output, "write layer manifest");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("layer.yaml"));
     assert!(stderr.contains("partial file may remain"));
@@ -686,24 +701,28 @@ fn write_failures_report_the_path_without_false_success() {
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
-fn independently_read_format(directory: &Path, format: ManifestFormat) -> Value {
+fn independently_read_format(directory: &Path, format: LayerManifestFormat) -> Value {
     let text = fs::read_to_string(directory.join(format.filename())).unwrap();
     assert!(text.ends_with('\n'));
     let document = match format {
-        ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::from_str(&text).unwrap(),
-        ManifestFormat::Toml => {
+        LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
+            serde_saphyr::from_str(&text).unwrap()
+        }
+        LayerManifestFormat::Toml => {
             let table: toml::Table = toml::from_str(&text).unwrap();
             serde_json::to_value(table).unwrap()
         }
-        ManifestFormat::Json | ManifestFormat::Jsonc => serde_json::from_str(&text).unwrap(),
+        LayerManifestFormat::Json | LayerManifestFormat::Jsonc => {
+            serde_json::from_str(&text).unwrap()
+        }
     };
-    hydragen::manifest::schema::validate(&document).unwrap();
+    hydragen::layer_manifest::schema::validate(&document).unwrap();
     document
 }
 
 #[test]
 fn every_format_flag_alone_uses_directory_name_and_exact_filename() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let directory = tempdir().unwrap();
         let output = init(directory.path(), &["--format", format.extension()]);
         assert_success_in_format(&output, format);
@@ -717,7 +736,7 @@ fn every_format_flag_alone_uses_directory_name_and_exact_filename() {
 
 #[test]
 fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         for author in [false, true] {
             for description in [false, true] {
                 let directory = tempdir().unwrap();
@@ -750,7 +769,7 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
 
 #[test]
 fn all_formats_validate_preserved_unicode_directory_defaults_and_optional_combinations() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         for author in [false, true] {
             for description in [false, true] {
                 let parent = tempdir().unwrap();
@@ -777,7 +796,7 @@ fn all_formats_validate_preserved_unicode_directory_defaults_and_optional_combin
 
 #[test]
 fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         for value in [
             "\u{feff}",
             "\u{85}visible\u{2003}",
@@ -816,7 +835,7 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
 
 #[test]
 fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let directory = tempdir().unwrap();
         let output = init(
             directory.path(),
@@ -833,13 +852,13 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
         );
         assert_success_in_format(&output, format);
         let expected = match format {
-            ManifestFormat::Yaml | ManifestFormat::Yml => {
+            LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
                 "name: example\nauthor: Example team\ndescription: Shared rules\n"
             }
-            ManifestFormat::Toml => {
+            LayerManifestFormat::Toml => {
                 "name = \"example\"\nauthor = \"Example team\"\ndescription = \"Shared rules\"\n"
             }
-            ManifestFormat::Json | ManifestFormat::Jsonc => {
+            LayerManifestFormat::Json | LayerManifestFormat::Jsonc => {
                 "{\n  \"name\": \"example\",\n  \"author\": \"Example team\",\n  \"description\": \"Shared rules\"\n}\n"
             }
         };
@@ -864,7 +883,7 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
 
 #[test]
 fn every_format_rejects_schema_blank_defaults_but_preserves_explicit_overrides() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         for name in ["   ", "\u{85}"] {
             let parent = tempdir().unwrap();
             let directory = parent.path().join(name);
@@ -900,8 +919,8 @@ fn explicit_json_retains_two_space_pretty_style_and_escaping() {
 
 #[test]
 fn every_existing_and_requested_format_pair_refuses_without_reading_or_changes() {
-    for existing in ManifestFormat::ALL {
-        for requested in ManifestFormat::ALL {
+    for existing in LayerManifestFormat::ALL {
+        for requested in LayerManifestFormat::ALL {
             for is_directory in [false, true] {
                 let directory = tempdir().unwrap();
                 let path = directory.path().join(existing.filename());
@@ -912,7 +931,7 @@ fn every_existing_and_requested_format_pair_refuses_without_reading_or_changes()
                     fs::write(&path, b"invalid UTF-8 \xff").unwrap();
                 }
                 let output = init(directory.path(), &["--format", requested.extension()]);
-                assert_occupied_manifest(&output);
+                assert_occupied_layer_manifest(&output);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 assert!(stderr.contains(existing.filename()));
                 assert!(!stderr.contains("Warning:"));
@@ -931,8 +950,8 @@ fn every_existing_and_requested_format_pair_refuses_without_reading_or_changes()
 #[test]
 fn all_existing_and_requested_formats_preserve_regular_and_dangling_symlinks() {
     use std::os::unix::fs::symlink;
-    for existing in ManifestFormat::ALL {
-        for requested in ManifestFormat::ALL {
+    for existing in LayerManifestFormat::ALL {
+        for requested in LayerManifestFormat::ALL {
             for target_exists in [false, true] {
                 let directory = tempdir().unwrap();
                 let target = directory.path().join("target");
@@ -942,7 +961,7 @@ fn all_existing_and_requested_formats_preserve_regular_and_dangling_symlinks() {
                 let path = directory.path().join(existing.filename());
                 symlink(&target, &path).unwrap();
                 let output = init(directory.path(), &["--format", requested.extension()]);
-                assert_occupied_manifest(&output);
+                assert_occupied_layer_manifest(&output);
                 assert!(!String::from_utf8_lossy(&output.stderr).contains("Warning:"));
                 assert_eq!(fs::read_link(path).unwrap(), target);
                 if target_exists {
@@ -963,16 +982,16 @@ fn all_existing_and_requested_formats_preserve_regular_and_dangling_symlinks() {
 fn duplicate_refusal_warns_once_in_priority_order_before_error() {
     for selected_is_directory in [false, true] {
         let directory = tempdir().unwrap();
-        for format in ManifestFormat::ALL.into_iter().rev() {
+        for format in LayerManifestFormat::ALL.into_iter().rev() {
             let path = directory.path().join(format.filename());
-            if selected_is_directory && format == ManifestFormat::Yaml {
+            if selected_is_directory && format == LayerManifestFormat::Yaml {
                 fs::create_dir(&path).unwrap();
             } else {
                 fs::write(path, b"not parsed \xff").unwrap();
             }
         }
         let output = init(directory.path(), &["--format", "jsonc"]);
-        assert_occupied_manifest(&output);
+        assert_occupied_layer_manifest(&output);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
         assert!(stderr.starts_with("Warning: Multiple layer manifests"));
@@ -988,9 +1007,9 @@ fn duplicate_refusal_warns_once_in_priority_order_before_error() {
         assert!(!stderr.contains("loaded"));
         assert!(!stderr.contains("Using"));
         assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
-        for format in ManifestFormat::ALL {
+        for format in LayerManifestFormat::ALL {
             let path = directory.path().join(format.filename());
-            if selected_is_directory && format == ManifestFormat::Yaml {
+            if selected_is_directory && format == LayerManifestFormat::Yaml {
                 assert!(path.is_dir());
             } else {
                 assert_eq!(fs::read(path).unwrap(), b"not parsed \xff");

@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use hydragen::ManifestFormat;
+use hydragen::LayerManifestFormat;
 use portable_pty::{Child, CommandBuilder, ExitStatus, PtyPair, PtySize, native_pty_system};
 use serde_json::{Value, json};
 use tempfile::tempdir;
@@ -233,11 +233,11 @@ esac",
         writer.flush().unwrap();
     }
 
-    fn choose_format(&mut self, directory: &Path, format: ManifestFormat) {
-        self.wait_for("Manifest format");
+    fn choose_format(&mut self, directory: &Path, format: LayerManifestFormat) {
+        self.wait_for("Layer manifest format");
         self.wait_for("jsonc");
-        assert_no_manifests(directory);
-        for _ in 0..ManifestFormat::ALL
+        assert_no_layer_manifests(directory);
+        for _ in 0..LayerManifestFormat::ALL
             .iter()
             .position(|item| *item == format)
             .unwrap()
@@ -275,7 +275,7 @@ esac",
         let stderr = visible_text(&self.stderr);
         self.assert_no_header();
         assert!(!stderr.contains("Author (optional"), "{stderr}");
-        assert!(!stderr.contains("Manifest format"), "{stderr}");
+        assert!(!stderr.contains("Layer manifest format"), "{stderr}");
         for frame in ['┌', '│', '└', '◇', '◆'] {
             assert!(!stderr.contains(frame), "{stderr}");
         }
@@ -305,7 +305,7 @@ esac",
         }
     }
 
-    fn assert_guided_success(&self, directory: &Path, format: ManifestFormat) {
+    fn assert_guided_success(&self, directory: &Path, format: LayerManifestFormat) {
         assert!(
             self.stdout.is_empty(),
             "{:?}",
@@ -313,7 +313,7 @@ esac",
         );
         let text = visible_text(&self.stderr);
         let completion = format!(
-            "Layer initialised, manifest created at: {}",
+            "Layer initialised, layer manifest created at: {}",
             format.filename()
         );
         assert_eq!(text.matches(&completion).count(), 1, "{text}");
@@ -329,11 +329,11 @@ esac",
         assert!(!text.contains("Initialised layer:"), "{text}");
     }
 
-    fn assert_compact_success(&self, format: ManifestFormat, styled: bool) {
+    fn assert_compact_success(&self, format: LayerManifestFormat, styled: bool) {
         self.assert_no_prompts();
         assert!(self.stderr.is_empty());
         let expected = format!(
-            "Layer initialised, manifest created at: {}\r\n",
+            "Layer initialised, layer manifest created at: {}\r\n",
             format.filename()
         );
         let text = visible_text(&self.stdout);
@@ -349,7 +349,7 @@ esac",
             assert_style(&self.stdout, "✓", |style| style.foreground == Some(32));
             assert_style(
                 &self.stdout,
-                "Layer initialised, manifest created at:",
+                "Layer initialised, layer manifest created at:",
                 |style| style.foreground == Some(32),
             );
             assert_style(&self.stdout, format.filename(), |style| {
@@ -474,13 +474,13 @@ fn selector_summary(transcript: &str) -> &str {
     // The subsequent completion legitimately names layer.<extension>; only the
     // completed selector line must keep its extension-only choice label.
     transcript
-        .rsplit_once("Manifest format")
+        .rsplit_once("Layer manifest format")
         .unwrap()
         .1
         .lines()
         .find(|line| {
             line.split_whitespace().any(|word| {
-                ManifestFormat::ALL
+                LayerManifestFormat::ALL
                     .iter()
                     .any(|format| word == format.extension())
             })
@@ -488,29 +488,33 @@ fn selector_summary(transcript: &str) -> &str {
         .unwrap()
 }
 
-fn manifest(directory: &Path) -> Value {
-    manifest_in_format(directory, ManifestFormat::Yaml)
+fn layer_manifest(directory: &Path) -> Value {
+    layer_manifest_in_format(directory, LayerManifestFormat::Yaml)
 }
 
 // Decode independently of Hydragen's loader so matching reader/writer bugs cannot
 // hide malformed output or a format field accidentally stored as metadata.
-fn manifest_in_format(directory: &Path, format: ManifestFormat) -> Value {
+fn layer_manifest_in_format(directory: &Path, format: LayerManifestFormat) -> Value {
     let text = fs::read_to_string(directory.join(format.filename())).unwrap();
     assert!(text.ends_with('\n'));
     let document = match format {
-        ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::from_str(&text).unwrap(),
-        ManifestFormat::Toml => {
+        LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
+            serde_saphyr::from_str(&text).unwrap()
+        }
+        LayerManifestFormat::Toml => {
             let table: toml::Table = toml::from_str(&text).unwrap();
             serde_json::to_value(table).unwrap()
         }
-        ManifestFormat::Json | ManifestFormat::Jsonc => serde_json::from_str(&text).unwrap(),
+        LayerManifestFormat::Json | LayerManifestFormat::Jsonc => {
+            serde_json::from_str(&text).unwrap()
+        }
     };
-    hydragen::manifest::schema::validate(&document).unwrap();
+    hydragen::layer_manifest::schema::validate(&document).unwrap();
     document
 }
 
-fn assert_no_manifests(directory: &Path) {
-    for format in ManifestFormat::ALL {
+fn assert_no_layer_manifests(directory: &Path) {
+    for format in LayerManifestFormat::ALL {
         assert!(
             fs::symlink_metadata(directory.join(format.filename())).is_err(),
             "{} appeared early",
@@ -637,13 +641,13 @@ fn guided_header_preserves_the_grid_hierarchy_and_once_per_session_opening() {
         session.send(b"\r");
         session.wait_for("Description (optional");
         session.send(b"\r");
-        session.choose_format(directory.path(), ManifestFormat::Yaml);
+        session.choose_format(directory.path(), LayerManifestFormat::Yaml);
         assert!(session.finish().success());
-        session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
+        session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
         let text = visible_text(&session.stderr);
         assert_eq!(text.matches("Hydragen").count(), 1, "{text}");
         assert_eq!(text.matches("Initialise a layer").count(), 1, "{text}");
-        assert_eq!(manifest(directory.path()), json!({"name": "example"}));
+        assert_eq!(layer_manifest(directory.path()), json!({"name": "example"}));
         assert_only_files(directory.path(), &["layer.yaml"]);
     }
 }
@@ -665,18 +669,18 @@ fn explicit_colour_disables_beat_force_without_disabling_guided_questions() {
         session.wait_for("Name");
         session.send(b" \r");
         session.wait_for("Enter a non-blank name.");
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         session.send(b"\x7fexample\r");
         session.wait_for("Author (optional");
         session.send(b"\r");
         session.wait_for("Description (optional");
         session.send(b"\r");
-        session.choose_format(directory.path(), ManifestFormat::Jsonc);
+        session.choose_format(directory.path(), LayerManifestFormat::Jsonc);
         assert!(session.finish().success());
-        session.assert_guided_success(directory.path(), ManifestFormat::Jsonc);
+        session.assert_guided_success(directory.path(), LayerManifestFormat::Jsonc);
         assert_no_sgr(&session.stderr);
         assert_eq!(
-            manifest_in_format(directory.path(), ManifestFormat::Jsonc),
+            layer_manifest_in_format(directory.path(), LayerManifestFormat::Jsonc),
             json!({"name": "example"})
         );
         assert_only_files(directory.path(), &["layer.jsonc"]);
@@ -725,9 +729,9 @@ fn compact_terminal_statuses_obey_disable_preferences_even_with_forced_colour() 
             settings,
         );
         assert!(session.finish().success());
-        session.assert_compact_success(ManifestFormat::Yaml, styled);
+        session.assert_compact_success(LayerManifestFormat::Yaml, styled);
         assert_eq!(
-            manifest(directory.path()),
+            layer_manifest(directory.path()),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
         assert_only_files(directory.path(), &["layer.yaml"]);
@@ -762,7 +766,7 @@ fn colour_disabled_cancellation_is_reported_once_without_success_or_writes() {
         assert!(!text.contains("Layer initialised"), "{text}");
         assert!(session.stdout.is_empty());
         assert_no_sgr(&session.stderr);
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
     }
 }
@@ -819,7 +823,7 @@ fn warning_and_error_headlines_are_styled_only_in_eligible_terminals() {
             assert_style(&diagnostics, "layer.yaml takes priority", |style| {
                 style.foreground.is_none() && !style.dim
             });
-            assert_style(&diagnostics, "Manifests are not merged", |style| {
+            assert_style(&diagnostics, "Layer manifests are not merged", |style| {
                 style.foreground.is_none() && !style.dim
             });
             assert_style(&diagnostics, "Inspect the entry", |style| {
@@ -954,18 +958,18 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
     session.send(b"  Example team  \r");
     session.wait_for("Description (optional");
     session.send(b"Description\r");
-    session.choose_format(directory.path(), ManifestFormat::Yaml);
+    session.choose_format(directory.path(), LayerManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(
-        manifest(directory.path()),
+        layer_manifest(directory.path()),
         json!({"name": "  配置 🦀  ", "author": "  Example team  ", "description": "Description"})
     );
-    session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
+    session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
     let transcript = visible_text(&session.stderr);
     assert_eq!(transcript.matches(guidance).count(), 1);
     assert!(transcript.contains("Author (optional)"));
     assert!(transcript.contains("Description (optional)"));
-    assert!(transcript.contains("Manifest format"));
+    assert!(transcript.contains("Layer manifest format"));
     assert!(!transcript.contains("Enter to skip"));
 }
 
@@ -983,9 +987,9 @@ fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     session.send(b"\r");
     session.wait_for("Description (optional");
     session.send(b"\r");
-    session.choose_format(&directory, ManifestFormat::Yaml);
+    session.choose_format(&directory, LayerManifestFormat::Yaml);
     assert!(session.finish().success());
-    assert_eq!(manifest(&directory), json!({"name": default_name}));
+    assert_eq!(layer_manifest(&directory), json!({"name": default_name}));
 }
 
 #[test]
@@ -1021,9 +1025,9 @@ fn optional_fields_can_be_skipped_independently() {
             assert!(visible_text(&session.stderr).contains("Skipped"));
         }
         session.send(format!("{description}\r").as_bytes());
-        session.choose_format(directory.path(), ManifestFormat::Yaml);
+        session.choose_format(directory.path(), LayerManifestFormat::Yaml);
         assert!(session.finish().success());
-        assert_eq!(manifest(directory.path()), expected);
+        assert_eq!(layer_manifest(directory.path()), expected);
         if description.is_empty() {
             assert!(visible_text(&session.stderr).contains("Skipped"));
         }
@@ -1031,7 +1035,7 @@ fn optional_fields_can_be_skipped_independently() {
             assert!(!visible_text(&session.stderr).contains("Skipped"));
         }
         let transcript = visible_text(&session.stderr);
-        session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
+        session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
         if author.is_empty() || description.is_empty() {
             // A user can also type the literal metadata value "Skipped". Only
             // submitted empty answers get this treatment, not that ordinary text.
@@ -1080,13 +1084,13 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
                     matches!(c, '│' | '└') && style.foreground == Some(31)
                 }));
             }
-            assert_no_manifests(directory.path());
+            assert_no_layer_manifests(directory.path());
             session.send("\x7f  配置 🦀  \r".as_bytes());
             session.wait_for("Author (optional");
             session.send(b" \r");
             session
                 .wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
-            assert_no_manifests(directory.path());
+            assert_no_layer_manifests(directory.path());
             if supply_author {
                 session.send("\x7f  Team 配置  \r".as_bytes());
             } else {
@@ -1100,27 +1104,27 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             session.wait_for(
                 "Enter a non-blank description, or clear the field and press Enter to skip.",
             );
-            assert_no_manifests(directory.path());
+            assert_no_layer_manifests(directory.path());
             if supply_author {
                 session.send(b"\x7f\r");
             } else {
                 session.send("\x7f  Description 配置  \r".as_bytes());
             }
-            session.choose_format(directory.path(), ManifestFormat::Yaml);
+            session.choose_format(directory.path(), LayerManifestFormat::Yaml);
             assert!(session.finish().success());
             let expected = if supply_author {
                 json!({"name": "  配置 🦀  ", "author": "  Team 配置  "})
             } else {
                 json!({"name": "  配置 🦀  ", "description": "  Description 配置  "})
             };
-            assert_eq!(manifest(directory.path()), expected);
+            assert_eq!(layer_manifest(directory.path()), expected);
             assert_only_files(directory.path(), &["layer.yaml"]);
             let transcript = visible_text(&session.stderr);
             assert!(!transcript.contains("--name"));
             assert!(!transcript.contains("--author"));
             assert!(!transcript.contains("--description"));
             assert!(transcript.contains("Skipped"));
-            session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
+            session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
             let raw = String::from_utf8_lossy(&session.stderr);
             let has_style = raw.split("\x1b[").skip(1).any(|part| {
                 part.find('m')
@@ -1138,51 +1142,55 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
     session.wait_for("Name");
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank name.");
-    assert_no_manifests(directory.path());
+    assert_no_layer_manifests(directory.path());
     session.send("\x7f\u{feff}\r".as_bytes());
     session.wait_for("Author (optional");
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
-    assert_no_manifests(directory.path());
+    assert_no_layer_manifests(directory.path());
     session.send(b"\x7f\r");
     session.wait_for("Description (optional");
     session.send("\u{85}visible 配置 🦀\u{2003}\r".as_bytes());
-    session.choose_format(directory.path(), ManifestFormat::Jsonc);
+    session.choose_format(directory.path(), LayerManifestFormat::Jsonc);
     assert!(session.finish().success());
     assert_eq!(
-        manifest_in_format(directory.path(), ManifestFormat::Jsonc),
+        layer_manifest_in_format(directory.path(), LayerManifestFormat::Jsonc),
         json!({"name": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
     );
     assert_only_files(directory.path(), &["layer.jsonc"]);
-    session.assert_guided_success(directory.path(), ManifestFormat::Jsonc);
+    session.assert_guided_success(directory.path(), LayerManifestFormat::Jsonc);
 }
 
 #[test]
 fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &["init"], None);
         session.wait_for("Name");
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         session.send(b"shared-agent-rules\r");
         session.wait_for("Author (optional");
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         session.send("  Équipe 🦀  \r".as_bytes());
         session.wait_for("Description (optional");
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         session.send(b"2026-10-16\r");
         session.wait_for("jsonc");
         let transcript = visible_text(&session.stderr);
-        let choices = transcript.split_once("Manifest format").unwrap().1;
+        let choices = transcript.split_once("Layer manifest format").unwrap().1;
         assert!(!choices.contains("layer."), "{choices}");
         let raw = String::from_utf8_lossy(&session.stderr);
-        let menu = raw.rsplit_once("Manifest format").unwrap().1.as_bytes();
+        let menu = raw
+            .rsplit_once("Layer manifest format")
+            .unwrap()
+            .1
+            .as_bytes();
         assert_style(menu, "yaml", |style| style.foreground == Some(36));
         for other in ["yml", "toml", "json", "jsonc"] {
             assert_style(menu, other, |style| style.foreground != Some(36));
         }
         let mut previous = 0;
-        for choice in ManifestFormat::ALL {
+        for choice in LayerManifestFormat::ALL {
             assert!(
                 choices
                     .lines()
@@ -1196,7 +1204,7 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         session.choose_format(directory.path(), format);
         assert!(session.finish().success());
         assert_eq!(
-            manifest_in_format(directory.path(), format),
+            layer_manifest_in_format(directory.path(), format),
             json!({
                 "name": "shared-agent-rules", "author": "  Équipe 🦀  ", "description": "2026-10-16"
             })
@@ -1213,7 +1221,7 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
 
 #[test]
 fn format_only_flags_never_prompt_in_a_terminal() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         let directory = tempdir().unwrap();
         let mut session = Session::new(
             directory.path(),
@@ -1223,7 +1231,7 @@ fn format_only_flags_never_prompt_in_a_terminal() {
         assert!(session.finish().success());
         session.assert_compact_success(format, true);
         assert_eq!(
-            manifest_in_format(directory.path(), format),
+            layer_manifest_in_format(directory.path(), format),
             json!({
                 "name": directory.path().file_name().unwrap().to_str().unwrap()
             })
@@ -1252,19 +1260,21 @@ fn metadata_flags_never_start_a_guided_session_in_a_terminal() {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &arguments, None);
         assert!(session.finish().success());
-        session.assert_compact_success(ManifestFormat::Yaml, true);
+        session.assert_compact_success(LayerManifestFormat::Yaml, true);
         let expected_name = if arguments.contains(&"--name") {
             "example"
         } else {
             directory.path().file_name().unwrap().to_str().unwrap()
         };
-        assert_eq!(manifest(directory.path())["name"], expected_name);
+        assert_eq!(layer_manifest(directory.path())["name"], expected_name);
         assert_eq!(
-            manifest(directory.path()).get("author").is_some(),
+            layer_manifest(directory.path()).get("author").is_some(),
             arguments.contains(&"--author")
         );
         assert_eq!(
-            manifest(directory.path()).get("description").is_some(),
+            layer_manifest(directory.path())
+                .get("description")
+                .is_some(),
             arguments.contains(&"--description")
         );
     }
@@ -1291,7 +1301,7 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
                 style.foreground == Some(31)
             });
         }
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
     }
 }
@@ -1316,14 +1326,14 @@ fn explicit_override_and_ci_use_defaults_without_prompts_in_terminals() {
             .iter()
             .position(|argument| *argument == "--format")
             .map(|index| {
-                ManifestFormat::ALL
+                LayerManifestFormat::ALL
                     .into_iter()
                     .find(|format| format.extension() == arguments[index + 1])
                     .unwrap()
             })
             .unwrap_or_default();
         assert_eq!(
-            manifest_in_format(directory.path(), format),
+            layer_manifest_in_format(directory.path(), format),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
         assert_only_files(directory.path(), &[format.filename()]);
@@ -1348,10 +1358,10 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             }
             if answered == 3 {
                 session.send(b"Description\r");
-                session.wait_for("Manifest format");
+                session.wait_for("Layer manifest format");
                 session.wait_for("jsonc");
             }
-            assert_no_manifests(directory.path());
+            assert_no_layer_manifests(directory.path());
             session.send(key);
             assert!(!session.finish().success());
             let text = visible_text(&session.stderr);
@@ -1365,17 +1375,17 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             assert!(!text.contains("Layer initialised"), "{text}");
             assert_style(&session.stderr, "■", |style| style.foreground == Some(31));
             assert!(session.stdout.is_empty());
-            assert_no_manifests(directory.path());
+            assert_no_layer_manifests(directory.path());
             assert_only_files(directory.path(), &[]);
         }
     }
 }
 
 #[test]
-fn every_occupied_manifest_path_is_reported_before_any_questions() {
+fn every_occupied_layer_manifest_path_is_reported_before_any_questions() {
     use std::os::unix::fs::symlink;
 
-    for (format, kind) in ManifestFormat::ALL
+    for (format, kind) in LayerManifestFormat::ALL
         .into_iter()
         .flat_map(|format| ["file", "directory", "symlink", "dangling"].map(|kind| (format, kind)))
     {
@@ -1383,7 +1393,7 @@ fn every_occupied_manifest_path_is_reported_before_any_questions() {
         let path = directory.path().join(format.filename());
         let target = directory.path().join("target");
         if kind == "file" {
-            fs::write(&path, "not valid manifest content").unwrap();
+            fs::write(&path, "not valid layer manifest content").unwrap();
         } else if kind == "directory" {
             fs::create_dir(&path).unwrap();
             fs::write(path.join("keep"), "keep").unwrap();
@@ -1408,7 +1418,7 @@ fn every_occupied_manifest_path_is_reported_before_any_questions() {
         if kind == "file" {
             assert_eq!(
                 fs::read_to_string(&path).unwrap(),
-                "not valid manifest content"
+                "not valid layer manifest content"
             );
         } else if kind == "directory" {
             assert_eq!(fs::read_to_string(path.join("keep")).unwrap(), "keep");
@@ -1432,7 +1442,7 @@ fn every_occupied_manifest_path_is_reported_before_any_questions() {
 #[test]
 fn initial_duplicates_warn_once_before_refusal_without_questions() {
     let directory = tempdir().unwrap();
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         fs::write(
             directory.path().join(format.filename()),
             "not valid content",
@@ -1447,7 +1457,7 @@ fn initial_duplicates_warn_once_before_refusal_without_questions() {
     assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
     assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
     assert!(stderr.contains("layer.yaml takes priority"), "{stderr}");
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         assert!(stderr.contains(format.filename()), "{stderr}");
         assert_eq!(
             fs::read_to_string(directory.path().join(format.filename())).unwrap(),
@@ -1456,7 +1466,7 @@ fn initial_duplicates_warn_once_before_refusal_without_questions() {
     }
     assert_only_files(
         directory.path(),
-        &ManifestFormat::ALL.map(|format| format.filename()),
+        &LayerManifestFormat::ALL.map(|format| format.filename()),
     );
 }
 
@@ -1470,7 +1480,7 @@ fn repository_location_errors_happen_before_questions() {
     assert!(!session.finish().success());
     session.assert_no_prompts();
     assert!(String::from_utf8_lossy(&session.stderr).contains("repository root"));
-    assert_no_manifests(&nested);
+    assert_no_layer_manifests(&nested);
 }
 
 #[test]
@@ -1484,7 +1494,7 @@ fn the_exact_default_target_created_during_questions_is_not_overwritten() {
     session.send(b"\r");
     session.wait_for("Description (optional");
     session.send(b"\r");
-    session.wait_for("Manifest format");
+    session.wait_for("Layer manifest format");
     session.wait_for("jsonc");
     session.send(b"\r");
     assert!(!session.finish().success());
@@ -1502,20 +1512,20 @@ fn the_exact_default_target_created_during_questions_is_not_overwritten() {
 fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_directions() {
     for (appeared, chosen, governing) in [
         (
-            ManifestFormat::Json,
-            ManifestFormat::Yaml,
-            ManifestFormat::Yaml,
+            LayerManifestFormat::Json,
+            LayerManifestFormat::Yaml,
+            LayerManifestFormat::Yaml,
         ),
         (
-            ManifestFormat::Yaml,
-            ManifestFormat::Jsonc,
-            ManifestFormat::Yaml,
+            LayerManifestFormat::Yaml,
+            LayerManifestFormat::Jsonc,
+            LayerManifestFormat::Yaml,
         ),
     ] {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &["init"], None);
         session.wait_for("Name");
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         fs::write(
             directory.path().join(appeared.filename()),
             "another process",
@@ -1526,10 +1536,10 @@ fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_
         session.send(b"\r");
         session.wait_for("Description (optional");
         session.send(b"\r");
-        session.wait_for("Manifest format");
+        session.wait_for("Layer manifest format");
         session.wait_for("jsonc");
         // The output is chosen only after the competing path has appeared.
-        for _ in 0..ManifestFormat::ALL
+        for _ in 0..LayerManifestFormat::ALL
             .iter()
             .position(|format| *format == chosen)
             .unwrap()
@@ -1540,7 +1550,7 @@ fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_
         session.send(b"\r");
         assert!(session.finish().success());
         assert_eq!(
-            manifest_in_format(directory.path(), chosen),
+            layer_manifest_in_format(directory.path(), chosen),
             json!({"name": "example"})
         );
         assert_eq!(
@@ -1565,13 +1575,13 @@ fn redirecting_any_single_stream_disables_guided_input() {
     for (stream, format) in ["stdin", "stdout", "stderr"]
         .into_iter()
         .flat_map(|stream| {
-            [ManifestFormat::Yaml, ManifestFormat::Jsonc].map(|format| (stream, format))
+            [LayerManifestFormat::Yaml, LayerManifestFormat::Jsonc].map(|format| (stream, format))
         })
     {
         let directory = tempdir().unwrap();
         let capture_directory = tempdir().unwrap();
         let capture = capture_directory.path().join("output");
-        let arguments = if format == ManifestFormat::Yaml {
+        let arguments = if format == LayerManifestFormat::Yaml {
             vec!["init"]
         } else {
             vec!["init", "--format", format.extension()]
@@ -1590,7 +1600,7 @@ fn redirecting_any_single_stream_disables_guided_input() {
         assert_eq!(
             String::from_utf8_lossy(&result).replace("\r\n", "\n"),
             format!(
-                "Layer initialised, manifest created at: {}\n",
+                "Layer initialised, layer manifest created at: {}\n",
                 format.filename()
             )
         );
@@ -1598,7 +1608,7 @@ fn redirecting_any_single_stream_disables_guided_input() {
             assert!(fs::read(&capture).unwrap().is_empty());
         }
         assert_eq!(
-            manifest_in_format(directory.path(), format),
+            layer_manifest_in_format(directory.path(), format),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
         assert_only_files(directory.path(), &[format.filename()]);
@@ -1606,7 +1616,7 @@ fn redirecting_any_single_stream_disables_guided_input() {
 }
 
 #[test]
-fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
+fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
     for at_selector in [false, true] {
         let directory = tempdir().unwrap();
         let terminal_session = TERMINAL_SESSION
@@ -1635,7 +1645,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
             for (answer, next_prompt) in [
                 ("example\r", "Author (optional"),
                 ("Team\r", "Description (optional"),
-                ("Description\r", "Manifest format"),
+                ("Description\r", "Layer manifest format"),
             ] {
                 input_writer.write_all(answer.as_bytes()).unwrap();
                 input_writer.flush().unwrap();
@@ -1643,7 +1653,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
             }
             session.wait_for("jsonc");
         }
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         // Closing every master handle disconnects stdin while stderr remains usable.
         // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
         drop(input_writer);
@@ -1661,7 +1671,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
             style.foreground == Some(31)
         });
         assert!(session.stdout.is_empty());
-        assert_no_manifests(directory.path());
+        assert_no_layer_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
     }
 }

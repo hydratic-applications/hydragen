@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use hydragen::{ManifestFormat, Metadata, create_init, inspect_init};
+use hydragen::{LayerManifestFormat, Metadata, create_init, inspect_init};
 use interaction::Mode;
 
 const INIT_HELP: &str = r#"Examples:
@@ -24,7 +24,7 @@ Input:
   No input flags: guided prompts only when stdin, stdout and stderr are terminals and CI is disabled.
   Any input flag: flag-only input; no follow-up questions. Input flags are --name, --author, --description and --format.
   Name defaults to the current directory name. Author and description are optional and omitted when not supplied.
-  Format defaults to yaml (layer.yaml). --format selects only the newly created manifest, not read-time priority.
+  Format defaults to yaml (layer.yaml). --format selects only the newly created layer manifest, not read-time priority.
   --non-interactive always disables prompts."#;
 
 #[derive(Parser)]
@@ -65,7 +65,7 @@ struct InitArgs {
     #[arg(long)]
     description: Option<String>,
 
-    /// Manifest format (defaults to yaml, creating layer.yaml)
+    /// Layer manifest format (defaults to yaml, creating layer.yaml)
     #[arg(long, value_parser = ["yaml", "yml", "toml", "json", "jsonc"])]
     format: Option<String>,
 }
@@ -109,7 +109,7 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
             let inspection = inspect_init(&directory)?;
             diagnostics::warn_duplicates(inspection.discovery(), presentation);
             let prepared = inspection.prepare()?;
-            hydragen::manifest::schema::ensure_ready()?;
+            hydragen::layer_manifest::schema::ensure_ready()?;
             // Keep the theme through selection, writing, and the guided outro;
             // dropping it resets cliclack on every success or error path.
             let session =
@@ -120,16 +120,15 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
                     session.as_ref().expect("guided mode installs its theme"),
                 )?
             } else {
-                let format =
-                    arguments
-                        .format
-                        .as_deref()
-                        .map_or_else(ManifestFormat::default, |extension| {
-                            ManifestFormat::ALL
-                                .into_iter()
-                                .find(|format| format.extension() == extension)
-                                .expect("clap validates format choices")
-                        });
+                let format = arguments.format.as_deref().map_or_else(
+                    LayerManifestFormat::default,
+                    |extension| {
+                        LayerManifestFormat::ALL
+                            .into_iter()
+                            .find(|format| format.extension() == extension)
+                            .expect("clap validates format choices")
+                    },
+                );
                 interaction::InitInput {
                     metadata: flag_metadata(arguments, &directory)?,
                     format,
@@ -202,6 +201,7 @@ mod tests {
                     assert!(prose.contains("--non-interactive"));
                     if init {
                         for phrase in [
+                            "Layer manifest format (defaults to yaml, creating layer.yaml)",
                             "Optional name override",
                             "current directory name",
                             "Any input flag: flag-only input; no follow-up questions.",
@@ -209,7 +209,7 @@ mod tests {
                             "stdin, stdout and stderr are terminals and CI is disabled.",
                             "Author and description are optional and omitted when not supplied.",
                             "Format defaults to yaml (layer.yaml).",
-                            "--format selects only the newly created manifest, not read-time priority.",
+                            "--format selects only the newly created layer manifest, not read-time priority.",
                             "--non-interactive always disables prompts.",
                         ] {
                             assert!(prose.contains(phrase), "{phrase}: {help}");
