@@ -13,18 +13,18 @@ collect metadata through the guided CLI interaction flow. It MUST NOT combine
 flags and prompt answers in one invocation.
 
 Name and every supplied optional value MUST be strings containing at least one
-non-whitespace character, matching the manifest schema's metadata requirements.
+non-whitespace character, matching the layer manifest schema's metadata requirements.
 The command MUST validate supplied flags without opening prompts, preserve
 accepted values unchanged, and MUST NOT impose additional naming or identity
 rules. Invalid flag values or flags written without a value MUST produce an error rather than
 a replacement question. Absent or interactively skipped optional fields MUST be
-omitted from the manifest, not written as empty strings or `null`.
+omitted from the layer manifest, not written as empty strings or `null`.
 
 #### Scenario: Only name is supplied
 
 - **WHEN** initialisation receives a non-blank name flag without author or description flags, in any terminal or CI state
 - **AND** all other initialisation conditions are satisfied
-- **THEN** it succeeds and creates a manifest containing only name
+- **THEN** it succeeds and creates a layer manifest containing only name
 
 #### Scenario: One optional field is supplied
 
@@ -36,7 +36,7 @@ omitted from the manifest, not written as empty strings or `null`.
 #### Scenario: All metadata is supplied
 
 - **WHEN** initialisation receives non-blank name, author, and description values as flags
-- **THEN** it records those values unchanged in the corresponding manifest fields
+- **THEN** it records those values unchanged in the corresponding layer manifest fields
 - **AND** it asks no metadata questions
 
 #### Scenario: Name override is omitted
@@ -62,12 +62,12 @@ omitted from the manifest, not written as empty strings or `null`.
 #### Scenario: Metadata includes JSON-sensitive characters
 
 - **WHEN** accepted metadata includes quotes, backslashes, newlines, or non-ASCII characters
-- **THEN** the created manifest is valid JSON and decoding it recovers the original values
+- **THEN** the created layer manifest is valid JSON and decoding it recovers the original values
 
 ### Requirement: Provide predictable command outcomes and help
 
 Successful initialisation MUST exit with status zero and identify the created
-manifest on standard output after writing completes. Guided cliclack prompts and
+layer manifest on standard output after writing completes. Guided cliclack prompts and
 session feedback MUST use standard error, not the result stream. For flag-only
 input or any other invocation where interaction is disabled, success and error
 output MUST remain plain text without cliclack banners, prompts, spinners, or
@@ -89,7 +89,7 @@ without writing project files, requiring metadata, or opening a prompt session.
 
 #### Scenario: A filesystem write fails
 
-- **WHEN** creating or writing the manifest fails
+- **WHEN** creating or writing the layer manifest fails
 - **THEN** the command exits unsuccessfully and reports the affected path and failure
 - **AND** it does not print a success message
 - **AND** it does not alter pre-existing project files
@@ -97,14 +97,14 @@ without writing project files, requiring metadata, or opening a prompt session.
 #### Scenario: Non-interactive output
 
 - **WHEN** valid init runs with interaction disabled
-- **THEN** it reports success and the manifest path only on standard output, with no terminal UI on standard error
+- **THEN** it reports success and the layer manifest path only on standard output, with no terminal UI on standard error
 - **AND** errors instead use standard error without success output or terminal UI
 
 #### Scenario: Interactive output
 
-- **WHEN** init collects answers in an interactive terminal and successfully creates the manifest
+- **WHEN** init collects answers in an interactive terminal and successfully creates the layer manifest
 - **THEN** cliclack renders the session on standard error
-- **AND** the successful result line and manifest path are reported on standard output after the write
+- **AND** the successful result line and layer manifest path are reported on standard output after the write
 
 #### Scenario: Request version
 

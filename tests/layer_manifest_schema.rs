@@ -1,9 +1,9 @@
 use std::error::Error as _;
 use std::fs;
 
-use hydragen::manifest::schema::{self, Error, ViolationKind};
+use hydragen::layer_manifest::schema::{self, Error, ViolationKind};
 use hydragen::{
-    InitError, ManifestError, ManifestFormat, MetadataError, discover, validate_document,
+    InitError, LayerManifestError, LayerManifestFormat, MetadataError, discover, validate_document,
 };
 use serde_json::{Value, json};
 
@@ -16,12 +16,14 @@ fn content(error: Error) -> schema::Violation {
 
 // Author the candidate independently of the init encoder. TOML cases deliberately
 // avoid null, which TOML cannot represent, rather than testing a parse failure.
-fn source(document: &Value, format: ManifestFormat) -> String {
+fn source(document: &Value, format: LayerManifestFormat) -> String {
     match format {
-        ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::to_string(document).unwrap(),
-        ManifestFormat::Toml => toml::to_string(document).unwrap(),
-        ManifestFormat::Json => document.to_string(),
-        ManifestFormat::Jsonc => format!("// schema integration\n{document}\n"),
+        LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
+            serde_saphyr::to_string(document).unwrap()
+        }
+        LayerManifestFormat::Toml => toml::to_string(document).unwrap(),
+        LayerManifestFormat::Json => document.to_string(),
+        LayerManifestFormat::Jsonc => format!("// schema integration\n{document}\n"),
     }
 }
 
@@ -126,7 +128,7 @@ fn independent_optional_fields_and_uninterpreted_data_are_valid() {
 
 #[test]
 fn every_loader_format_validates_schema_property_and_retains_complete_data() {
-    for format in ManifestFormat::ALL {
+    for format in LayerManifestFormat::ALL {
         for reference in [
             None,
             Some("https://unavailable.invalid/schema.json"),
@@ -163,7 +165,7 @@ fn every_loader_format_validates_schema_property_and_retains_complete_data() {
             json!([]),
             json!({}),
         ];
-        if format != ManifestFormat::Toml {
+        if format != LayerManifestFormat::Toml {
             invalid.push(Value::Null);
         }
         for value in invalid {
@@ -173,7 +175,7 @@ fn every_loader_format_validates_schema_property_and_retains_complete_data() {
             let original = source(&expected, format);
             fs::write(&path, &original).unwrap();
             let error = discover(directory.path()).unwrap().load().unwrap_err();
-            let ManifestError::Metadata {
+            let LayerManifestError::Metadata {
                 path: rejected,
                 source,
             } = error
@@ -194,8 +196,8 @@ fn every_loader_format_validates_schema_property_and_retains_complete_data() {
 
 #[test]
 fn schema_invalid_higher_priority_never_falls_back_or_loses_discovery() {
-    for (index, higher) in ManifestFormat::ALL.into_iter().enumerate() {
-        for lower in ManifestFormat::ALL.into_iter().skip(index + 1) {
+    for (index, higher) in LayerManifestFormat::ALL.into_iter().enumerate() {
+        for lower in LayerManifestFormat::ALL.into_iter().skip(index + 1) {
             let directory = tempfile::tempdir().unwrap();
             let invalid = source(&json!({"name": "higher", "$schema": false}), higher);
             fs::write(directory.path().join(higher.filename()), &invalid).unwrap();
@@ -206,7 +208,7 @@ fn schema_invalid_higher_priority_never_falls_back_or_loses_discovery() {
             .unwrap();
             let discovery = discover(directory.path()).unwrap();
             assert!(
-                matches!(discovery.load(), Err(ManifestError::Metadata { path, source: MetadataError::NotString { field: "$schema" } }) if path.file_name().unwrap() == higher.filename())
+                matches!(discovery.load(), Err(LayerManifestError::Metadata { path, source: MetadataError::NotString { field: "$schema" } }) if path.file_name().unwrap() == higher.filename())
             );
             assert!(discovery.has_duplicates());
             assert_eq!(discovery.candidates.len(), 2);
@@ -225,7 +227,10 @@ fn error_adapters_do_not_relabel_arbitrary_rules_or_internal_failures_as_blank()
     assert!(matches!(setup, Error::Setup { .. }));
     let init = InitError::from(setup.clone());
     assert!(matches!(init, InitError::Schema(Error::Setup { .. })));
-    assert!(init.to_string().contains("Internal manifest schema error"));
+    assert!(
+        init.to_string()
+            .contains("Internal layer manifest schema error")
+    );
     assert!(!init.to_string().contains("non-whitespace"));
     assert!(init.source().is_some());
     assert_eq!(

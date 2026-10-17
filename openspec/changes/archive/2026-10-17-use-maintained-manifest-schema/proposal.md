@@ -1,14 +1,14 @@
 ## Why
 
-Hydragen's tests currently load a manifest schema from an archived OpenSpec change,
+Hydragen's tests currently load a layer manifest schema from an archived OpenSpec change,
 while the CLI independently implements its validation rules in Rust. A maintained
 schema outside planning history should govern CLI validation, eliminating that
 build/test dependency and giving future editor tooling the same definition of
-valid manifest content.
+valid layer manifest content.
 
 ## What Changes
 
-- Establish `schemas/layer-manifest.schema.json` as the maintained manifest schema.
+- Establish `schemas/layer-manifest.schema.json` as the maintained layer manifest schema.
   Preserve the existing metadata-only rules and unknown-property handling; keep
   the archived schema unchanged as a historical snapshot, not a second maintained
   source.
@@ -16,9 +16,9 @@ valid manifest content.
   without network access, a schema sidecar file, or an external validator.
 - Replace independently coded metadata constraints with shared schema-backed
   validation for flags, guided answers, directory-name defaults, and complete
-  manifest content before file creation. Apply the same validator to complete
+  layer manifest content before file creation. Apply the same validator to complete
   documents decoded by the existing YAML/YML/TOML/JSON/JSONC loader before
-  extracting metadata, without adding a manifest-reading command.
+  extracting metadata, without adding a layer-manifest-reading command.
 - Preserve friendly field-specific diagnostics, inline prompt retries, defaults,
   optional-field omission, accepted string contents, and existing interaction and
   filesystem-safety guarantees. Keep input collection, error presentation,
@@ -31,7 +31,7 @@ valid manifest content.
   scope, and distinguish the shared asset from future editor publishing.
 - Add guidance to `AGENTS.md` prohibiting source code, tests, and build scripts
   from loading OpenSpec artifacts. Required implementation assets must live in
-  maintained project locations; manifest-content validation must use the schema
+  maintained project locations; layer manifest content validation must use the schema
   rather than independently reproduce its constraints.
 - Apply two parser corrections explicitly authorized during merge assessment:
   preserve recognized in-range YAML numeric extensions but reject their overflow
@@ -44,7 +44,7 @@ its YAML default, format priority, serializers, and init lifecycle; retain parse
 policies except the two explicitly authorized type-boundary corrections above.
 JSON Schema validates their shared parsed data, not the source file's text syntax.
 
-This increment does not add further manifest formats, schema generation,
+This increment does not add further layer manifest formats, schema generation,
 new loading workflows, new commands, a public schema URL, generated `$schema`
 properties, dependency-reference syntax, or schema-versioning policy. Schema
 validation continues to cover metadata contents, not dependency semantics, file
@@ -59,14 +59,14 @@ None.
 ### Modified Capabilities
 
 - `layer-manifest`: Establish a maintained schema outside OpenSpec as the source
-  used for CLI manifest-content validation, including init's individual input
+  used for CLI layer manifest content validation, including init's individual input
   paths and complete output. Require offline, standalone use without changing the
-  current metadata rules or claiming broader manifest validation.
+  current metadata rules or claiming broader layer manifest validation.
 
 ## Impact
 
-- **Code:** Introduce shared schema-validation logic in `src/manifest/schema.rs`
-  and update `src/manifest.rs`, `src/lib.rs`,
+- **Code:** Introduce shared schema-validation logic in `src/layer_manifest/schema.rs`
+  and update `src/layer_manifest.rs`, `src/lib.rs`,
   `src/main.rs`, and `src/interaction.rs` to use it. Remove the archived-schema
   include and the independent non-blank predicate.
 - **Dependencies:** Add a Rust JSON Schema validator as a runtime dependency with

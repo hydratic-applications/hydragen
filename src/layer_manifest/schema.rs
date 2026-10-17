@@ -1,4 +1,4 @@
-//! Cached, offline validation of parsed manifest content using the bundled schema.
+//! Cached, offline validation of parsed layer manifest content using the bundled schema.
 
 use std::fmt;
 use std::sync::OnceLock;
@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 const SCHEMA: &str = include_str!("../../schemas/layer-manifest.schema.json");
-// An in-memory resource identifier, not a published URL or a manifest property.
+// An in-memory resource identifier, not a published URL or a layer manifest property.
 const SCHEMA_URI: &str = "urn:hydragen:layer-manifest";
 const FIELDS: [&str; 4] = ["name", "author", "description", "$schema"];
 const NONBLANK_PATTERN_PATH: &str = "/$defs/nonBlankString/pattern";
@@ -57,7 +57,7 @@ impl Error {
 
     fn compilation(error: ValidationError<'_>) -> Self {
         Self::Setup {
-            message: "The bundled manifest schema could not be prepared".to_owned(),
+            message: "The bundled layer manifest schema could not be prepared".to_owned(),
             detail: Some(Box::new(Violation::from_error(error, None, None))),
         }
     }
@@ -119,7 +119,7 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Setup { message, detail } => {
-                write!(formatter, "Internal manifest schema error: {message}")?;
+                write!(formatter, "Internal layer manifest schema error: {message}")?;
                 if let Some(detail) = detail {
                     write!(formatter, ": {detail}")?;
                 }
@@ -166,7 +166,7 @@ impl Validators {
         for field in FIELDS {
             if schema.pointer(&format!("/properties/{field}")).is_none() {
                 return Err(Error::setup(format!(
-                    "Missing manifest schema definition /properties/{field}"
+                    "Missing layer manifest schema definition /properties/{field}"
                 )));
             }
         }
@@ -175,7 +175,7 @@ impl Validators {
             .and_then(Value::as_str)
             .ok_or_else(|| {
                 Error::setup(format!(
-                    "Missing manifest schema definition {NONBLANK_PATTERN_PATH}"
+                    "Missing layer manifest schema definition {NONBLANK_PATTERN_PATH}"
                 ))
             })?;
         // This annotation approves diagnostics, not input validity. Missing, malformed,
@@ -230,7 +230,9 @@ impl Validators {
             .iter()
             .find(|(name, _)| *name == field)
             .ok_or_else(|| {
-                Error::setup(format!("Unknown manifest schema field selector '{field}'"))
+                Error::setup(format!(
+                    "Unknown layer manifest schema field selector '{field}'"
+                ))
             })?;
         validator
             .validate(&Value::String(value.to_owned()))
@@ -553,7 +555,11 @@ mod tests {
             let error = Validators::compile(source).err().expect("must fail");
             assert!(matches!(error, Error::Setup { .. }));
             assert_eq!(error.clone(), error);
-            assert!(error.to_string().contains("Internal manifest schema error"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("Internal layer manifest schema error")
+            );
         }
         let error = Validators::compile(r#"{"type":42}"#).err().unwrap();
         let Error::Setup {
@@ -650,7 +656,7 @@ mod tests {
             assert!(
                 error
                     .to_string()
-                    .contains("Unknown manifest schema field selector")
+                    .contains("Unknown layer manifest schema field selector")
             );
         }
     }

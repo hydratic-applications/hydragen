@@ -31,7 +31,9 @@ in FOUNDATIONS.md where appropriate; keep implementation details in OpenSpec.
 
 Consult [GLOSSARY.md](GLOSSARY.md) when unsure what a Hydragen term means or which
 term to use. Use its terminology consistently in documentation, discussions, and
-code rather than introducing alternative names for the same concept.
+code rather than introducing alternative names for the same concept. Use "layer
+manifest" in full for Hydragen's identifying file, including in CLI text, code
+names, and tests; reserve bare "manifest" for unrelated tools such as Cargo.
 
 When exploration, design, or implementation introduces a new term or clarifies an
 existing one, consider adding or updating its glossary entry. Check existing
@@ -161,7 +163,7 @@ Source code, tests, and build scripts must never load or embed files from
 must live in maintained project locations outside it. Documentation may still link
 to OpenSpec specifications and planning decisions.
 
-Use `schemas/layer-manifest.schema.json` to determine manifest-content validity
+Use `schemas/layer-manifest.schema.json` to determine layer manifest content validity
 for every parsed format (YAML/YML, TOML, JSON, and JSONC), flags, guided answers,
 directory-name defaults, and complete candidates before writing. Field validation
 must use definitions from that same schema, not duplicate constraints in ad hoc
@@ -186,7 +188,7 @@ surface tradeoffs rather than silently demoting a goal.
 
 Use clap for argument parsing and help, and cliclack for suitable guided prompts
 and interactive feedback. Not every command needs prompts or decorative output.
-Keep terminal presentation outside the manifest and filesystem logic.
+Keep terminal presentation outside the layer manifest and filesystem logic.
 
 When a command offers guided input and input flags, keep those routes separate.
 With no input flags, allow a guided flow when interaction is available; any input
@@ -200,11 +202,11 @@ current directory's name; its guided
 name prompt shows that default and accepts it on Enter. Omit unsupplied author
 and description instead of prompting for them in flag-only execution. Omitted
 format defaults to `yaml` (`layer.yaml`). Guided init asks Name, Author,
-Description, then Manifest format, with choices labelled by extensions without a
-leading dot in priority order: `yaml`, `yml`, `toml`, `json`, `jsonc`.
+Description, then Layer manifest format, with choices labelled by extensions
+without a leading dot in priority order: `yaml`, `yml`, `toml`, `json`, `jsonc`.
 The selector starts on `yaml`, accepted by Enter. Each choice still creates its
 fixed `layer.<extension>` filename. Format is separate from
-manifest metadata and does not override read-time priority.
+layer manifest metadata and does not override read-time priority.
 
 Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal
 standard stream disables guided input. Do not reopen a terminal or read piped
@@ -220,10 +222,10 @@ setup failures must stop before prompts or writes, not ask users to retry valid
 input.
 
 Share validation across input routes. Initially check repository location and all
-five supported manifest paths before questions; any occupied entry, including a
-directory or dangling symlink, refuses init without reading its contents. Do not
-write until guided input, including format, is complete. Cancellation must exit
-nonzero without creating files.
+five supported layer manifest paths before questions; any occupied entry,
+including a directory or dangling symlink, refuses init without reading its
+contents. Do not write until guided input, including format, is complete.
+Cancellation must exit nonzero without creating files.
 
 The initial check does not reserve the directory. Keep exclusive creation
 (`create_new`) for the exact chosen target, but do not repeat all-format refusal
@@ -233,11 +235,11 @@ best-effort discovery: warn on observed duplicates, naming every detected
 filename and the priority selection, without rollback or changing success. A
 failed observation is also a non-fatal warning. Actual write failures remain
 errors and may leave a partial newly created file. A failure to report a completed
-write must explain that the manifest was already created, not claim that no
+write must explain that the layer manifest was already created, not claim that no
 files changed.
 
-Use shared read-only discovery and loading for manifest-dependent commands, and
-report duplicates at most once per affected directory per invocation on standard
-error, before a dependent failure. Do not scan manifests for help, version, or
-argument-usage failures. Test both captured-output execution and real terminal
-sessions, with bounded waits and child-process cleanup.
+Use shared read-only discovery and loading for commands that depend on a layer
+manifest, and report duplicates at most once per affected directory per invocation
+on standard error, before a dependent failure. Do not scan layer manifests for
+help, version, or argument-usage failures. Test both captured-output execution and
+real terminal sessions, with bounded waits and child-process cleanup.

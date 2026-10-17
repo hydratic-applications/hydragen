@@ -15,7 +15,7 @@ implementation reviewable while providing a real command to try.
 **Goals:**
 
 - Create a layer manifest safely in a new or existing project directory.
-- Use the same command and manifest shape for any layer, without a type selector.
+- Use the same command and layer manifest shape for any layer, without a type selector.
 - Work without interactive input, network access, AI, or an installed Git command.
 - Establish a small Rust application with focused tests and build instructions.
 
@@ -23,7 +23,7 @@ implementation reviewable while providing a real command to try.
 
 - Add, retrieve, validate, or resolve dependency references.
 - Render workspaces or capture additions, modifications, or deletions.
-- Introduce an inspection command or a general existing-manifest validator.
+- Introduce an inspection command or a general existing-layer-manifest validator.
 - Create Git repositories, change Git configuration, stage files, or commit.
 - Provide prompts, inferred metadata, a target-directory argument, a force flag,
   publishing, installers, or agent-specific interfaces.
@@ -73,7 +73,7 @@ CLI validation must match the metadata requirements in the
 strings when present. Test name-only input, each optional field independently,
 all fields together, and invalid supplied values. This does not turn the draft
 schema into a complete validator for dependency declarations or introduce a
-general existing-manifest validation command.
+general existing-layer-manifest validation command.
 
 Explicit flags avoid introducing prompt handling, Git identity lookup, or
 directory-name defaults. Developers, scripts, and agents can use the same
@@ -83,14 +83,14 @@ and usage; it does not wait for input or require the optional fields.
 ### Use the current directory and respect repository boundaries
 
 The current directory is the intended root of the layer's repository. Do not
-search upward for a manifest and initialise a different directory, and do not
+search upward for a layer manifest and initialise a different directory, and do not
 create missing parent directories.
 
 Initialisation does not require Git to have been initialised yet. If no enclosing
-Git working tree is detected, write the manifest in the current directory; the
+Git working tree is detected, write the layer manifest in the current directory; the
 developer can later initialise a repository there.
 
-To avoid violating the agreed manifest location inside an existing repository,
+To avoid violating the agreed layer manifest location inside an existing repository,
 use a small filesystem guard: starting at the current directory, find the
 nearest `.git` directory or file. If it is in the current directory, proceed. If
 it is only in an ancestor, fail and identify that repository root. Recognising
@@ -103,12 +103,12 @@ validator. Bare repositories and repository layouts selected only through Git
 environment variables are outside this increment's supported layout. Do not
 invoke Git, parse its history, or create `.git` entries. Requiring an existing
 repository would add an unnecessary prerequisite; accepting nested locations
-silently would conflict with the manifest's agreed repository-root location.
+silently would conflict with the layer manifest's agreed repository-root location.
 
-### Write only the manifest and never replace an existing entry
+### Write only the layer manifest and never replace an existing entry
 
 On success, write readable, indented UTF-8 JSON with a trailing newline. The
-manifest contains `name`, plus `author` and `description` only when supplied.
+layer manifest contains `name`, plus `author` and `description` only when supplied.
 Do not emit a dependency list, version, or `$schema` address: references and
 versioning are unresolved, and there is no published schema address to use.
 
@@ -116,17 +116,17 @@ Validate metadata and serialise it before opening the output. Create
 `layer.json` with exclusive creation, so a concurrent initialisation cannot
 overwrite it between an existence check and the write. An existing regular
 file, directory, or symlink at that path causes failure without replacement.
-Do not read or attempt to repair an existing manifest, even if it is malformed.
+Do not read or attempt to repair an existing layer manifest, even if it is malformed.
 
 No other project files are written. In particular, do not create a workspace,
 contribution directory, or project `.gitignore`. Existing code and configuration
 are left in place; scanning and classifying those files is not part of init.
 
 Report success on standard output only after the write completes, identifying
-the created manifest. Report usage, location, validation, and filesystem failures
+the created layer manifest. Report usage, location, validation, and filesystem failures
 on standard error with a nonzero exit status. Do not fix exact diagnostic wording
 or distinct numeric error codes in this increment. A write failure can leave a
-partial newly created manifest; report its path so the developer can inspect it.
+partial newly created layer manifest; report its path so the developer can inspect it.
 Do not promise crash-atomic file creation or remove paths that could belong to
 another process.
 
@@ -158,9 +158,9 @@ file preservation test and a repeated-init test.
 - **Filesystem repository detection covers conventional layouts only.** → State
   the supported layouts and test `.git` files, nested paths, and inaccessible
   checks. Broader Git integration is separate work.
-- **The manifest schema remains a draft.** → Match its metadata rules without
+- **The layer manifest schema remains a draft.** → Match its metadata rules without
   copying it into a second runtime schema or claiming to validate dependencies.
-- **A failed write can leave a partial manifest.** → Report the failure and path;
+- **A failed write can leave a partial layer manifest.** → Report the failure and path;
   refuse to overwrite it on retry. Stronger transactional writes can be evaluated
   if this limitation causes practical problems.
 
@@ -168,7 +168,7 @@ file preservation test and a repeated-init test.
 
 There is no existing application or persisted CLI state to migrate. Build and try
 the command locally before considering packaging or distribution. Removing the
-newly created manifest undoes initialisation; no other project content changes.
+newly created layer manifest undoes initialisation; no other project content changes.
 Do not add a separate rollback command.
 
 ## Verification
@@ -178,12 +178,12 @@ Checked on 2026-10-16 on macOS with Rust and Cargo 1.96.0:
 - `cargo build`, `cargo fmt --check`, and
   `cargo clippy --all-targets -- -D warnings` passed.
 - The README's build command and both initialisation examples were checked in
-  disposable directories. Repeating init preserved the existing manifest and
+  disposable directories. Repeating init preserved the existing layer manifest and
   reported the expected error.
 - `cargo test --locked` passed all 24 tests: six library tests and 18 command-level
   tests. Unix-specific tests exercise real repository-inspection and write
-  failures, and concurrent initialisation preserves the winning manifest.
-- A separate comparison against the archived manifest schema, using Python's
+  failures, and concurrent initialisation preserves the winning layer manifest.
+- A separate comparison against the archived layer manifest schema, using Python's
   `jsonschema` 4.26.0 Draft 2020-12 validator, agreed with the CLI on 16 sets of
   metadata supplied as command-line arguments. These covered optional-field combinations,
   missing name, blank values, whitespace, escaping, and Unicode. Non-string JSON
@@ -201,6 +201,6 @@ agent interfaces remain open in `openspec/design-questions.md`. None is settled
 by creating identifying metadata.
 
 The foundations already describe layers by their dependencies, rather than a type
-chosen at creation, and need no revision. The glossary's layer and manifest
+chosen at creation, and need no revision. The glossary's layer and layer manifest
 definitions reflect that only name is required metadata; author and description
 are optional.

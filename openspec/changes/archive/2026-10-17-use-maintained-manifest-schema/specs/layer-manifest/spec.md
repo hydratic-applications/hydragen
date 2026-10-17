@@ -2,36 +2,36 @@
 
 ### Requirement: A schema describes metadata requirements
 
-The manifest format MUST have a maintained JSON Schema at
+The layer manifest format MUST have a maintained JSON Schema at
 `schemas/layer-manifest.schema.json`, using JSON Schema Draft 2020-12. The schema
 MUST require an object with name and permit optional author and description, with
 non-blank string validation for each supplied metadata field. Optional metadata
 MUST be independently omittable, not represented by blank strings or `null`.
 
-The same metadata rules MUST apply after parsing every supported manifest format.
+The same metadata rules MUST apply after parsing every supported layer manifest format.
 The CLI MUST NOT require an external runtime schema validator or add a schema
-property to generated manifests.
+property to generated layer manifests.
 
 The schema MUST permit an optional `$schema` property containing a non-blank
 string and MUST permit additional properties without interpreting them. Validation
 MUST cover metadata only; it MUST NOT establish dependency reference syntax, how
-versioning works or whether it belongs in the manifest, or how layers combine.
+versioning works or whether it belongs in the layer manifest, or how layers combine.
 Schema validation MUST NOT substitute for filename, repository-location, or safe
 file-creation checks.
 
 #### Scenario: Missing name
 
-- **WHEN** a manifest omits name
+- **WHEN** a layer manifest omits name
 - **THEN** it fails validation against the schema in every supported format
 
 #### Scenario: Optional metadata is omitted
 
-- **WHEN** a manifest contains a valid name and omits author and description
+- **WHEN** a layer manifest contains a valid name and omits author and description
 - **THEN** it passes metadata validation against the schema in every supported format
 
 #### Scenario: Optional metadata is supplied independently
 
-- **WHEN** a manifest contains a valid name and supplies either or both of author and description as non-blank strings
+- **WHEN** a layer manifest contains a valid name and supplies either or both of author and description as non-blank strings
 - **THEN** it passes metadata validation against the schema in every supported format
 
 #### Scenario: Supplied metadata is invalid
@@ -42,7 +42,7 @@ file-creation checks.
 
 #### Scenario: Content is not an object
 
-- **WHEN** manifest content is a JSON string, number, boolean, array, or `null`
+- **WHEN** layer manifest content is a JSON string, number, boolean, array, or `null`
 - **THEN** it fails validation against the schema
 
 #### Scenario: Editor schema reference is supplied
@@ -96,7 +96,7 @@ attempt to reconstruct source types from converted strings.
 
 Hydragen source code, tests, and build scripts MUST NOT load or embed files from
 `openspec/`. Assets required to build, test, or run Hydragen MUST live in maintained
-project locations outside OpenSpec. The maintained manifest schema MUST be
+project locations outside OpenSpec. The maintained layer manifest schema MUST be
 included in the source package so a packaged build does not depend on an asset
 outside that package.
 
@@ -127,7 +127,7 @@ specifications and decisions MUST remain permitted.
 The CLI and initialisation library MUST use the maintained schema to determine
 metadata-content validity rather than independently reproduce its constraints in
 Rust. This MUST apply to supplied flags, resolved guided answers, directory-name
-defaults, and the complete candidate manifest before file creation.
+defaults, and the complete candidate layer manifest before file creation.
 
 Individual field validation MUST use the corresponding definitions from the same
 maintained schema. Validating a field MUST NOT require fabricating valid values
@@ -152,12 +152,12 @@ creation protects the output path independently of content validity.
 - **WHEN** a guided metadata prompt receives a candidate value
 - **THEN** it applies the corresponding maintained schema definition to the resolved supplied value
 - **AND** schema-invalid user input receives inline feedback and another opportunity to answer
-- **AND** no manifest is created while guided input is invalid or incomplete
+- **AND** no layer manifest is created while guided input is invalid or incomplete
 
 #### Scenario: Optional input is omitted or explicitly supplied empty
 
 - **WHEN** an optional guided answer is empty
-- **THEN** the field is omitted from the candidate manifest
+- **THEN** the field is omitted from the candidate layer manifest
 - **AND** an explicitly empty metadata flag is instead treated as a supplied value and rejected by the schema
 - **AND** a non-empty whitespace-only optional answer is rejected rather than omitted
 
@@ -176,7 +176,7 @@ creation protects the output path independently of content validity.
 
 #### Scenario: Complete candidate needs validation beyond field feedback
 
-- **WHEN** initialisation has collected its metadata and is ready to create the manifest
+- **WHEN** initialisation has collected its metadata and is ready to create the layer manifest
 - **THEN** it validates the complete candidate against the maintained schema, even if individual fields were already validated
 - **AND** it writes only after complete validation succeeds, preserving accepted strings, optional-field omission, the selected format's established output style, and a trailing newline
 - **AND** existing target, repository-location, and exclusive-creation checks still apply
@@ -192,36 +192,36 @@ creation protects the output path independently of content validity.
 - **WHEN** field validation is requested for an unknown field or a required property definition cannot be resolved
 - **THEN** it fails explicitly instead of treating the value as valid
 
-### Requirement: Manifest content validation is reusable independently of file loading
+### Requirement: Layer manifest content validation is reusable independently of file loading
 
 The library MUST provide a reusable operation that validates parsed JSON content
 against the maintained schema independently of init's typed metadata writer.
-This operation MUST NOT require a terminal, a manifest file, or a supported
+This operation MUST NOT require a terminal, a layer manifest file, or a supported
 repository location, and MUST NOT create files. It MUST report content failures
 with sufficient field or content-path and rule information for callers to explain
-the problem. This requirement MUST NOT introduce existing-manifest loading or a
-new CLI command. The existing manifest loader MUST apply this validator to the
+the problem. This requirement MUST NOT introduce existing-layer-manifest loading or a
+new CLI command. The existing layer manifest loader MUST apply this validator to the
 entire decoded document for every supported format before extracting identifying
-metadata, and MUST retain additional data unchanged. A manifest's `$schema` value
+metadata, and MUST retain additional data unchanged. A layer manifest's `$schema` value
 MUST NOT select an alternative validator or trigger retrieval. Existing format
 parsing policies MUST remain separate from content validation.
 
 #### Scenario: Validate parsed content directly
 
-- **WHEN** a library caller submits a parsed JSON value without a manifest file or terminal
+- **WHEN** a library caller submits a parsed JSON value without a layer manifest file or terminal
 - **THEN** the validator reports whether it satisfies the maintained schema without filesystem effects
 - **AND** it rejects invalid shapes, including missing name, wrong metadata types, and non-object content
 
 #### Scenario: Load content from any supported format
 
-- **WHEN** the selected YAML, YML, TOML, JSON, or JSONC manifest decodes successfully
+- **WHEN** the selected YAML, YML, TOML, JSON, or JSONC layer manifest decodes successfully
 - **THEN** the loader validates the entire decoded document with the same maintained schema before extracting metadata
 - **AND** it rejects invalid `$schema` values, including blank strings and representable non-string values
 - **AND** valid additional nested data remains unchanged in the loaded document
 
-#### Scenario: Selected manifest fails schema validation
+#### Scenario: Selected layer manifest fails schema validation
 
-- **WHEN** discovery finds a higher-priority manifest with schema-invalid content and a lower-priority valid manifest
+- **WHEN** discovery finds a higher-priority layer manifest with schema-invalid content and a lower-priority valid layer manifest
 - **THEN** loading fails on the selected higher-priority path without falling back
 - **AND** the original discovery remains available for duplicate diagnostics
 
@@ -238,7 +238,7 @@ MUST remain available without preparing validation.
 
 - **WHEN** init runs with only the executable available, without a source checkout, schema sidecar, network access, or external validator
 - **AND** valid inputs and existing directory/file safety conditions are satisfied
-- **THEN** it creates the same valid manifest using the schema bundled with that executable
+- **THEN** it creates the same valid layer manifest using the schema bundled with that executable
 
 #### Scenario: Bundled schema requires an unavailable resource
 
@@ -248,7 +248,7 @@ MUST remain available without preparing validation.
 
 #### Scenario: Several validations occur in one process
 
-- **WHEN** a process validates multiple answers or candidate manifests
+- **WHEN** a process validates multiple answers or candidate layer manifests
 - **THEN** it reuses prepared validators rather than repeatedly parsing and compiling the schema
 - **AND** an initialization failure is retained rather than repeatedly retried for user answers
 

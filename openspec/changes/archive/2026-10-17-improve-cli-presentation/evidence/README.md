@@ -8,7 +8,7 @@ fixtures or a new terminal framework.
   runtime code, with environment/tool metadata and UTC timestamp.
 - [`after.json`](after.json): fifteen post-change captured/PTY executions, with UTC
   timestamp, arguments, input sequences, exit status, stdout/stderr, and resulting
-  manifest text where applicable. The UTC date can precede the 2026-10-17 local
+  layer manifest text where applicable. The UTC date can precede the 2026-10-17 local
   work date.
 
 Captured runs close stdin and capture stdout/stderr separately. PTY runs use
@@ -21,8 +21,8 @@ Each PTY frame records a label and `stderr_end`, a Unicode-character offset into
 decoded `stderr`. Replay `stderr[:stderr_end]` for that state; these are not byte
 offsets. Inputs record the marker awaited and actual bytes: `\r` is Enter,
 `\u007f` is Backspace. Output and metadata are actual observations, not suggested
-future appearance. A non-null manifest records post-run contents; an occupied
-manifest case deliberately starts with `keep original`, which remains unchanged.
+future appearance. A non-null layer manifest records post-run contents; an occupied
+layer manifest case deliberately starts with `keep original`, which remains unchanged.
 
 To repeat, build with `cargo build --locked`, use an absolute binary path and
 fresh disposable directories outside repositories, and apply the recorded

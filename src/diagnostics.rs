@@ -1,9 +1,9 @@
 use std::io::{self, Write};
 
-use hydragen::{CreatedManifest, ManifestDiscovery, ManifestFormat};
+use hydragen::{CreatedLayerManifest, LayerManifestDiscovery, LayerManifestFormat};
 
-/// Shared by init and future manifest readers, before refusing or loading a candidate.
-fn duplicate_warning(discovery: &ManifestDiscovery) -> Option<String> {
+/// Shared by init and future layer manifest readers, before refusing or loading a candidate.
+fn duplicate_warning(discovery: &LayerManifestDiscovery) -> Option<String> {
     if !discovery.has_duplicates() {
         return None;
     }
@@ -14,33 +14,33 @@ fn duplicate_warning(discovery: &ManifestDiscovery) -> Option<String> {
         .collect::<Vec<_>>()
         .join(", ");
     let selected = discovery.selected()?.format.filename();
-    let priority = ManifestFormat::ALL
-        .map(ManifestFormat::filename)
+    let priority = LayerManifestFormat::ALL
+        .map(LayerManifestFormat::filename)
         .join(" > ");
     Some(format!(
-        "Warning: Multiple layer manifests found in '{}': {names}. {selected} takes priority (priority: {priority}). Manifests are not merged; keep only the intended manifest.",
+        "Warning: Multiple layer manifests found in '{}': {names}. {selected} takes priority (priority: {priority}). Layer manifests are not merged; keep only the intended layer manifest.",
         discovery.directory.display()
     ))
 }
 
-pub fn warn_duplicates(discovery: &ManifestDiscovery) {
+pub fn warn_duplicates(discovery: &LayerManifestDiscovery) {
     if let Some(warning) = duplicate_warning(discovery) {
         // Diagnostic delivery must not turn a completed write into a failure.
         let _ = writeln!(io::stderr().lock(), "{warning}");
     }
 }
 
-fn observation_warning(created: &CreatedManifest) -> Option<String> {
+fn observation_warning(created: &CreatedLayerManifest) -> Option<String> {
     match &created.observation {
         Ok(discovery) => duplicate_warning(discovery),
         Err(error) => Some(format!(
-            "Warning: Manifest '{}' was created, but duplicate checking failed: {error}",
+            "Warning: Layer manifest '{}' was created, but duplicate checking failed: {error}",
             created.path.display()
         )),
     }
 }
 
-pub fn report_observation(created: &CreatedManifest) {
+pub fn report_observation(created: &CreatedLayerManifest) {
     if let Some(warning) = observation_warning(created) {
         let _ = writeln!(io::stderr().lock(), "{warning}");
     }
@@ -62,6 +62,10 @@ mod tests {
         let output = format!("{warning}\nError: {error}\n");
         assert!(output.starts_with("Warning: Multiple layer manifests"));
         assert!(output.contains("layer.yaml, layer.json. layer.yaml takes priority"));
+        assert!(
+            output
+                .contains("Layer manifests are not merged; keep only the intended layer manifest.")
+        );
         assert_eq!(output.matches("Warning:").count(), 1);
         assert!(!output.contains("Using"));
         assert!(!output.contains('\x1b'));
@@ -78,32 +82,32 @@ mod tests {
     #[test]
     fn failed_observation_names_the_already_created_path() {
         let path = std::path::PathBuf::from("/project/layer.jsonc");
-        let created = CreatedManifest {
+        let created = CreatedLayerManifest {
             path: path.clone(),
-            observation: Err(hydragen::ManifestError::Io {
-                action: "inspect manifest path",
+            observation: Err(hydragen::LayerManifestError::Io {
+                action: "inspect layer manifest path",
                 path,
                 source: io::ErrorKind::PermissionDenied.into(),
             }),
         };
         let warning = observation_warning(&created).unwrap();
-        assert!(warning.contains("Manifest '/project/layer.jsonc' was created"));
+        assert!(warning.contains("Layer manifest '/project/layer.jsonc' was created"));
         assert!(warning.contains("duplicate checking failed"));
         assert!(!warning.contains("No files were changed"));
     }
 
     #[test]
     fn successful_observation_warns_about_priority_not_the_created_format() {
-        for created_format in [ManifestFormat::Yaml, ManifestFormat::Json] {
+        for created_format in [LayerManifestFormat::Yaml, LayerManifestFormat::Json] {
             let directory = tempfile::tempdir().unwrap();
             let prepared = hydragen::inspect_init(directory.path())
                 .unwrap()
                 .prepare()
                 .unwrap();
-            let appeared = if created_format == ManifestFormat::Yaml {
-                ManifestFormat::Json
+            let appeared = if created_format == LayerManifestFormat::Yaml {
+                LayerManifestFormat::Json
             } else {
-                ManifestFormat::Yaml
+                LayerManifestFormat::Yaml
             };
             fs::write(directory.path().join(appeared.filename()), "untouched").unwrap();
             let created = hydragen::create_init(
