@@ -3,32 +3,206 @@ use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use hydragen::manifest::schema;
 use hydragen::{InitError, ManifestFormat, Metadata, validate_metadata_value};
 
-struct DefaultTheme;
-impl cliclack::Theme for DefaultTheme {}
+use crate::presentation::{self, Presentation};
 
-struct InitTheme;
+struct InitTheme {
+    presentation: Presentation,
+    cancelled: Arc<AtomicBool>,
+}
+
 impl cliclack::Theme for InitTheme {
+    fn bar_color(&self, state: &cliclack::ThemeState) -> console::Style {
+        let style = self.presentation.style();
+        match state {
+            cliclack::ThemeState::Active => style.cyan(),
+            cliclack::ThemeState::Cancel | cliclack::ThemeState::Error(_) => style.red(),
+            cliclack::ThemeState::Submit => style.dim(),
+        }
+    }
+
+    fn state_symbol_color(&self, state: &cliclack::ThemeState) -> console::Style {
+        self.bar_color(state)
+    }
+
+    fn state_symbol(&self, state: &cliclack::ThemeState) -> String {
+        let symbol = match state {
+            cliclack::ThemeState::Active => "◆",
+            cliclack::ThemeState::Cancel => "■",
+            cliclack::ThemeState::Submit => "◇",
+            cliclack::ThemeState::Error(_) => "✕",
+        };
+        self.state_symbol_color(state).apply_to(symbol).to_string()
+    }
+
+    fn format_header(&self, state: &cliclack::ThemeState, prompt: &str) -> String {
+        let label_style = match state {
+            cliclack::ThemeState::Active | cliclack::ThemeState::Error(_) => {
+                self.presentation.style().bold()
+            }
+            _ => self.presentation.style(),
+        };
+        prompt
+            .lines()
+            .enumerate()
+            .map(|(index, line)| {
+                let marker = if index == 0 {
+                    self.state_symbol(state)
+                } else {
+                    self.bar_color(state).apply_to("│").to_string()
+                };
+                format!("{marker}  {}\n", label_style.apply_to(line))
+            })
+            .collect()
+    }
+
+    fn format_intro(&self, title: &str) -> String {
+        title.to_owned()
+    }
+
+    fn format_outro(&self, message: &str) -> String {
+        format!(
+            "{}  {message}\n",
+            self.presentation.style().dim().apply_to("└")
+        )
+    }
+
+    fn format_outro_cancel(&self, message: &str) -> String {
+        format!(
+            "{}\n",
+            self.presentation
+                .style()
+                .red()
+                .apply_to(format!("└  {message}"))
+        )
+    }
+
+    fn format_footer_with_message(&self, state: &cliclack::ThemeState, message: &str) -> String {
+        let footer = match state {
+            cliclack::ThemeState::Active => format!("└  {message}"),
+            cliclack::ThemeState::Submit => "│".to_owned(),
+            cliclack::ThemeState::Error(error) => format!("└  {error}"),
+            cliclack::ThemeState::Cancel => {
+                // This observes cancellation, not successful frame delivery. The
+                // application reports its reason through an explicit fallible outro.
+                self.cancelled.store(true, Ordering::Relaxed);
+                return String::new();
+            }
+        };
+        format!("{}\n", self.bar_color(state).apply_to(footer))
+    }
+
+    fn radio_symbol(&self, state: &cliclack::ThemeState, selected: bool) -> String {
+        match state {
+            cliclack::ThemeState::Active if selected => {
+                self.presentation.style().cyan().apply_to("●").to_string()
+            }
+            cliclack::ThemeState::Active => {
+                self.presentation.style().dim().apply_to("○").to_string()
+            }
+            _ => String::new(),
+        }
+    }
+
+    fn radio_item(
+        &self,
+        state: &cliclack::ThemeState,
+        selected: bool,
+        label: &str,
+        hint: &str,
+    ) -> String {
+        if matches!(
+            state,
+            cliclack::ThemeState::Cancel | cliclack::ThemeState::Submit
+        ) && !selected
+        {
+            return String::new();
+        }
+        let style = match state {
+            cliclack::ThemeState::Active if selected => self.presentation.style().cyan(),
+            cliclack::ThemeState::Submit | cliclack::ThemeState::Cancel => {
+                self.presentation.style().dim()
+            }
+            _ => self.presentation.style(),
+        };
+        let symbol = self.radio_symbol(state, selected);
+        let gap = if symbol.is_empty() { "" } else { " " };
+        let hint = if hint.is_empty() {
+            String::new()
+        } else {
+            self.presentation
+                .style()
+                .dim()
+                .apply_to(format!(" ({hint})"))
+                .to_string()
+        };
+        format!("{symbol}{gap}{}{hint}", style.apply_to(label))
+    }
+
     fn format_placeholder(
         &self,
         state: &cliclack::ThemeState,
         cursor: &cliclack::StringCursor,
     ) -> String {
         if matches!(state, cliclack::ThemeState::Submit) && cursor.is_empty() {
-            let mut summary = cliclack::StringCursor::default();
-            let skipped = console::Style::new()
-                .for_stderr()
+            let skipped = self
+                .presentation
+                .style()
+                .dim()
                 .italic()
                 .apply_to("Skipped")
                 .to_string();
-            summary.extend(&skipped);
-            DefaultTheme.format_placeholder(state, &summary)
+            format!("{}  {skipped}\n", self.bar_color(state).apply_to("│"))
         } else {
-            DefaultTheme.format_placeholder(state, cursor)
+            let style = self.placeholder_style(state);
+            let placeholder = match state {
+                cliclack::ThemeState::Active | cliclack::ThemeState::Error(_) => {
+                    self.cursor_with_style(cursor, &style)
+                }
+                cliclack::ThemeState::Cancel => String::new(),
+                cliclack::ThemeState::Submit => cursor.to_string(),
+            };
+            placeholder
+                .lines()
+                .map(|line| {
+                    format!(
+                        "{}  {}\n",
+                        self.bar_color(state).apply_to("│"),
+                        style.apply_to(line)
+                    )
+                })
+                .collect()
         }
+    }
+}
+
+pub struct GuidedSession {
+    presentation: Presentation,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl GuidedSession {
+    pub fn install(presentation: Presentation) -> Self {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        cliclack::set_theme(InitTheme {
+            presentation,
+            cancelled: cancelled.clone(),
+        });
+        Self {
+            presentation,
+            cancelled,
+        }
+    }
+}
+
+impl Drop for GuidedSession {
+    fn drop(&mut self) {
+        cliclack::reset_theme();
     }
 }
 
@@ -58,10 +232,7 @@ impl Mode {
         terminals: [bool; 3],
         ci: Option<&OsStr>,
     ) -> Self {
-        let ci_enabled = ci.is_some_and(|value| {
-            let value = value.to_string_lossy();
-            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
-        });
+        let ci_enabled = presentation::ci_enabled(ci);
         if input_flags || non_interactive || !terminals.into_iter().all(|value| value) || ci_enabled
         {
             Self::FlagOnly
@@ -185,20 +356,30 @@ pub struct InitInput {
     pub format: ManifestFormat,
 }
 
-pub fn collect_init_input(default_name: &str) -> io::Result<InitInput> {
-    collect_init_input_ready(default_name, schema::ensure_ready)
+pub fn collect_init_input(default_name: &str, session: &GuidedSession) -> io::Result<InitInput> {
+    collect_init_input_ready(schema::ensure_ready, || {
+        collect_ready_input(default_name, session)
+    })
 }
 
 fn collect_init_input_ready(
-    default_name: &str,
     ready: impl FnOnce() -> Result<(), schema::Error>,
+    collect: impl FnOnce() -> io::Result<InitInput>,
 ) -> io::Result<InitInput> {
     ready().map_err(io::Error::other)?;
-    // Only guided init uses this rendering adjustment. Submitted empty inputs
-    // are optional skips; name always resolves to a validated non-empty value.
-    cliclack::set_theme(InitTheme);
+    collect()
+}
+
+fn collect_ready_input(default_name: &str, session: &GuidedSession) -> io::Result<InitInput> {
     let result = (|| {
-        cliclack::intro("Initialise a layer")?;
+        let width = console::Term::stderr()
+            .size_checked()
+            .map(|(_, width)| usize::from(width));
+        cliclack::intro(
+            session
+                .presentation
+                .init_header(width, env!("CARGO_PKG_VERSION")),
+        )?;
         cliclack::log::info(
             console::Style::new()
                 .for_stderr()
@@ -208,8 +389,6 @@ fn collect_init_input_ready(
         let name = metadata_input("name", "Name", Some(default_name), false)?;
         let author = optional_input("author", "Author")?;
         let description = optional_input("description", "Description")?;
-        // The empty-input summary is only for optional metadata, not selections.
-        cliclack::reset_theme();
         let mut selector = cliclack::select("Manifest format");
         for format in ManifestFormat::ALL {
             selector = selector.item(format, format.extension(), "");
@@ -226,43 +405,82 @@ fn collect_init_input_ready(
             format,
         })
     })();
-    cliclack::reset_theme();
-    result.map_err(|error: io::Error| {
-        // Cliclack renders the cancelled prompt; the CLI reports the reason once.
-        io::Error::new(error.kind(), input_failure_message(&error))
+    finish_input(result, session.cancelled.load(Ordering::Relaxed), || {
+        cliclack::outro_cancel("Initialisation cancelled. No files were changed.")
     })
 }
 
-fn input_failure_message(error: &io::Error) -> String {
-    if error.kind() == io::ErrorKind::Interrupted {
-        "Initialisation cancelled. No files were changed.".to_owned()
-    } else {
-        format!("Could not collect initialisation input: {error}. No files were changed.")
+#[derive(Debug)]
+struct ReportedCancellation;
+
+impl std::fmt::Display for ReportedCancellation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Initialisation cancelled. No files were changed.")
     }
 }
 
-pub fn finish(mode: Mode, manifest: &Path) -> io::Result<()> {
+impl std::error::Error for ReportedCancellation {}
+
+pub fn is_reported_cancellation(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<io::Error>()
+        .and_then(io::Error::get_ref)
+        .is_some_and(|cause| cause.is::<ReportedCancellation>())
+}
+
+fn finish_input<T>(
+    result: io::Result<T>,
+    cancelled: bool,
+    report: impl FnOnce() -> io::Result<()>,
+) -> io::Result<T> {
+    result.map_err(|error| {
+        // Cliclack's public API cannot distinguish a bare Interrupted from a
+        // terminal write of that same kind after rendering Cancel. Do not infer
+        // cancellation from Interrupted alone or discard OS/custom error causes.
+        if cancelled && error.kind() == io::ErrorKind::Interrupted
+            && error.raw_os_error().is_none() && error.get_ref().is_none() {
+            return match report() {
+                Ok(()) => io::Error::new(io::ErrorKind::Interrupted, ReportedCancellation),
+                Err(failure) => io::Error::new(failure.kind(), format!(
+                    "Initialisation was cancelled, but cancellation feedback failed: {failure}. No files were changed."
+                )),
+            };
+        }
+        io::Error::new(error.kind(), format!("Could not collect initialisation input: {error}. No files were changed."))
+    })
+}
+
+pub fn finish(mode: Mode, manifest: &Path, presentation: Presentation) -> io::Result<()> {
+    let filename = manifest
+        .file_name()
+        .unwrap_or(manifest.as_os_str())
+        .to_string_lossy();
+    let message = presentation.success(&filename);
     if mode == Mode::Guided {
-        cliclack::outro("Layer initialised.").map_err(|error| {
+        finish_guided(manifest, &message, |message| cliclack::outro(message))
+    } else {
+        writeln!(io::stdout().lock(), "{message}").map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
-                    "Manifest '{}' was created, but terminal feedback failed: {error}",
+                    "Manifest '{}' was created, but reporting its completion failed: {error}",
                     manifest.display()
                 ),
             )
-        })?;
+        })
     }
-    writeln!(
-        io::stdout().lock(),
-        "Initialised layer: {}",
-        manifest.display()
-    )
-    .map_err(|error| {
+}
+
+fn finish_guided(
+    manifest: &Path,
+    message: &str,
+    outro: impl FnOnce(&str) -> io::Result<()>,
+) -> io::Result<()> {
+    outro(message).map_err(|error| {
         io::Error::new(
             error.kind(),
             format!(
-                "Manifest '{}' was created, but reporting its path failed: {error}",
+                "Manifest '{}' was created, but terminal feedback failed: {error}",
                 manifest.display()
             ),
         )
@@ -274,10 +492,40 @@ mod tests {
     use super::*;
     use cliclack::{StringCursor, Theme, ThemeState};
 
+    fn theme() -> InitTheme {
+        InitTheme {
+            presentation: Presentation {
+                decorated: false,
+                basic: false,
+            },
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn failed_guided_completion_reports_the_created_manifest_not_cancellation() {
+        let manifest = Path::new("/project/shared-rules/layer.jsonc");
+        let message = "Layer initialised, manifest created at: layer.jsonc";
+        for kind in [io::ErrorKind::Interrupted, io::ErrorKind::BrokenPipe] {
+            let error = finish_guided(manifest, message, |delivered| {
+                assert_eq!(delivered, message);
+                Err(io::Error::new(kind, "outro delivery failed"))
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(
+                error.to_string(),
+                "Manifest '/project/shared-rules/layer.jsonc' was created, but terminal feedback failed: outro delivery failed"
+            );
+            assert!(!error.to_string().contains("No files were changed"));
+            assert!(!is_reported_cancellation(&error));
+        }
+    }
+
     #[test]
     fn submitted_empty_inputs_show_skipped_without_changing_the_value() {
         let cursor = StringCursor::default();
-        let rendered = InitTheme.format_placeholder(&ThemeState::Submit, &cursor);
+        let rendered = theme().format_placeholder(&ThemeState::Submit, &cursor);
         assert!(console::strip_ansi_codes(&rendered).contains("Skipped"));
         assert!(cursor.is_empty());
     }
@@ -290,21 +538,22 @@ mod tests {
             ThemeState::Error("Invalid".into()),
         ] {
             let cursor = StringCursor::default();
-            assert_eq!(
-                InitTheme.format_placeholder(&state, &cursor),
-                DefaultTheme.format_placeholder(&state, &cursor)
+            assert!(
+                !theme()
+                    .format_placeholder(&state, &cursor)
+                    .contains("Skipped")
             );
         }
     }
 
     #[test]
-    fn non_empty_defaults_keep_cliclacks_original_rendering() {
+    fn non_empty_defaults_keep_the_default_value_visible() {
         let mut cursor = StringCursor::default();
         cursor.extend("my-layer (default)");
         for state in [ThemeState::Active, ThemeState::Submit] {
-            assert_eq!(
-                InitTheme.format_placeholder(&state, &cursor),
-                DefaultTheme.format_placeholder(&state, &cursor)
+            assert!(
+                console::strip_ansi_codes(&theme().format_placeholder(&state, &cursor))
+                    .contains("my-layer (default)")
             );
         }
     }
@@ -354,9 +603,10 @@ mod tests {
     #[test]
     fn setup_failure_returns_before_the_guided_ui_is_started() {
         let expected = setup_failure();
-        let error = collect_init_input_ready("valid-default", || Err(expected.clone()))
-            .err()
-            .unwrap();
+        let error =
+            collect_init_input_ready(|| Err(expected.clone()), || panic!("UI must not start"))
+                .err()
+                .unwrap();
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert_eq!(error.to_string(), expected.to_string());
         assert!(!error.to_string().contains("Could not collect"));
@@ -507,13 +757,93 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_eof_and_io_errors_are_distinguished() {
-        let cancelled = input_failure_message(&io::ErrorKind::Interrupted.into());
-        assert!(cancelled.contains("cancelled"));
-        for kind in [io::ErrorKind::UnexpectedEof, io::ErrorKind::BrokenPipe] {
-            let message = input_failure_message(&kind.into());
-            assert!(message.contains("Could not collect initialisation input"));
-            assert!(message.contains("No files were changed"));
+    fn only_observed_bare_cancellation_with_delivered_feedback_is_reported() {
+        let mut delivered = false;
+        let error = finish_input::<()>(Err(io::ErrorKind::Interrupted.into()), true, || {
+            delivered = true;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(delivered);
+        assert!(is_reported_cancellation(&error));
+        let error = finish_input::<()>(Err(io::ErrorKind::Interrupted.into()), true, || {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "footer failed"))
+        })
+        .unwrap_err();
+        assert!(!is_reported_cancellation(&error));
+        assert!(
+            error
+                .to_string()
+                .contains("cancellation feedback failed: footer failed")
+        );
+        assert!(error.to_string().contains("No files were changed"));
+    }
+
+    #[test]
+    fn unrelated_interruption_eof_and_io_causes_are_not_suppressed() {
+        for cancelled in [false, true] {
+            let errors = [
+                io::Error::new(io::ErrorKind::Interrupted, "custom input failure"),
+                io::Error::from_raw_os_error(4),
+                io::ErrorKind::UnexpectedEof.into(),
+                io::ErrorKind::BrokenPipe.into(),
+            ];
+            for error in errors {
+                let cause = error.to_string();
+                let error = finish_input::<()>(Err(error), cancelled, || {
+                    panic!("must not report cancellation")
+                })
+                .unwrap_err();
+                assert!(!is_reported_cancellation(&error));
+                assert!(error.to_string().contains(&cause));
+                assert!(
+                    error
+                        .to_string()
+                        .contains("Could not collect initialisation input")
+                );
+                assert!(error.to_string().contains("No files were changed"));
+            }
         }
+        let error = finish_input::<()>(Err(io::ErrorKind::Interrupted.into()), false, || {
+            panic!("no cancellation observed")
+        })
+        .unwrap_err();
+        assert!(!is_reported_cancellation(&error));
+        assert!(error.to_string().contains("Could not collect"));
+    }
+
+    #[test]
+    fn theme_uses_its_own_red_cross_and_tracks_cancel_without_claiming_delivery() {
+        let mut theme = theme();
+        theme.presentation.decorated = true;
+        let state = ThemeState::Error("Correct this answer".into());
+        let header = theme.format_header(&state, "Author");
+        assert!(header.contains("\x1b[31m✕"));
+        assert!(!header.contains('▲'));
+        let footer = theme.format_footer_with_message(&state, "");
+        assert!(footer.contains("\x1b[31m└  Correct this answer"));
+        assert!(
+            theme
+                .format_header(&ThemeState::Active, "Name")
+                .contains("\x1b[1mName")
+        );
+        assert!(
+            theme
+                .format_footer_with_message(&ThemeState::Cancel, "")
+                .is_empty()
+        );
+        assert!(theme.cancelled.load(Ordering::Relaxed));
+        let bare = io::Error::from(io::ErrorKind::Interrupted);
+        assert!(!is_reported_cancellation(&bare));
+        assert!(
+            theme
+                .state_symbol(&ThemeState::Cancel)
+                .contains("\x1b[31m■")
+        );
+        assert!(
+            theme
+                .radio_item(&ThemeState::Active, true, "yaml", "")
+                .contains("\x1b[36myaml")
+        );
     }
 }

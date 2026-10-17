@@ -2,6 +2,8 @@ use std::io::{self, Write};
 
 use hydragen::{CreatedManifest, ManifestDiscovery, ManifestFormat};
 
+use crate::presentation::{Presentation, Severity};
+
 /// Shared by init and future manifest readers, before refusing or loading a candidate.
 fn duplicate_warning(discovery: &ManifestDiscovery) -> Option<String> {
     if !discovery.has_duplicates() {
@@ -18,15 +20,15 @@ fn duplicate_warning(discovery: &ManifestDiscovery) -> Option<String> {
         .map(ManifestFormat::filename)
         .join(" > ");
     Some(format!(
-        "Warning: Multiple layer manifests found in '{}': {names}. {selected} takes priority (priority: {priority}). Manifests are not merged; keep only the intended manifest.",
+        "Warning: Multiple layer manifests found in '{}': {names}.\n{selected} takes priority (priority: {priority}).\nManifests are not merged; keep only the intended manifest.",
         discovery.directory.display()
     ))
 }
 
-pub fn warn_duplicates(discovery: &ManifestDiscovery) {
+pub fn warn_duplicates(discovery: &ManifestDiscovery, presentation: Presentation) {
     if let Some(warning) = duplicate_warning(discovery) {
         // Diagnostic delivery must not turn a completed write into a failure.
-        let _ = writeln!(io::stderr().lock(), "{warning}");
+        report_warning(&warning, presentation);
     }
 }
 
@@ -34,16 +36,25 @@ fn observation_warning(created: &CreatedManifest) -> Option<String> {
     match &created.observation {
         Ok(discovery) => duplicate_warning(discovery),
         Err(error) => Some(format!(
-            "Warning: Manifest '{}' was created, but duplicate checking failed: {error}",
+            "Warning: Manifest '{}' was created, but duplicate checking failed:\n{error}",
             created.path.display()
         )),
     }
 }
 
-pub fn report_observation(created: &CreatedManifest) {
+pub fn report_observation(created: &CreatedManifest, presentation: Presentation) {
     if let Some(warning) = observation_warning(created) {
-        let _ = writeln!(io::stderr().lock(), "{warning}");
+        report_warning(&warning, presentation);
     }
+}
+
+fn report_warning(warning: &str, presentation: Presentation) {
+    let message = warning.strip_prefix("Warning: ").unwrap_or(warning);
+    let _ = writeln!(
+        io::stderr().lock(),
+        "{}",
+        presentation.diagnostic(Severity::Warning, message)
+    );
 }
 
 #[cfg(test)]
@@ -61,7 +72,7 @@ mod tests {
         let error = discovery.load().unwrap_err();
         let output = format!("{warning}\nError: {error}\n");
         assert!(output.starts_with("Warning: Multiple layer manifests"));
-        assert!(output.contains("layer.yaml, layer.json. layer.yaml takes priority"));
+        assert!(output.contains("layer.yaml, layer.json.\nlayer.yaml takes priority"));
         assert_eq!(output.matches("Warning:").count(), 1);
         assert!(!output.contains("Using"));
         assert!(!output.contains('\x1b'));
@@ -117,7 +128,7 @@ mod tests {
             )
             .unwrap();
             let warning = observation_warning(&created).unwrap();
-            assert!(warning.contains("layer.yaml, layer.json. layer.yaml takes priority"));
+            assert!(warning.contains("layer.yaml, layer.json.\nlayer.yaml takes priority"));
             assert_eq!(warning.matches("Warning:").count(), 1);
             assert!(!warning.contains("another process"));
             assert_eq!(created.path.file_name().unwrap(), created_format.filename());

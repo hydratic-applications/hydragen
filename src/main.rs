@@ -1,5 +1,6 @@
 mod diagnostics;
 mod interaction;
+mod presentation;
 
 use std::error::Error;
 use std::io::{self, Write};
@@ -70,16 +71,25 @@ struct InitArgs {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = Cli::parse();
+    let presentation = presentation::Presentation::detect();
+    presentation.configure();
+    match run(cli, presentation) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let _ = writeln!(io::stderr().lock(), "Error: {error}");
+            if !interaction::is_reported_cancellation(error.as_ref()) {
+                let _ = writeln!(
+                    io::stderr().lock(),
+                    "{}",
+                    presentation.diagnostic(presentation::Severity::Error, &error.to_string())
+                );
+            }
             ExitCode::FAILURE
         }
     }
 }
 
-fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
+fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn Error>> {
     let directory = std::env::current_dir().map_err(|error| {
         io::Error::new(
             error.kind(),
@@ -94,11 +104,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 || arguments.format.is_some();
             let mode = Mode::detect(input_flags, cli.non_interactive);
             let inspection = inspect_init(&directory)?;
-            diagnostics::warn_duplicates(inspection.discovery());
+            diagnostics::warn_duplicates(inspection.discovery(), presentation);
             let prepared = inspection.prepare()?;
             hydragen::manifest::schema::ensure_ready()?;
+            // Keep the theme through selection, writing, and the guided outro;
+            // dropping it resets cliclack on every success or error path.
+            let session =
+                (mode == Mode::Guided).then(|| interaction::GuidedSession::install(presentation));
             let interaction::InitInput { metadata, format } = if mode == Mode::Guided {
-                interaction::collect_init_input(&interaction::directory_name(&directory)?)?
+                interaction::collect_init_input(
+                    &interaction::directory_name(&directory)?,
+                    session.as_ref().expect("guided mode installs its theme"),
+                )?
             } else {
                 let format =
                     arguments
@@ -117,11 +134,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             };
             let created = create_init(prepared, &metadata, format).inspect_err(|failure| {
                 if let Some(discovery) = &failure.discovery {
-                    diagnostics::warn_duplicates(discovery);
+                    diagnostics::warn_duplicates(discovery, presentation);
                 }
             })?;
-            diagnostics::report_observation(&created);
-            interaction::finish(mode, &created.path)?;
+            diagnostics::report_observation(&created, presentation);
+            interaction::finish(mode, &created.path, presentation)?;
         }
     }
     Ok(())

@@ -27,6 +27,9 @@ struct TerminalSettings {
     cols: u16,
     rows: u16,
     colour: Option<bool>,
+    term: &'static str,
+    no_color: Option<&'static str>,
+    clicolor: Option<&'static str>,
 }
 
 impl Default for TerminalSettings {
@@ -34,7 +37,10 @@ impl Default for TerminalSettings {
         Self {
             cols: 120,
             rows: 24,
-            colour: None,
+            colour: Some(true),
+            term: "xterm-256color",
+            no_color: None,
+            clicolor: None,
         }
     }
 }
@@ -126,11 +132,14 @@ esac",
         ]);
         command.args(arguments);
         command.cwd(directory);
-        command.env("TERM", "xterm-256color");
+        command.env("TERM", settings.term);
         command.env("RESULT_TTY", stdout_terminal.master.tty_name().unwrap());
         command.env_remove("CI");
         command.env_remove("REDIRECT");
         command.env_remove("COLUMNS");
+        command.env_remove("CLICOLOR_FORCE");
+        command.env_remove("NO_COLOR");
+        command.env_remove("CLICOLOR");
         if let Some(colour) = settings.colour {
             command.env_remove("CLICOLOR_FORCE");
             command.env_remove("NO_COLOR");
@@ -141,6 +150,12 @@ esac",
                 command.env("NO_COLOR", "1");
                 command.env("CLICOLOR", "0");
             }
+        }
+        if let Some(value) = settings.no_color {
+            command.env("NO_COLOR", value);
+        }
+        if let Some(value) = settings.clicolor {
+            command.env("CLICOLOR", value);
         }
         if let Some(ci) = ci {
             command.env("CI", ci);
@@ -257,12 +272,92 @@ esac",
     }
 
     fn assert_no_prompts(&self) {
-        let stderr = String::from_utf8_lossy(&self.stderr);
-        assert!(!stderr.contains("Initialise a layer"), "{stderr}");
+        let stderr = visible_text(&self.stderr);
+        self.assert_no_header();
         assert!(!stderr.contains("Author (optional"), "{stderr}");
         assert!(!stderr.contains("Manifest format"), "{stderr}");
+        for frame in ['┌', '│', '└', '◇', '◆'] {
+            assert!(!stderr.contains(frame), "{stderr}");
+        }
+    }
+
+    fn assert_no_header(&self) {
+        for output in [&self.stderr, &self.stdout] {
+            let text = visible_text(output);
+            assert!(!text.contains("Hydragen"), "{text}");
+            assert!(!text.lines().any(|line| line.trim() == "INIT"), "{text}");
+            assert!(
+                !text.chars().any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
+                "{text}"
+            );
+        }
+    }
+
+    fn assert_plain(&self) {
+        let stderr = String::from_utf8_lossy(&self.stderr);
         assert!(!self.stderr.contains(&b'\x1b'), "{stderr}");
         assert!(!self.stdout.contains(&b'\x1b'));
+        for output in [&self.stderr, &self.stdout] {
+            let text = visible_text(output);
+            for icon in ['✓', '▲', '✕'] {
+                assert!(!text.contains(icon), "{text}");
+            }
+        }
+    }
+
+    fn assert_guided_success(&self, directory: &Path, format: ManifestFormat) {
+        assert!(
+            self.stdout.is_empty(),
+            "{:?}",
+            String::from_utf8_lossy(&self.stdout)
+        );
+        let text = visible_text(&self.stderr);
+        let completion = format!(
+            "Layer initialised, manifest created at: {}",
+            format.filename()
+        );
+        assert_eq!(text.matches(&completion).count(), 1, "{text}");
+        assert_eq!(text.matches("Layer initialised").count(), 1, "{text}");
+        let completion_line = text
+            .lines()
+            .find(|line| line.contains(&completion))
+            .unwrap();
+        assert!(
+            !completion_line.contains(&directory.display().to_string()),
+            "{completion_line}"
+        );
+        assert!(!text.contains("Initialised layer:"), "{text}");
+    }
+
+    fn assert_compact_success(&self, format: ManifestFormat, styled: bool) {
+        self.assert_no_prompts();
+        assert!(self.stderr.is_empty());
+        let expected = format!(
+            "Layer initialised, manifest created at: {}\r\n",
+            format.filename()
+        );
+        let text = visible_text(&self.stdout);
+        assert_eq!(
+            text,
+            if styled {
+                format!("✓ {expected}")
+            } else {
+                expected
+            }
+        );
+        if styled {
+            assert_style(&self.stdout, "✓", |style| style.foreground == Some(32));
+            assert_style(
+                &self.stdout,
+                "Layer initialised, manifest created at:",
+                |style| style.foreground == Some(32),
+            );
+            assert_style(&self.stdout, format.filename(), |style| {
+                style.bold && style.foreground == Some(32)
+            });
+        } else {
+            self.assert_plain();
+        }
     }
 }
 
@@ -283,6 +378,114 @@ impl Drop for Session {
 // Match visible text even when cliclack styles parts of labels or defaults.
 fn visible_text(bytes: &[u8]) -> String {
     console::strip_ansi_codes(&String::from_utf8_lossy(bytes)).into_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TextStyle {
+    foreground: Option<u16>,
+    bold: bool,
+    dim: bool,
+    italic: bool,
+}
+
+// Inspect accepted SGR byte spans, not terminal pixels. Cursor movement used by
+// cliclack's editor is deliberately independent from colour/style eligibility.
+fn styled_characters(bytes: &[u8]) -> Vec<(char, TextStyle)> {
+    let raw = String::from_utf8_lossy(bytes);
+    let mut chars = raw.chars().peekable();
+    let mut style = TextStyle::default();
+    let mut result = Vec::new();
+    while let Some(character) = chars.next() {
+        if character == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            let mut parameters = String::new();
+            for control in chars.by_ref() {
+                if ('@'..='~').contains(&control) {
+                    if control == 'm' {
+                        for code in parameters
+                            .split(';')
+                            .map(|code| code.parse::<u16>().unwrap_or(0))
+                        {
+                            match code {
+                                0 => style = TextStyle::default(),
+                                1 => style.bold = true,
+                                2 => style.dim = true,
+                                3 => style.italic = true,
+                                22 => {
+                                    style.bold = false;
+                                    style.dim = false;
+                                }
+                                23 => style.italic = false,
+                                30..=37 | 90..=97 => style.foreground = Some(code),
+                                39 => style.foreground = None,
+                                _ => {}
+                            }
+                        }
+                    }
+                    break;
+                }
+                parameters.push(control);
+            }
+        } else {
+            result.push((character, style));
+        }
+    }
+    result
+}
+
+fn assert_style(bytes: &[u8], text: &str, matches: impl Fn(TextStyle) -> bool) {
+    let characters = styled_characters(bytes);
+    let needle: Vec<_> = text.chars().collect();
+    let matching: Vec<_> = characters
+        .windows(needle.len())
+        .filter(|window| window.iter().map(|(c, _)| *c).eq(needle.iter().copied()))
+        .collect();
+    assert!(
+        !matching.is_empty(),
+        "Missing {text:?}: {}",
+        String::from_utf8_lossy(bytes)
+    );
+    for window in matching {
+        assert!(
+            window.iter().all(|(_, style)| matches(*style)),
+            "Incorrect style for {text:?}: {window:?}"
+        );
+    }
+}
+
+fn assert_no_sgr(bytes: &[u8]) {
+    assert!(
+        styled_characters(bytes).iter().all(|(_, style)| {
+            style.foreground.is_none() && !style.bold && !style.dim && !style.italic
+        }),
+        "{}",
+        String::from_utf8_lossy(bytes)
+    );
+    let raw = String::from_utf8_lossy(bytes);
+    assert!(
+        !raw.split("\x1b[").skip(1).any(|part| part
+            .find('m')
+            .is_some_and(|end| { part[..end].chars().all(|c| c.is_ascii_digit() || c == ';') })),
+        "{raw}"
+    );
+}
+
+fn selector_summary(transcript: &str) -> &str {
+    // The subsequent completion legitimately names layer.<extension>; only the
+    // completed selector line must keep its extension-only choice label.
+    transcript
+        .rsplit_once("Manifest format")
+        .unwrap()
+        .1
+        .lines()
+        .find(|line| {
+            line.split_whitespace().any(|word| {
+                ManifestFormat::ALL
+                    .iter()
+                    .any(|format| word == format.extension())
+            })
+        })
+        .unwrap()
 }
 
 fn manifest(directory: &Path) -> Value {
@@ -344,6 +547,305 @@ fn assert_occupied_feedback(stderr: &[u8]) {
     }
 }
 
+// A black-box copy of the agreed character grid, independent of the runtime
+// asset. These are character-cell assertions, not a promise about font pixels.
+const MOTIF: [&str; 8] = [
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⣰⣾⣿⣿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⣿⣿⡁⠈⠻⡿⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠙⠿⣿⡦⢠⣶⣄⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠙⠿⠃⠺⣿⣶⣄⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⣾⣦⡀⢈⣿⣿⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠘⢿⣿⣿⡿⠏⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+];
+
+#[test]
+fn guided_header_preserves_the_grid_hierarchy_and_once_per_session_opening() {
+    let full_width = 17
+        + format!("Hydragen  v{}", env!("CARGO_PKG_VERSION"))
+            .len()
+            .max("Initialise a layer".len());
+    for (cols, term, full) in [
+        (120, "xterm-256color", true),
+        (full_width as u16, "xterm-256color", true),
+        (full_width as u16 - 1, "xterm-256color", false),
+        (120, "dumb", false),
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                cols,
+                term,
+                ..Default::default()
+            },
+        );
+        session.wait_for("Name");
+        let opening = visible_text(&session.stderr).replace('\r', "");
+        assert!(
+            opening.contains(&format!("Hydragen  v{}", env!("CARGO_PKG_VERSION"))),
+            "{opening}"
+        );
+        assert!(opening.contains("INIT"), "{opening}");
+        assert!(opening.contains("Initialise a layer"), "{opening}");
+        if full {
+            let lines: Vec<_> = opening.lines().collect();
+            let start = lines.iter().position(|line| *line == MOTIF[0]).unwrap();
+            for (row, motif) in MOTIF.iter().enumerate() {
+                assert_eq!(motif.chars().count(), 16);
+                let suffix = match row {
+                    2 => format!(" Hydragen  v{}", env!("CARGO_PKG_VERSION")),
+                    4 => " INIT".to_owned(),
+                    5 => " Initialise a layer".to_owned(),
+                    _ => String::new(),
+                };
+                assert_eq!(lines[start + row], format!("{motif}{suffix}"));
+            }
+            assert_style(&session.stderr, "Hydragen", |style| {
+                style.bold && style.foreground.is_none() && !style.dim
+            });
+            assert_style(
+                &session.stderr,
+                &format!("v{}", env!("CARGO_PKG_VERSION")),
+                |style| style.dim,
+            );
+            assert_style(&session.stderr, "INIT", |style| {
+                style.bold && style.foreground == Some(36)
+            });
+            assert_style(&session.stderr, "Initialise a layer", |style| {
+                !style.bold && !style.dim && style.foreground.is_none()
+            });
+            assert_style(&session.stderr, "Name", |style| style.bold);
+            assert_style(&session.stderr, "⣿", |style| style.foreground == Some(36));
+        } else {
+            assert!(
+                !opening
+                    .chars()
+                    .any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
+                "{opening}"
+            );
+        }
+        session.send(b"example\r");
+        session.wait_for("Author (optional");
+        session.send(b"\r");
+        session.wait_for("Description (optional");
+        session.send(b"\r");
+        session.choose_format(directory.path(), ManifestFormat::Yaml);
+        assert!(session.finish().success());
+        session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
+        let text = visible_text(&session.stderr);
+        assert_eq!(text.matches("Hydragen").count(), 1, "{text}");
+        assert_eq!(text.matches("Initialise a layer").count(), 1, "{text}");
+        assert_eq!(manifest(directory.path()), json!({"name": "example"}));
+        assert_only_files(directory.path(), &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn explicit_colour_disables_beat_force_without_disabling_guided_questions() {
+    for settings in [
+        TerminalSettings {
+            no_color: Some("1"),
+            ..Default::default()
+        },
+        TerminalSettings {
+            clicolor: Some("0"),
+            ..Default::default()
+        },
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(directory.path(), &["init"], None, None, settings);
+        session.wait_for("Name");
+        session.send(b" \r");
+        session.wait_for("Enter a non-blank name.");
+        assert_no_manifests(directory.path());
+        session.send(b"\x7fexample\r");
+        session.wait_for("Author (optional");
+        session.send(b"\r");
+        session.wait_for("Description (optional");
+        session.send(b"\r");
+        session.choose_format(directory.path(), ManifestFormat::Jsonc);
+        assert!(session.finish().success());
+        session.assert_guided_success(directory.path(), ManifestFormat::Jsonc);
+        assert_no_sgr(&session.stderr);
+        assert_eq!(
+            manifest_in_format(directory.path(), ManifestFormat::Jsonc),
+            json!({"name": "example"})
+        );
+        assert_only_files(directory.path(), &["layer.jsonc"]);
+    }
+}
+
+#[test]
+fn compact_terminal_statuses_obey_disable_preferences_even_with_forced_colour() {
+    for (settings, styled) in [
+        (TerminalSettings::default(), true),
+        (
+            TerminalSettings {
+                no_color: Some(""),
+                ..Default::default()
+            },
+            true,
+        ),
+        (
+            TerminalSettings {
+                no_color: Some("1"),
+                ..Default::default()
+            },
+            false,
+        ),
+        (
+            TerminalSettings {
+                clicolor: Some("0"),
+                ..Default::default()
+            },
+            false,
+        ),
+        (
+            TerminalSettings {
+                term: "dumb",
+                ..Default::default()
+            },
+            false,
+        ),
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["--non-interactive", "init"],
+            None,
+            None,
+            settings,
+        );
+        assert!(session.finish().success());
+        session.assert_compact_success(ManifestFormat::Yaml, styled);
+        assert_eq!(
+            manifest(directory.path()),
+            json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
+        );
+        assert_only_files(directory.path(), &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn colour_disabled_cancellation_is_reported_once_without_success_or_writes() {
+    for settings in [
+        TerminalSettings {
+            no_color: Some("1"),
+            ..Default::default()
+        },
+        TerminalSettings {
+            clicolor: Some("0"),
+            ..Default::default()
+        },
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(directory.path(), &["init"], None, None, settings);
+        session.wait_for("Name");
+        session.send(b"\x1b");
+        assert!(!session.finish().success());
+        let text = visible_text(&session.stderr);
+        assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+        assert_eq!(
+            text.to_lowercase().matches("no files were changed").count(),
+            1,
+            "{text}"
+        );
+        assert!(!text.contains("Error:"), "{text}");
+        assert!(!text.contains("Layer initialised"), "{text}");
+        assert!(session.stdout.is_empty());
+        assert_no_sgr(&session.stderr);
+        assert_no_manifests(directory.path());
+        assert_only_files(directory.path(), &[]);
+    }
+}
+
+#[test]
+fn warning_and_error_headlines_are_styled_only_in_eligible_terminals() {
+    for (ci, redirect, no_color, clicolor, term, styled) in [
+        (None, None, None, None, "xterm-256color", true),
+        (Some("true"), None, None, None, "xterm-256color", false),
+        (None, Some("stdin"), None, None, "xterm-256color", false),
+        (None, Some("stdout"), None, None, "xterm-256color", false),
+        (None, Some("stderr"), None, None, "xterm-256color", false),
+        (None, None, Some("1"), None, "xterm-256color", false),
+        (None, None, None, Some("0"), "xterm-256color", false),
+        (None, None, None, None, "dumb", false),
+    ] {
+        let directory = tempdir().unwrap();
+        fs::write(directory.path().join("layer.yaml"), "keep yaml").unwrap();
+        fs::write(directory.path().join("layer.json"), "keep json").unwrap();
+        let capture_directory = tempdir().unwrap();
+        let capture = capture_directory.path().join("output");
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            ci,
+            redirect.map(|stream| (stream, capture.as_path())),
+            TerminalSettings {
+                no_color,
+                clicolor,
+                term,
+                ..Default::default()
+            },
+        );
+        assert!(!session.finish().success());
+        session.assert_no_prompts();
+        assert!(session.stdout.is_empty());
+        let diagnostics = if redirect == Some("stderr") {
+            fs::read(&capture).unwrap()
+        } else {
+            session.stderr.clone()
+        };
+        let text = visible_text(&diagnostics);
+        assert_eq!(text.matches("Warning:").count(), 1, "{text}");
+        assert_eq!(text.matches("Error:").count(), 1, "{text}");
+        assert!(text.find("Warning:").unwrap() < text.find("Error:").unwrap());
+        assert_occupied_feedback(&diagnostics);
+        if styled {
+            assert_style(&diagnostics, "▲ Warning:", |style| {
+                style.foreground == Some(33)
+            });
+            assert_style(&diagnostics, "✕ Error:", |style| {
+                style.foreground == Some(31)
+            });
+            assert_style(&diagnostics, "layer.yaml takes priority", |style| {
+                style.foreground.is_none() && !style.dim
+            });
+            assert_style(&diagnostics, "Manifests are not merged", |style| {
+                style.foreground.is_none() && !style.dim
+            });
+            assert_style(&diagnostics, "Inspect the entry", |style| {
+                style.foreground.is_none() && !style.dim
+            });
+            assert_style(
+                &diagnostics,
+                "This command did not change any files.",
+                |style| style.foreground.is_none() && !style.dim,
+            );
+        } else {
+            session.assert_plain();
+            assert!(!diagnostics.contains(&b'\x1b'), "{text}");
+            for icon in ['▲', '✕'] {
+                assert!(!text.contains(icon), "{text}");
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(directory.path().join("layer.yaml")).unwrap(),
+            "keep yaml"
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join("layer.json")).unwrap(),
+            "keep json"
+        );
+        assert_only_files(directory.path(), &["layer.yaml", "layer.json"]);
+    }
+}
+
 #[test]
 fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
     for cols in [40, 80, 100, 160] {
@@ -364,6 +866,7 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
                         },
                     );
                     assert!(session.finish().success());
+                    session.assert_no_header();
                     assert!(session.stderr.is_empty());
                     assert!(!session.stdout.contains(&b'\x1b'));
                     let help = visible_text(&session.stdout);
@@ -419,11 +922,15 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
             },
         );
         assert_eq!(session.finish().success(), success);
+        session.assert_no_header();
         assert!(!session.stdout.contains(&b'\x1b'));
         assert!(!session.stderr.contains(&b'\x1b'));
         if success {
             assert!(session.stderr.is_empty());
-            assert!(visible_text(&session.stdout).contains("hydragen 0.1.0"));
+            assert_eq!(
+                visible_text(&session.stdout),
+                format!("hydragen {}\r\n", env!("CARGO_PKG_VERSION"))
+            );
         } else {
             assert!(session.stdout.is_empty());
             assert!(visible_text(&session.stderr).contains("help"));
@@ -433,7 +940,7 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
 }
 
 #[test]
-fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
+fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
     let directory = tempdir().unwrap();
     let mut session = Session::new(directory.path(), &["init"], None);
     session.wait_for("Name");
@@ -450,12 +957,7 @@ fn guided_input_uses_cliclack_on_stderr_and_keeps_the_result_on_stdout() {
         manifest(directory.path()),
         json!({"name": "  配置 🦀  ", "author": "  Example team  ", "description": "Description"})
     );
-    let stdout = String::from_utf8_lossy(&session.stdout);
-    assert!(stdout.starts_with("Initialised layer:"), "{stdout}");
-    assert!(stdout.contains("layer.yaml"), "{stdout}");
-    assert!(!stdout.contains("Author (optional"));
-    assert!(!stdout.contains(guidance));
-    assert!(String::from_utf8_lossy(&session.stderr).contains("Layer initialised"));
+    session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
     let transcript = visible_text(&session.stderr);
     assert_eq!(transcript.matches(guidance).count(), 1);
     assert!(transcript.contains("Author (optional)"));
@@ -526,7 +1028,17 @@ fn optional_fields_can_be_skipped_independently() {
             assert!(!visible_text(&session.stderr).contains("Skipped"));
         }
         let transcript = visible_text(&session.stderr);
-        let format_summary = transcript.rsplit_once("Manifest format").unwrap().1;
+        session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
+        if author.is_empty() || description.is_empty() {
+            // A user can also type the literal metadata value "Skipped". Only
+            // submitted empty answers get this treatment, not that ordinary text.
+            let characters = styled_characters(&session.stderr);
+            assert!(characters.windows("Skipped".len()).any(|window| {
+                window.iter().map(|(c, _)| *c).eq("Skipped".chars())
+                    && window.iter().all(|(_, style)| style.dim && style.italic)
+            }));
+        }
+        let format_summary = selector_summary(&transcript);
         assert!(format_summary.contains("yaml"), "{format_summary}");
         assert!(!format_summary.contains("layer."), "{format_summary}");
         assert!(!format_summary.contains("Skipped"), "{format_summary}");
@@ -551,6 +1063,20 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             session.wait_for("Name");
             session.send(b" \r");
             session.wait_for("Enter a non-blank name.");
+            assert_style(&session.stderr, "✕", |style| {
+                !colour || style.foreground == Some(31)
+            });
+            assert!(!visible_text(&session.stderr).contains('▲'));
+            if colour {
+                assert_style(&session.stderr, "Enter a non-blank name.", |style| {
+                    style.foreground == Some(31)
+                });
+                let characters = styled_characters(&session.stderr);
+                let error = characters.iter().rposition(|(c, _)| *c == '✕').unwrap();
+                assert!(characters[error..].iter().any(|(c, style)| {
+                    matches!(c, '│' | '└') && style.foreground == Some(31)
+                }));
+            }
             assert_no_manifests(directory.path());
             session.send("\x7f  配置 🦀  \r".as_bytes());
             session.wait_for("Author (optional");
@@ -591,7 +1117,7 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             assert!(!transcript.contains("--author"));
             assert!(!transcript.contains("--description"));
             assert!(transcript.contains("Skipped"));
-            assert!(!session.stdout.contains(&b'\x1b'));
+            session.assert_guided_success(directory.path(), ManifestFormat::Yaml);
             let raw = String::from_utf8_lossy(&session.stderr);
             let has_style = raw.split("\x1b[").skip(1).any(|part| {
                 part.find('m')
@@ -625,10 +1151,7 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
         json!({"name": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
     );
     assert_only_files(directory.path(), &["layer.jsonc"]);
-    let stdout = visible_text(&session.stdout);
-    assert!(stdout.starts_with("Initialised layer:"));
-    assert!(!stdout.contains("non-whitespace"));
-    assert!(!stdout.contains("Manifest format"));
+    session.assert_guided_success(directory.path(), ManifestFormat::Jsonc);
 }
 
 #[test]
@@ -649,6 +1172,12 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         let transcript = visible_text(&session.stderr);
         let choices = transcript.split_once("Manifest format").unwrap().1;
         assert!(!choices.contains("layer."), "{choices}");
+        let raw = String::from_utf8_lossy(&session.stderr);
+        let menu = raw.rsplit_once("Manifest format").unwrap().1.as_bytes();
+        assert_style(menu, "yaml", |style| style.foreground == Some(36));
+        for other in ["yml", "toml", "json", "jsonc"] {
+            assert_style(menu, other, |style| style.foreground != Some(36));
+        }
         let mut previous = 0;
         for choice in ManifestFormat::ALL {
             assert!(
@@ -670,21 +1199,10 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
             })
         );
         assert_only_files(directory.path(), &[format.filename()]);
-        let stdout = visible_text(&session.stdout);
-        assert!(
-            stdout.contains(
-                &directory
-                    .path()
-                    .join(format.filename())
-                    .display()
-                    .to_string()
-            ),
-            "{stdout}"
-        );
-        assert!(!stdout.contains("Manifest format"));
+        session.assert_guided_success(directory.path(), format);
         let transcript = visible_text(&session.stderr);
         assert!(!transcript.contains("Skipped"));
-        let summary = transcript.rsplit_once("Manifest format").unwrap().1;
+        let summary = selector_summary(&transcript);
         assert!(summary.contains(format.extension()), "{summary}");
         assert!(!summary.contains("layer."), "{summary}");
     }
@@ -700,15 +1218,13 @@ fn format_only_flags_never_prompt_in_a_terminal() {
             None,
         );
         assert!(session.finish().success());
-        session.assert_no_prompts();
-        assert!(session.stderr.is_empty());
+        session.assert_compact_success(format, true);
         assert_eq!(
             manifest_in_format(directory.path(), format),
             json!({
                 "name": directory.path().file_name().unwrap().to_str().unwrap()
             })
         );
-        assert!(visible_text(&session.stdout).contains(format.filename()));
         assert_only_files(directory.path(), &[format.filename()]);
     }
 }
@@ -733,7 +1249,7 @@ fn metadata_flags_never_start_a_guided_session_in_a_terminal() {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &arguments, None);
         assert!(session.finish().success());
-        session.assert_no_prompts();
+        session.assert_compact_success(ManifestFormat::Yaml, true);
         let expected_name = if arguments.contains(&"--name") {
             "example"
         } else {
@@ -765,6 +1281,13 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
         assert!(!session.finish().success());
         session.assert_no_prompts();
         assert!(session.stdout.is_empty());
+        if arguments.contains(&"--format") {
+            session.assert_plain();
+        } else {
+            assert_style(&session.stderr, "✕ Error:", |style| {
+                style.foreground == Some(31)
+            });
+        }
         assert_no_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
     }
@@ -801,6 +1324,7 @@ fn explicit_override_and_ci_use_defaults_without_prompts_in_terminals() {
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
         assert_only_files(directory.path(), &[format.filename()]);
+        session.assert_compact_success(format, ci.is_none());
     }
 }
 
@@ -827,7 +1351,16 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             assert_no_manifests(directory.path());
             session.send(key);
             assert!(!session.finish().success());
-            assert!(String::from_utf8_lossy(&session.stderr).contains("cancelled"));
+            let text = visible_text(&session.stderr);
+            assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+            assert_eq!(
+                text.to_lowercase().matches("no files were changed").count(),
+                1,
+                "{text}"
+            );
+            assert!(!text.contains("Error:"), "{text}");
+            assert!(!text.contains("Layer initialised"), "{text}");
+            assert_style(&session.stderr, "■", |style| style.foreground == Some(31));
             assert!(session.stdout.is_empty());
             assert_no_manifests(directory.path());
             assert_only_files(directory.path(), &[]);
@@ -1014,18 +1547,7 @@ fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_
         );
         assert!(stderr.contains(appeared.filename()));
         assert!(stderr.contains(chosen.filename()));
-        let stdout = visible_text(&session.stdout);
-        assert!(
-            stdout.contains(
-                &directory
-                    .path()
-                    .join(chosen.filename())
-                    .display()
-                    .to_string()
-            ),
-            "{stdout}"
-        );
-        assert!(!stdout.contains("Warning:"));
+        session.assert_guided_success(directory.path(), chosen);
         assert_only_files(directory.path(), &[appeared.filename(), chosen.filename()]);
     }
 }
@@ -1050,13 +1572,20 @@ fn redirecting_any_single_stream_disables_guided_input() {
             Session::spawn(directory.path(), &arguments, None, Some((stream, &capture)));
         assert!(session.finish().success());
         session.assert_no_prompts();
+        session.assert_plain();
         assert!(session.stderr.is_empty());
         let result = if stream == "stdout" {
             fs::read(&capture).unwrap()
         } else {
             session.stdout.clone()
         };
-        assert!(String::from_utf8_lossy(&result).contains("Initialised layer:"));
+        assert_eq!(
+            String::from_utf8_lossy(&result).replace("\r\n", "\n"),
+            format!(
+                "Layer initialised, manifest created at: {}\n",
+                format.filename()
+            )
+        );
         if stream == "stderr" {
             assert!(fs::read(&capture).unwrap().is_empty());
         }
@@ -1116,6 +1645,13 @@ fn losing_terminal_input_reports_failure_without_creating_a_manifest() {
             String::from_utf8_lossy(&session.stderr)
                 .contains("Could not collect initialisation input")
         );
+        let text = visible_text(&session.stderr);
+        assert_eq!(text.matches("Error:").count(), 1, "{text}");
+        assert!(!text.contains("cancelled"), "{text}");
+        assert!(!text.contains("Layer initialised"), "{text}");
+        assert_style(&session.stderr, "✕ Error:", |style| {
+            style.foreground == Some(31)
+        });
         assert!(session.stdout.is_empty());
         assert_no_manifests(directory.path());
         assert_only_files(directory.path(), &[]);

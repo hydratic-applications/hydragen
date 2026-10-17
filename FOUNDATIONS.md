@@ -95,6 +95,10 @@ useful choice over existing approaches.
    intentionally designed, including when plain output is appropriate, without
    requiring a particular visual style.
 
+   Scale presentation to the interaction: richer openings can orient developers
+   in guided or long-running terminal sessions, while routine one-shot actions
+   should stay concise so branding does not crowd out useful results.
+
 3. **Granular reuse — Take what you need.** Let projects share individual needs
    without adopting an entire set of technologies. This includes directory
    structures, configuration in any format, and Markdown skills and rules for

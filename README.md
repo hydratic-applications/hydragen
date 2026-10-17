@@ -11,6 +11,7 @@ rendering, and contribution capture are not implemented yet.
 
 See [FOUNDATIONS.md](FOUNDATIONS.md) for the product goals and
 [GLOSSARY.md](GLOSSARY.md) for the layer model's terminology.
+The [name and icon](docs/brand.md) express the project's identity and guiding values.
 
 ## Build and run locally
 
@@ -97,8 +98,13 @@ Without input flags, this uses the directory's name and YAML format, omitting
 author and description. Prompts are also disabled in CI or when any standard
 stream is not a terminal; init does not read piped answers.
 
-Success prints the created manifest's path to standard output. Prompts, warnings,
-and errors go to standard error; errors return a nonzero exit status.
+Init confirms the created manifest filename once. Guided feedback, warnings, and
+errors use standard error; flag-only success uses standard output. Errors return
+a nonzero exit status.
+
+Terminal status messages use colour when appropriate. CI, redirected execution,
+or `NO_COLOR=1` keep results plain; `--non-interactive` disables questions without
+disabling eligible terminal styling.
 
 ## The layer manifest
 
