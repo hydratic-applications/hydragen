@@ -24,10 +24,11 @@ pub(super) fn document(text: &str, format: ManifestFormat) -> Result<Value, Stri
                 non_finite_float_policy: serde_saphyr::NonFiniteFloatPolicy::Reject,
             };
             // Default parser/alias budgets remain enabled. String input is already UTF-8.
+            // Inspect resolved tags before binary values can be converted to text.
+            yaml::check_scalar_data(text)?;
             let CheckedValue(value) =
                 serde_saphyr::from_str_with_options::<CheckedValue>(text, options)
                     .map_err(|error| error.to_string())?;
-            yaml::check_integer_ranges(text)?;
             Ok(value)
         }
         ManifestFormat::Toml => {

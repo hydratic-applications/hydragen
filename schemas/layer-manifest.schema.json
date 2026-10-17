@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hydragen layer manifest metadata (draft)",
+  "description": "Initial metadata requirements for parsed YAML/YML, TOML, JSON, or JSONC manifest content at the root of a layer's repository. Name is required; author and description are optional. This schema validates contents, not filename or location, and does not yet validate dependency references or other layer behaviour.",
+  "type": "object",
+  "required": ["name"],
+  "$defs": {
+    "nonBlankString": {
+      "type": "string",
+      "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]",
+      "x-hydragen-nonblank-pattern-sha256": "f308e30ae4a261113af20ed108cd840829a39d26af2024f66ab1b4e08ffc3514",
+      "$comment": "The optional x-hydragen-nonblank-pattern-sha256 annotation approves friendly non-blank diagnostics only. It is the lowercase SHA-256 of the decoded pattern string encoded as UTF-8. Missing or mismatched approval leaves validation unchanged and uses generic pattern diagnostics. Do not automatically update this token when changing the pattern; update it only after reviewing that the rule still means Unicode non-blank.",
+      "description": "A string containing at least one character outside Unicode White_Space. Accepted strings are not trimmed or otherwise normalized."
+    }
+  },
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/nonBlankString",
+      "description": "Optional schema URL or relative path used by an editor or validator."
+    },
+    "name": {
+      "$ref": "#/$defs/nonBlankString",
+      "description": "The layer's name. Naming syntax and uniqueness rules remain undecided."
+    },
+    "author": {
+      "$ref": "#/$defs/nonBlankString",
+      "description": "Optional person or organisation credited with authoring the layer. When supplied, this must be a non-blank string. This is descriptive metadata, not a verified identity."
+    },
+    "description": {
+      "$ref": "#/$defs/nonBlankString",
+      "description": "Optional short explanation of what the layer provides or is used for. When supplied, this must be a non-blank string."
+    }
+  },
+  "additionalProperties": true
+}

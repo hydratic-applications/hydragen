@@ -9,9 +9,11 @@ clap = { version = "4", features = ["derive"] }
 cliclack = "0.5.6"
 console = "0.16"
 jsonc-parser = "0.34"
+jsonschema = { version = "0.58.6", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde-saphyr = { version = "2", default-features = false, features = ["serialize", "deserialize"] }
 serde_json = "1"
+sha2 = { version = "0.10.9", default-features = false }
 toml = { version = "1.1", default-features = false, features = ["std", "serde", "parse", "display"] }
 
 [dev-dependencies]

@@ -1,7 +1,10 @@
+use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
+use std::rc::Rc;
 
+use hydragen::manifest::schema;
 use hydragen::{InitError, ManifestFormat, Metadata, validate_metadata_value};
 
 struct DefaultTheme;
@@ -81,28 +84,86 @@ fn optional_input(field: &'static str, label: &str) -> io::Result<Option<String>
         .for_stderr()
         .dim()
         .apply_to("(optional)");
-    let value: String = cliclack::input(format!("{label} {hint}"))
-        .required(false)
-        .validate(move |value: &String| validate_answer(field, value, true))
-        .interact()?;
+    let value = metadata_input(field, &format!("{label} {hint}"), None, true)?;
     Ok(if value.is_empty() { None } else { Some(value) })
 }
 
+// Cliclack's validation callback can only retry. Keep unexpected internal errors
+// out of that channel and return them immediately after the submitted input.
+#[derive(Clone, Default)]
+struct PromptValidation(Rc<RefCell<Option<InitError>>>);
+
+impl PromptValidation {
+    fn check(&self, result: Result<(), InitError>) -> Result<(), String> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(error @ InitError::InvalidMetadata { .. })
+            | Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(error.to_string()),
+            Err(error) => {
+                *self.0.borrow_mut() = Some(error);
+                Ok(())
+            }
+        }
+    }
+
+    fn finish(&self, result: io::Result<String>) -> io::Result<String> {
+        match self.0.borrow_mut().take() {
+            Some(error) => Err(io::Error::other(error)),
+            None => result,
+        }
+    }
+}
+
+fn metadata_input(
+    field: &'static str,
+    label: &str,
+    default: Option<&str>,
+    optional: bool,
+) -> io::Result<String> {
+    let validation = PromptValidation::default();
+    let callback = validation.clone();
+    let mut input = cliclack::input(label)
+        .required(!optional)
+        .validate(move |value: &String| callback.check(validate_answer(field, value, optional)));
+    if let Some(default) = default {
+        input = input.default_input(default);
+    }
+    validation.finish(input.interact())
+}
+
 pub fn directory_name(directory: &Path) -> io::Result<String> {
-    directory
+    directory_name_validating(directory, validate_metadata_value)
+}
+
+fn directory_name_validating(
+    directory: &Path,
+    validate: impl FnOnce(&'static str, &str) -> Result<(), InitError>,
+) -> io::Result<String> {
+    let unusable = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Could not derive a non-blank UTF-8 layer name from directory '{}'. Supply --name explicitly.",
+                directory.display()
+            ),
+        )
+    };
+    let name = directory
         .file_name()
         .and_then(OsStr::to_str)
-        .filter(|name| validate_metadata_value("name", name).is_ok())
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Could not derive a non-blank UTF-8 layer name from directory '{}'. Supply --name explicitly.",
-                    directory.display()
-                ),
-            )
-        })
+        .ok_or_else(unusable)?;
+    match validate("name", name) {
+        Ok(()) => Ok(name.to_owned()),
+        Err(InitError::InvalidMetadata { .. }) => Err(unusable()),
+        Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Could not use directory '{}' as the layer name: {error}. Supply --name explicitly.",
+                directory.display()
+            ),
+        )),
+        Err(error) => Err(io::Error::other(error)),
+    }
 }
 
 pub struct InitInput {
@@ -111,6 +172,14 @@ pub struct InitInput {
 }
 
 pub fn collect_init_input(default_name: &str) -> io::Result<InitInput> {
+    collect_init_input_ready(default_name, schema::ensure_ready)
+}
+
+fn collect_init_input_ready(
+    default_name: &str,
+    ready: impl FnOnce() -> Result<(), schema::Error>,
+) -> io::Result<InitInput> {
+    ready().map_err(io::Error::other)?;
     // Only guided init uses this rendering adjustment. Submitted empty inputs
     // are optional skips; name always resolves to a validated non-empty value.
     cliclack::set_theme(InitTheme);
@@ -122,10 +191,7 @@ pub fn collect_init_input(default_name: &str) -> io::Result<InitInput> {
                 .dim()
                 .apply_to("Enter accepts the default or skips an optional field."),
         )?;
-        let name: String = cliclack::input("Name")
-            .default_input(default_name)
-            .validate(|value: &String| validate_answer("name", value, false))
-            .interact()?;
+        let name = metadata_input("name", "Name", Some(default_name), false)?;
         let author = optional_input("author", "Author")?;
         let description = optional_input("description", "Description")?;
         // The empty-input summary is only for optional metadata, not selections.
@@ -235,14 +301,71 @@ mod tests {
             directory_name(Path::new("parent/ My Project 配置 🦀 ")).unwrap(),
             " My Project 配置 🦀 "
         );
+        assert_eq!(
+            directory_name(Path::new("parent/\u{feff}")).unwrap(),
+            "\u{feff}"
+        );
     }
 
     #[test]
     fn unusable_directory_names_require_an_explicit_name() {
-        for directory in [Path::new("/"), Path::new(""), Path::new("   ")] {
+        for directory in [
+            Path::new("/"),
+            Path::new(""),
+            Path::new("   "),
+            Path::new("\u{85}"),
+        ] {
             let error = directory_name(directory).unwrap_err();
             assert!(error.to_string().contains("Supply --name explicitly"));
         }
+    }
+
+    fn setup_failure() -> schema::Error {
+        schema::validate_field("unknown", "valid").unwrap_err()
+    }
+
+    #[test]
+    fn internal_default_validation_errors_do_not_request_a_name_override() {
+        let error = directory_name_validating(Path::new("valid-directory"), |field, name| {
+            assert_eq!((field, name), ("name", "valid-directory"));
+            Err(InitError::from(setup_failure()))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(error.to_string().contains("Internal manifest schema error"));
+        assert!(!error.to_string().contains("Supply --name"));
+        assert!(!error.to_string().contains("non-blank"));
+    }
+
+    #[test]
+    fn setup_failure_returns_before_the_guided_ui_is_started() {
+        let expected = setup_failure();
+        let error = collect_init_input_ready("valid-default", || Err(expected.clone()))
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(error.to_string(), expected.to_string());
+        assert!(!error.to_string().contains("Could not collect"));
+    }
+
+    #[test]
+    fn only_content_failures_request_inline_retry() {
+        let validation = PromptValidation::default();
+        let retry = validation
+            .check(validate_metadata_value("name", "\u{85}"))
+            .unwrap_err();
+        assert!(retry.contains("--name must contain"));
+        assert!(validation.finish(Ok("corrected".into())).is_ok());
+
+        let expected = setup_failure();
+        assert!(
+            validation
+                .check(Err(InitError::from(expected.clone())))
+                .is_ok()
+        );
+        let error = validation.finish(Ok("not accepted".into())).unwrap_err();
+        assert_eq!(error.to_string(), expected.to_string());
+        assert!(!error.to_string().contains("non-whitespace"));
     }
 
     #[cfg(unix)]
@@ -303,11 +426,11 @@ mod tests {
     fn only_empty_optional_answers_are_skipped() {
         assert!(validate_answer("name", "", false).is_err());
         assert!(validate_answer("author", "", true).is_ok());
-        for value in [" ", "\t", "\u{2003}"] {
+        for value in [" ", "\t", "\u{2003}", "\u{85}"] {
             assert!(validate_answer("name", value, false).is_err());
             assert!(validate_answer("author", value, true).is_err());
         }
-        for value in [" name ", "quoted \"value\"", "配置 🦀"] {
+        for value in [" name ", "quoted \"value\"", "配置 🦀", "\u{feff}"] {
             assert!(validate_answer("name", value, false).is_ok());
             assert!(validate_answer("description", value, true).is_ok());
         }

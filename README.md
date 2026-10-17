@@ -216,9 +216,24 @@ other extra fields.
   Init quotes or escapes ambiguous strings as needed to preserve their meaning.
 
   YAML integers must fit a signed 64-bit value when negative or an unsigned
-  64-bit value when non-negative. Out-of-range integers are rejected, never
-  converted to strings. Quote numeric-looking text or use `!!str` to keep it as
+  64-bit value when non-negative. This applies to every integer spelling the
+  parser recognizes, including underscores, uppercase radix prefixes, binary
+  notation, and signed radix forms. In-range spellings keep their numeric meaning;
+  overflowing spellings are rejected in keys and values at any depth, never
+  treated as strings. Quote numeric-looking text or use `!!str` to keep it as
   a string.
+
+  Binary-tagged keys and values (`!!binary`) are rejected before their bytes can
+  be converted into UTF-8 text, even when those bytes would form valid text.
+  The same rejection applies when the binary tag is written as an explicit URI
+  or through a `%TAG` directive. Quoted text that merely contains `!!binary`
+  remains ordinary text.
+
+  **Parser corrections:** Overflowing extension integer spellings previously
+  could fall back to strings, and binary-tagged data could become strings when
+  its bytes were valid UTF-8. Both behaviours are now rejected at the parser
+  boundary, including within additional fields, arrays, and mapping keys. These
+  are explicit input-acceptance corrections, separate from schema validation.
 - **TOML:** Metadata is declared as top-level quoted strings, with no `[layer]`
   wrapper. For example, supplying all three fields with `--format toml` produces:
 
@@ -250,9 +265,54 @@ other extra fields.
   block comments and trailing commas, but not JSON5 features such as unquoted
   keys, single-quoted strings, or missing commas.
 
+### Shared content schema
+
+The maintained [manifest schema](schemas/layer-manifest.schema.json) uses JSON
+Schema Draft 2020-12. It validates the JSON-compatible data decoded from **all five
+formats: YAML, YML, TOML, JSON, and JSONC**, not just JSON source files. The same
+schema definitions govern flags, guided metadata answers, directory-name defaults,
+and complete candidate manifests before writing. The library reader validates the
+entire decoded document before extracting metadata.
+
+The schema requires a non-blank string `name`; `author` and `description` are
+independently optional but must be non-blank strings when supplied. Explicit null
+is not omission. An optional `$schema` property must also be a non-blank string.
+Non-blank means containing a character outside Unicode's `White_Space` set:
+U+0085 counts as whitespace, but U+FEFF does not. The maintained schema spells
+out this set rather than relying on the regex shorthand `\S`, preserving the
+CLI's existing whitespace semantics. Validation does not trim, normalize, or
+coerce values into strings.
+
+**Loader correction:** `$schema` values were previously ignored by the reader.
+They are now checked against the existing non-blank-string rule in every format:
+blank strings and non-string values, such as numbers or null where the format
+supports them, fail loading. This is a parsed-content check, not type coercion;
+the separate YAML parser corrections are described above.
+
+This is a **metadata-only** schema. It permits additional properties
+(`additionalProperties: true`) without interpreting their meanings; passing
+validation does not establish support for dependency declarations, versions, or
+inheritance. The schema sees parsed data, not the original scalar spellings or
+tags. Format parsers determine source types, accepted syntax, duplicate-key
+handling, and which values can be represented. Schema validation does not decide
+which filename governs a layer, verify repository location, or make file creation
+safe; those remain separate checks.
+
+The schema is bundled into the built CLI and used offline. Running the executable
+needs no source checkout, schema sidecar file, external validator, or schema fetch.
+There is no runtime schema-selection option, and a manifest's `$schema` value
+never selects another validator or triggers retrieval. Changing the maintained
+schema requires rebuilding the application to change its bundled rules.
+
+Depending on your editor and its extensions, you may be able to associate a
+manifest with this same local schema file through editor configuration. This
+change does not publish a public schema URL, configure automatic associations,
+provide a schema-export command, or promise editor support for every format. Init
+does not add a `$schema` property to generated manifests.
+
 ### Shared library reader
 
-The library separates discovery, loading, and metadata validation. Discovery
+The library separates discovery, loading, and content validation. Discovery
 inspects only the five supported paths in a supplied directory, without reading
 contents, searching ancestors or nested directories, or changing files. It
 selects the highest-priority occupied name, including when that entry is a
@@ -268,11 +328,9 @@ and manifests are never merged. With no supported path, loading reports a missin
 manifest. Discovery remains available independently, so a caller can report
 duplicates before a later loading error.
 
-Every format and both init input routes share the same metadata rules: `name`
-must be a non-blank string; `author` and `description` must each be non-blank
-strings if present. Explicit null is not omission. Loaded documents must be one
-object or mapping, with string keys and JSON-compatible values: objects, arrays,
-strings, booleans, finite numbers, and null. Repeated keys at any object depth,
+Loaded documents must be one object or mapping, with string keys and
+JSON-compatible values: objects, arrays, strings, booleans, finite numbers, and
+null. Repeated keys at any object depth,
 including unknown fields or escaped spellings of the same JSON key, are errors
 rather than first-value or last-value wins. Complex YAML keys, non-finite values,
 empty or comment-only documents, multiple documents or top-level values, and
@@ -409,6 +467,22 @@ and execution without Git or terminal input. Manifest tests cover shared
 discovery, selected-only loading without fallback, parser contracts, and exact
 string preservation, with independent output checks as well as round-trips.
 
+For schema changes, check behaviour rather than just the schema's structure:
+validate the schema against Draft 2020-12, exercise independently authored valid
+and invalid data, compare field and complete-document validation, and validate
+actual init output from all five formats with the production validator. Include
+Unicode whitespace, `$schema` values, and additional properties while retaining
+independent assertions for exact output, omissions, errors, and filesystem effects.
+For the YAML parser corrections, check numeric spellings at range boundaries,
+overflow rejection, binary-tag rejection for keys and values (including tag URIs
+and directives), and exact preservation of quoted and `!!str` text in both YAML
+extensions.
+
+Also verify fresh builds and tests from a disposable source copy without
+`openspec/`, schema inclusion in the source package, and execution with only the
+built binary and no schema sidecar. These are verification requirements, not a
+record that those checks have been run.
+
 Unix-specific tests use a development-only pseudo-terminal harness and `/bin/sh`
 to exercise real cliclack prompts, separate output streams, cancellation, input
 loss, optional skips, retries, input flags in a terminal, and the final format
@@ -421,9 +495,9 @@ limit does not affect your shell or other tests. The built CLI requires neither
 a shell nor the terminal test harness.
 
 The [manifest specification](openspec/specs/layer-manifest/spec.md) records the
-metadata requirements; the current format, selection, and reader decisions are
-in the [manifest-formats change](openspec/changes/support-layer-manifest-formats/design.md).
-The [historical metadata-only JSON Schema draft](openspec/changes/archive/2026-10-16-define-layer-manifest/layer-manifest.schema.json)
-describes name, author, and description, not dependency references or file
-location. It remains an archived design artifact, not a maintained runtime
-schema; format support does not publish or relocate it or add a schema engine.
+metadata requirements; format, selection, and reader decisions are in the
+[manifest-formats change](openspec/changes/support-layer-manifest-formats/design.md).
+The [maintained-schema design](openspec/changes/use-maintained-manifest-schema/design.md)
+explains the shared validation boundary. OpenSpec documents are planning and
+decision references, not build, test, or runtime inputs. Archived schemas remain
+historical snapshots and are not synchronized with the maintained schema.

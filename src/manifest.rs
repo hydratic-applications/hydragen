@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::Metadata;
 
 mod decode;
+pub mod schema;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ManifestFormat {
@@ -151,6 +152,48 @@ pub enum MetadataError {
     MissingField { field: &'static str },
     NotString { field: &'static str },
     Blank { field: &'static str },
+    Schema(schema::Error),
+}
+
+/// Known root properties are diagnostic wiring, not independently maintained rules.
+fn metadata_field(path: &str) -> Option<&'static str> {
+    match path {
+        "/name" => Some("name"),
+        "/author" => Some("author"),
+        "/description" => Some("description"),
+        "/$schema" => Some("$schema"),
+        _ => None,
+    }
+}
+
+impl From<schema::Error> for MetadataError {
+    fn from(error: schema::Error) -> Self {
+        if let schema::Error::Content(violation) = &error {
+            match &violation.kind {
+                schema::ViolationKind::Type if violation.instance_path.is_empty() => {
+                    return Self::NotObject;
+                }
+                schema::ViolationKind::Required { property }
+                    if violation.instance_path.is_empty() =>
+                {
+                    if let Some(field) = metadata_field(&format!("/{property}")) {
+                        return Self::MissingField { field };
+                    }
+                }
+                schema::ViolationKind::Type | schema::ViolationKind::NonBlank => {
+                    if let Some(field) = metadata_field(&violation.instance_path) {
+                        return if violation.kind == schema::ViolationKind::NonBlank {
+                            Self::Blank { field }
+                        } else {
+                            Self::NotString { field }
+                        };
+                    }
+                }
+                _ => {}
+            }
+        }
+        Self::Schema(error)
+    }
 }
 
 impl fmt::Display for MetadataError {
@@ -168,30 +211,36 @@ impl fmt::Display for MetadataError {
                 formatter,
                 "Metadata field '{field}' must contain at least one non-whitespace character."
             ),
+            Self::Schema(source) => source.fmt(formatter),
         }
     }
 }
 
-impl std::error::Error for MetadataError {}
+impl std::error::Error for MetadataError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Schema(source) => Some(source),
+            _ => None,
+        }
+    }
+}
 
 /// The common field rule used by file validation, init flags, defaults, and guided answers.
 pub fn validate_field(field: &'static str, value: &str) -> Result<(), MetadataError> {
-    if value.chars().any(|character| !character.is_whitespace()) {
-        Ok(())
-    } else {
-        Err(MetadataError::Blank { field })
-    }
+    schema::validate_field(field, value).map_err(MetadataError::from)
 }
 
 /// Validate complete parsed data, without normalising strings or interpreting extra fields.
 pub fn validate_document(document: &Value) -> Result<Metadata, MetadataError> {
+    schema::validate(document).map_err(MetadataError::from)?;
+    // Validation is authoritative. These conversions only defend extraction if
+    // the schema's supported shapes ever diverge from the typed metadata view.
     let object = document.as_object().ok_or(MetadataError::NotObject)?;
     let field_value = |field: &'static str| -> Result<Option<String>, MetadataError> {
         object
             .get(field)
             .map(|value| {
                 let text = value.as_str().ok_or(MetadataError::NotString { field })?;
-                validate_field(field, text)?;
                 Ok(text.to_owned())
             })
             .transpose()

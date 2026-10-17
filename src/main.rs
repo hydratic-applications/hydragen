@@ -89,6 +89,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             let inspection = inspect_init(&directory)?;
             diagnostics::warn_duplicates(inspection.discovery());
             let prepared = inspection.prepare()?;
+            hydragen::manifest::schema::ensure_ready()?;
             let interaction::InitInput { metadata, format } = if mode == Mode::Guided {
                 interaction::collect_init_input(&interaction::directory_name(&directory)?)?
             } else {

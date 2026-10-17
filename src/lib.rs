@@ -22,22 +22,21 @@ pub struct Metadata {
 
 impl Metadata {
     pub fn validate(&self) -> Result<(), InitError> {
-        for (field, value) in [
-            ("name", Some(self.name.as_str())),
-            ("author", self.author.as_deref()),
-            ("description", self.description.as_deref()),
-        ] {
-            if let Some(value) = value {
-                validate_metadata_value(field, value)?;
-            }
-        }
-        Ok(())
+        self.validate_with(manifest::schema::validate)
+    }
+
+    fn validate_with(
+        &self,
+        validate: impl FnOnce(&serde_json::Value) -> Result<(), manifest::schema::Error>,
+    ) -> Result<(), InitError> {
+        let candidate = serde_json::to_value(self).map_err(InitError::Serialization)?;
+        validate(&candidate).map_err(InitError::from)
     }
 }
 
 /// Validate a supplied value without changing its whitespace or spelling.
 pub fn validate_metadata_value(field: &'static str, value: &str) -> Result<(), InitError> {
-    manifest::validate_field(field, value).map_err(|_| InitError::InvalidMetadata { field })
+    manifest::schema::validate_field(field, value).map_err(InitError::from)
 }
 
 #[derive(Debug)]
@@ -45,6 +44,7 @@ pub enum InitError {
     InvalidMetadata {
         field: &'static str,
     },
+    Schema(manifest::schema::Error),
     NestedRepository {
         root: PathBuf,
     },
@@ -61,6 +61,25 @@ pub enum InitError {
     Discovery(ManifestError),
 }
 
+impl From<manifest::schema::Error> for InitError {
+    fn from(error: manifest::schema::Error) -> Self {
+        if let manifest::schema::Error::Content(violation) = &error
+            && violation.kind == manifest::schema::ViolationKind::NonBlank
+        {
+            let field = match violation.instance_path.as_str() {
+                "/name" => Some("name"),
+                "/author" => Some("author"),
+                "/description" => Some("description"),
+                _ => None,
+            };
+            if let Some(field) = field {
+                return Self::InvalidMetadata { field };
+            }
+        }
+        Self::Schema(error)
+    }
+}
+
 impl fmt::Display for InitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -68,6 +87,7 @@ impl fmt::Display for InitError {
                 formatter,
                 "--{field} must contain at least one non-whitespace character."
             ),
+            Self::Schema(source) => source.fmt(formatter),
             Self::NestedRepository { root } => write!(
                 formatter,
                 "Run 'hydragen init' from the repository root '{}', not a subdirectory. No files were changed.",
@@ -99,6 +119,7 @@ impl fmt::Display for InitError {
 impl std::error::Error for InitError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Schema(source) => Some(source),
             Self::Io { source, .. } => Some(source),
             Self::Serialization(source) => Some(source),
             Self::Encoding(source) => Some(source),
@@ -111,7 +132,15 @@ impl std::error::Error for InitError {
 /// Initialise with the YAML default. Invalid metadata is rejected before filesystem access.
 /// CLI callers should inspect, report diagnostics, prepare, then call `create_init` instead.
 pub fn initialize(directory: &Path, metadata: &Metadata) -> Result<PathBuf, InitError> {
-    metadata.validate()?;
+    initialize_validating(directory, metadata, manifest::schema::validate)
+}
+
+fn initialize_validating(
+    directory: &Path,
+    metadata: &Metadata,
+    validate: impl FnOnce(&serde_json::Value) -> Result<(), manifest::schema::Error>,
+) -> Result<PathBuf, InitError> {
+    metadata.validate_with(validate)?;
     let prepared = inspect_init(directory)?.prepare()?;
     create_init(prepared, metadata, ManifestFormat::default())
         .map(|created| created.path)
@@ -303,19 +332,6 @@ mod tests {
     }
 
     #[test]
-    fn metadata_contract_matches_the_manifest_schema() {
-        let schema: Value = serde_json::from_str(include_str!(
-            "../openspec/changes/archive/2026-10-16-define-layer-manifest/layer-manifest.schema.json"
-        ))
-        .unwrap();
-        assert_eq!(schema["required"], json!(["name"]));
-        for field in ["name", "author", "description"] {
-            assert_eq!(schema["properties"][field]["type"], "string");
-            assert_eq!(schema["properties"][field]["pattern"], r"\S");
-        }
-    }
-
-    #[test]
     fn optional_fields_are_independent_and_omitted_when_absent() {
         for author in [None, Some("Example team".to_owned())] {
             for description in [None, Some("Example layer".to_owned())] {
@@ -396,6 +412,61 @@ mod tests {
             initialize(Path::new("nonexistent-directory"), &metadata),
             Err(InitError::InvalidMetadata { field: "name" })
         ));
+    }
+
+    #[test]
+    fn whole_object_schema_constraints_fail_before_library_filesystem_access() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("must-not-be-inspected-or-created");
+        let metadata = metadata();
+        validate_metadata_value("name", &metadata.name).unwrap();
+        let mut schema: Value =
+            serde_json::from_str(include_str!("../schemas/layer-manifest.schema.json")).unwrap();
+        // A whole-object rule that every individual field validator would miss.
+        schema["maxProperties"] = json!(0);
+        let validator = jsonschema::options()
+            .with_draft(jsonschema::Draft::Draft202012)
+            .offline()
+            .build(&schema)
+            .unwrap();
+        let error = initialize_validating(&missing, &metadata, |candidate| {
+            assert_eq!(candidate, &json!({"name": "example"}));
+            let error = validator.validate(candidate).unwrap_err();
+            Err(manifest::schema::Error::Content(Box::new(
+                manifest::schema::Violation {
+                    instance_path: error.instance_path().to_string(),
+                    schema_path: error.schema_path().to_string(),
+                    keyword: error.kind().keyword().into(),
+                    message: error.to_string(),
+                    kind: manifest::schema::ViolationKind::Other,
+                },
+            )))
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            InitError::Schema(manifest::schema::Error::Content(_))
+        ));
+        assert!(error.to_string().contains("maxProperties"));
+        assert!(!error.to_string().contains("non-whitespace"));
+        assert!(!missing.exists());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn internal_schema_failure_precedes_library_filesystem_access() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing");
+        let setup = manifest::schema::validate_field("unknown", "valid").unwrap_err();
+        let error = initialize_validating(&missing, &metadata(), |_| Err(setup)).unwrap_err();
+        assert!(matches!(
+            error,
+            InitError::Schema(manifest::schema::Error::Setup { .. })
+        ));
+        assert!(error.to_string().contains("Internal manifest schema error"));
+        assert!(!error.to_string().contains("non-whitespace"));
+        assert!(!missing.exists());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
     #[test]

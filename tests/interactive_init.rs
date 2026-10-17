@@ -242,14 +242,16 @@ fn manifest(directory: &Path) -> Value {
 fn manifest_in_format(directory: &Path, format: ManifestFormat) -> Value {
     let text = fs::read_to_string(directory.join(format.filename())).unwrap();
     assert!(text.ends_with('\n'));
-    match format {
+    let document = match format {
         ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::from_str(&text).unwrap(),
         ManifestFormat::Toml => {
             let table: toml::Table = toml::from_str(&text).unwrap();
             serde_json::to_value(table).unwrap()
         }
         ManifestFormat::Json | ManifestFormat::Jsonc => serde_json::from_str(&text).unwrap(),
-    }
+    };
+    hydragen::manifest::schema::validate(&document).unwrap();
+    document
 }
 
 fn assert_no_manifests(directory: &Path) {
@@ -392,6 +394,35 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
     session.choose_format(directory.path(), ManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(manifest(directory.path()), json!({"name": "example"}));
+}
+
+#[test]
+fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_normalizing() {
+    let directory = tempdir().unwrap();
+    let mut session = Session::new(directory.path(), &["init"], None);
+    session.wait_for("Name");
+    session.send("\u{85}\r".as_bytes());
+    session.wait_for("--name must contain at least one non-whitespace character.");
+    assert_no_manifests(directory.path());
+    session.send("\x7f\u{feff}\r".as_bytes());
+    session.wait_for("Author (optional");
+    session.send("\u{85}\r".as_bytes());
+    session.wait_for("--author must contain at least one non-whitespace character.");
+    assert_no_manifests(directory.path());
+    session.send(b"\x7f\r");
+    session.wait_for("Description (optional");
+    session.send("\u{85}visible 配置 🦀\u{2003}\r".as_bytes());
+    session.choose_format(directory.path(), ManifestFormat::Jsonc);
+    assert!(session.finish().success());
+    assert_eq!(
+        manifest_in_format(directory.path(), ManifestFormat::Jsonc),
+        json!({"name": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
+    );
+    assert_only_files(directory.path(), &["layer.jsonc"]);
+    let stdout = visible_text(&session.stdout);
+    assert!(stdout.starts_with("Initialised layer:"));
+    assert!(!stdout.contains("non-whitespace"));
+    assert!(!stdout.contains("Manifest format"));
 }
 
 #[test]

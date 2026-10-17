@@ -131,6 +131,24 @@ progress with manageable scope: excessively small increments can slow progress a
 create review and testing fatigue, while oversized increments can become
 overwhelming.
 
+## Schemas and implementation assets
+
+Source code, tests, and build scripts must never load or embed files from
+`openspec/`. Required implementation assets, including schemas and test fixtures,
+must live in maintained project locations outside it. Documentation may still link
+to OpenSpec specifications and planning decisions.
+
+Use `schemas/layer-manifest.schema.json` to determine manifest-content validity
+for every parsed format (YAML/YML, TOML, JSON, and JSONC), flags, guided answers,
+directory-name defaults, and complete candidates before writing. Field validation
+must use definitions from that same schema, not duplicate constraints in ad hoc
+predicates or separate field schemas. Keep presentation and input interpretation
+(such as treating an empty optional prompt answer as omission), format parsing,
+repository-location checks, and safe file creation separate from content validity.
+
+Archived schemas are historical snapshots: do not synchronize them with maintained
+assets, require equality in tests, or use them as build or test inputs.
+
 ## CLI development
 
 Use clap for argument parsing and help, and cliclack for suitable guided prompts

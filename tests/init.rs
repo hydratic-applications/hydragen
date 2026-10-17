@@ -146,7 +146,7 @@ fn a_result_output_failure_does_not_claim_the_manifest_was_not_created() {
 
 fn read_manifest(directory: &Path) -> Value {
     // Independent parser validation: do not rely on Hydragen's matching reader.
-    serde_saphyr::from_str(&fs::read_to_string(directory.join("layer.yaml")).unwrap()).unwrap()
+    independently_read_format(directory, ManifestFormat::Yaml)
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn omitted_name_defaults_to_the_current_directory() {
 #[test]
 fn supplied_blank_metadata_is_an_error_without_writes() {
     for flag in ["--name", "--author", "--description"] {
-        for value in ["", " \t\n", "\u{00a0}\u{2003}"] {
+        for value in ["", " \t\n", "\u{00a0}\u{2003}", "\u{85}"] {
             let directory = tempdir().unwrap();
             let arguments = if flag == "--name" {
                 vec![flag, value]
@@ -524,14 +524,16 @@ fn write_failures_report_the_path_without_false_success() {
 fn independently_read_format(directory: &Path, format: ManifestFormat) -> Value {
     let text = fs::read_to_string(directory.join(format.filename())).unwrap();
     assert!(text.ends_with('\n'));
-    match format {
+    let document = match format {
         ManifestFormat::Yaml | ManifestFormat::Yml => serde_saphyr::from_str(&text).unwrap(),
         ManifestFormat::Toml => {
             let table: toml::Table = toml::from_str(&text).unwrap();
             serde_json::to_value(table).unwrap()
         }
         ManifestFormat::Json | ManifestFormat::Jsonc => serde_json::from_str(&text).unwrap(),
-    }
+    };
+    hydragen::manifest::schema::validate(&document).unwrap();
+    document
 }
 
 #[test]
@@ -582,6 +584,146 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
                 );
                 assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
             }
+        }
+    }
+}
+
+#[test]
+fn all_formats_validate_preserved_unicode_directory_defaults_and_optional_combinations() {
+    for format in ManifestFormat::ALL {
+        for author in [false, true] {
+            for description in [false, true] {
+                let parent = tempdir().unwrap();
+                let directory = parent.path().join(" My Project 配置 🦀 \u{feff} ");
+                fs::create_dir(&directory).unwrap();
+                let mut args = vec!["--format", format.extension()];
+                let mut expected = json!({"name": " My Project 配置 🦀 \u{feff} "});
+                if author {
+                    args.extend(["--author", "Team"]);
+                    expected["author"] = json!("Team");
+                }
+                if description {
+                    args.extend(["--description", "Layer"]);
+                    expected["description"] = json!("Layer");
+                }
+                let output = init(&directory, &args);
+                assert!(output.status.success(), "{output:?}");
+                assert!(output.stderr.is_empty(), "{output:?}");
+                assert_eq!(independently_read_format(&directory, format), expected);
+                assert_eq!(fs::read_dir(directory).unwrap().count(), 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
+    for format in ManifestFormat::ALL {
+        for value in [
+            "\u{feff}",
+            "\u{85}visible\u{2003}",
+            "18446744073709551616",
+            "0x1_0000_0000_0000_0000",
+            "-9223372036854775809",
+            "0B10000000000000000000000000000000000000000000000000000000000000000",
+        ] {
+            let directory = tempdir().unwrap();
+            // Equals syntax permits a leading minus without changing clap policy.
+            let name = format!("--name={value}");
+            let author = format!("--author={value}");
+            let description = format!("--description={value}");
+            let output = init(
+                directory.path(),
+                &["--format", format.extension(), &name, &author, &description],
+            );
+            assert!(output.status.success(), "{format}: {value:?}: {output:?}");
+            assert!(output.stderr.is_empty(), "{output:?}");
+            assert_eq!(
+                independently_read_format(directory.path(), format),
+                json!({"name": value, "author": value, "description": value})
+            );
+            // The real loader must also preserve writer-quoted numeric-looking strings.
+            assert_eq!(
+                hydragen::discover(directory.path())
+                    .unwrap()
+                    .load()
+                    .unwrap()
+                    .document,
+                json!({"name": value, "author": value, "description": value})
+            );
+        }
+    }
+}
+
+#[test]
+fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
+    for format in ManifestFormat::ALL {
+        let directory = tempdir().unwrap();
+        let output = init(
+            directory.path(),
+            &[
+                "--format",
+                format.extension(),
+                "--name",
+                "example",
+                "--author",
+                "Example team",
+                "--description",
+                "Shared rules",
+            ],
+        );
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty());
+        let expected = match format {
+            ManifestFormat::Yaml | ManifestFormat::Yml => {
+                "name: example\nauthor: Example team\ndescription: Shared rules\n"
+            }
+            ManifestFormat::Toml => {
+                "name = \"example\"\nauthor = \"Example team\"\ndescription = \"Shared rules\"\n"
+            }
+            ManifestFormat::Json | ManifestFormat::Jsonc => {
+                "{\n  \"name\": \"example\",\n  \"author\": \"Example team\",\n  \"description\": \"Shared rules\"\n}\n"
+            }
+        };
+        assert_eq!(
+            fs::read_to_string(directory.path().join(format.filename())).unwrap(),
+            expected
+        );
+        for field in ["--name", "--author", "--description"] {
+            let invalid = tempdir().unwrap();
+            let output = init(
+                invalid.path(),
+                &["--format", format.extension(), field, "\u{85}"],
+            );
+            assert_failure(
+                &output,
+                &format!("{field} must contain at least one non-whitespace character."),
+            );
+            assert_eq!(fs::read_dir(invalid.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn every_format_rejects_schema_blank_defaults_but_preserves_explicit_overrides() {
+    for format in ManifestFormat::ALL {
+        for name in ["   ", "\u{85}"] {
+            let parent = tempdir().unwrap();
+            let directory = parent.path().join(name);
+            fs::create_dir(&directory).unwrap();
+            let output = init(&directory, &["--format", format.extension()]);
+            assert_failure(&output, "Supply --name explicitly");
+            assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+            let output = init(
+                &directory,
+                &["--format", format.extension(), "--name", "explicit"],
+            );
+            assert!(output.status.success(), "{output:?}");
+            assert!(output.stderr.is_empty());
+            assert_eq!(
+                independently_read_format(&directory, format),
+                json!({"name": "explicit"})
+            );
         }
     }
 }
