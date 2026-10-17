@@ -98,8 +98,9 @@ it MUST NOT become a default or a stored metadata value, appear before submissio
 or mark cancellation or a format choice as a skip.
 
 The final Manifest format question MUST be a selector with choices labelled by
-the exact filenames `layer.yaml`, `layer.yml`, `layer.toml`, `layer.json`, and
-`layer.jsonc`, in priority order. `layer.yaml` MUST be initially selected and accepted by Enter.
+the extensions `yaml`, `yml`, `toml`, `json`, and `jsonc`, without a leading dot or
+`layer.` prefix, in priority order. `yaml` MUST be initially selected and accepted
+by Enter. The completed prompt MUST also show the extension alone.
 The selector MUST NOT allow arbitrary filenames or rename the fixed basename.
 Format MUST be kept separate from metadata. No file MUST be created until all
 guided answers, including format, are complete.
@@ -172,8 +173,8 @@ to retry valid metadata or mislabelling them as invalid answers.
 
 #### Scenario: Choose another format without renaming the manifest
 
-- **WHEN** the user chooses `layer.yml`, `layer.toml`, `layer.json`, or `layer.jsonc` from the selector
-- **THEN** init creates that exact filename and format if creation succeeds
+- **WHEN** the user chooses `yml`, `toml`, `json`, or `jsonc` from the selector
+- **THEN** init creates the corresponding fixed `layer.<extension>` filename in that format if creation succeeds
 - **AND** the identifying name entered earlier does not alter the filename
 
 ### Requirement: Report known target problems before prompting
