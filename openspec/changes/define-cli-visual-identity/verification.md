@@ -34,7 +34,7 @@ the design without new dependencies or a replacement interaction renderer.
 
 ## Runtime verification
 
-The completed implementation passes **184 tests**: 26 library, 30 binary,
+The completed implementation passes **186 tests**: 26 library, 32 binary,
 41 captured init, 7 lifecycle, 25 terminal integration, and 55 other
 manifest/schema/codec tests. The original 171-test baseline remains covered.
 
@@ -95,6 +95,20 @@ tests verify the actual red/green/yellow SGR roles, bold/dim span boundaries,
 editable retries, and output channels. Text read-back and SGR assertions do not
 prove pixel rendering or contrast in every font or light/dark palette.
 
+## Current-directory collision refinement
+
+After the initial implementation commit `4ba0d3b`, the occupied-manifest CLI
+headline was shortened to `layer.yaml already exists in the current directory.`,
+using the actual occupied filename for every format and retaining the recovery
+lines. This adapts the structured preflight or creation error only at the CLI
+boundary; library errors and other diagnostic paths are unchanged.
+
+The full 186-test suite and all-target clippy pass after this refinement. Added
+unit coverage checks every format for both error wrappers and preserves other
+full paths; captured and PTY tests retain entry-preservation checks and now assert
+the shorter headline. The actual built CLI displayed the shorter refusal in the
+normal Terminal window, including when JSONC was requested but YAML was occupied.
+
 ## Behaviour and presentation coverage
 
 - Header geometry/version, exact-fit and too-narrow/unknown/basic fallbacks, no
@@ -121,7 +135,7 @@ prove pixel rendering or contrast in every font or light/dark palette.
 - **Enjoyment:** one-shot output stays compact, completion is not repeated, and
   cliclack retains the familiar editing/retry experience. This is a design review,
   not a claim of new usability-study evidence.
-- **Functionality:** all 184 tests pass, including the unchanged safety and
+- **Functionality:** all 186 tests pass, including the unchanged safety and
   manifest-content coverage and the intentionally revised output contracts.
 - **Ease of use:** defaults, optional skips, selected format, correction actions,
   cancellation, successful creation, and safe recovery remain explicit without

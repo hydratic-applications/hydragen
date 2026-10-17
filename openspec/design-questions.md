@@ -167,6 +167,9 @@ design everything upfront.
       The [completion decision](changes/define-cli-visual-identity/design.md#report-init-completion-once-naming-the-manifest-rather-than-its-directory)
       selects a single success naming the manifest filename; guided feedback uses
       stderr without a duplicate stdout result, while flag-only results use stdout.
+      [Occupied-entry refusals](changes/define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
+      likewise name the actual filename in the current directory, without
+      assuming it is a valid manifest or shortening unrelated diagnostic paths.
       These revise the earlier contracts through the change's delta
       specifications and aligned project guidance. The
       [increment policy](changes/define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)

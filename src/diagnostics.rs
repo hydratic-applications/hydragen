@@ -1,8 +1,25 @@
 use std::io::{self, Write};
 
-use hydragen::{CreatedManifest, ManifestDiscovery, ManifestFormat};
+use hydragen::{CreatedManifest, InitCreationError, InitError, ManifestDiscovery, ManifestFormat};
 
 use crate::presentation::{Presentation, Severity};
+
+pub fn init_error_message(error: &(dyn std::error::Error + 'static)) -> String {
+    let init_error = error.downcast_ref::<InitError>().or_else(|| {
+        error
+            .downcast_ref::<InitCreationError>()
+            .map(|failure| &failure.error)
+    });
+    if let Some(InitError::ExistingManifest { path }) = init_error
+        && let Some(filename) = path.file_name()
+    {
+        return format!(
+            "{} already exists in the current directory.\n'hydragen init' does not overwrite existing entries.\nInspect the entry or run 'hydragen init' in a different directory.\nThis command did not change any files.",
+            std::path::Path::new(filename).display()
+        );
+    }
+    error.to_string()
+}
 
 /// Shared by init and future manifest readers, before refusing or loading a candidate.
 fn duplicate_warning(discovery: &ManifestDiscovery) -> Option<String> {
@@ -61,6 +78,44 @@ fn report_warning(warning: &str, presentation: Presentation) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn current_directory_collisions_name_the_file_for_preflight_and_creation() {
+        for format in ManifestFormat::ALL {
+            let path = std::path::Path::new("/a/long/project/directory").join(format.filename());
+            let error = InitError::ExistingManifest { path: path.clone() };
+            let message = init_error_message(&error);
+            assert_eq!(
+                message.lines().next().unwrap(),
+                format!(
+                    "{} already exists in the current directory.",
+                    format.filename()
+                )
+            );
+            assert!(!message.contains(&path.display().to_string()));
+            assert!(error.to_string().contains(&path.display().to_string()));
+            let creation_error = InitCreationError::from(error);
+            assert_eq!(init_error_message(&creation_error), message);
+        }
+    }
+
+    #[test]
+    fn other_init_errors_retain_their_full_diagnostic_paths() {
+        let path = std::path::Path::new("/another/project/directory");
+        for error in [
+            InitError::NestedRepository {
+                root: path.to_owned(),
+            },
+            InitError::Io {
+                action: "inspect manifest path",
+                path: path.join("layer.yaml"),
+                source: io::ErrorKind::PermissionDenied.into(),
+            },
+        ] {
+            assert_eq!(init_error_message(&error), error.to_string());
+            assert!(init_error_message(&error).contains(&path.display().to_string()));
+        }
+    }
 
     #[test]
     fn warning_survives_load_failure_and_precedes_the_error() {

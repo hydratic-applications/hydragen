@@ -81,7 +81,10 @@ fn main() -> ExitCode {
                 let _ = writeln!(
                     io::stderr().lock(),
                     "{}",
-                    presentation.diagnostic(presentation::Severity::Error, &error.to_string())
+                    presentation.diagnostic(
+                        presentation::Severity::Error,
+                        &diagnostics::init_error_message(error.as_ref())
+                    )
                 );
             }
             ExitCode::FAILURE

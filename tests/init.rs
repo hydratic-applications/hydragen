@@ -56,7 +56,10 @@ fn assert_occupied_manifest(output: &Output) {
     ] {
         assert!(stderr.contains(phrase), "{stderr}");
     }
-    let advice = stderr.split_once("already exists.").unwrap().1;
+    let advice = stderr
+        .split_once("already exists in the current directory.")
+        .unwrap()
+        .1;
     for unsafe_advice in ["delete", "remove", "--force"] {
         assert!(!advice.contains(unsafe_advice), "{stderr}");
     }
@@ -528,7 +531,7 @@ fn refuses_existing_manifests_even_when_malformed() {
 }
 
 #[test]
-fn occupied_manifest_guidance_preserves_a_long_unicode_path() {
+fn occupied_manifest_guidance_uses_the_filename_in_a_long_unicode_directory() {
     let parent = tempdir().unwrap();
     let directory = parent
         .path()
@@ -539,7 +542,9 @@ fn occupied_manifest_guidance_preserves_a_long_unicode_path() {
     let output = init(&directory, &["--name", "example"]);
     assert_occupied_manifest(&output);
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains(&path.canonicalize().unwrap().display().to_string()));
+    assert!(stderr.starts_with("Error: layer.json already exists in the current directory.\n"));
+    assert!(!stderr.contains(&directory.display().to_string()));
+    assert!(!stderr.contains(&directory.canonicalize().unwrap().display().to_string()));
     assert_eq!(fs::read_to_string(&path).unwrap(), "not a valid manifest");
     assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
 }

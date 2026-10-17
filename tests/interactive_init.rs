@@ -541,7 +541,10 @@ fn assert_occupied_feedback(stderr: &[u8]) {
     ] {
         assert!(text.contains(phrase), "{text}");
     }
-    let advice = text.split_once("already exists.").unwrap().1;
+    let advice = text
+        .split_once("already exists in the current directory.")
+        .unwrap()
+        .1;
     for unsafe_advice in ["delete", "remove", "--force"] {
         assert!(!advice.contains(unsafe_advice), "{text}");
     }
@@ -1396,6 +1399,11 @@ fn every_occupied_manifest_path_is_reported_before_any_questions() {
         assert!(session.stdout.is_empty());
         assert_occupied_feedback(&session.stderr);
         assert!(String::from_utf8_lossy(&session.stderr).contains(format.filename()));
+        assert!(visible_text(&session.stderr).contains(&format!(
+            "Error: {} already exists in the current directory.",
+            format.filename()
+        )));
+        assert!(!visible_text(&session.stderr).contains(&directory.path().display().to_string()));
         assert!(!visible_text(&session.stderr).contains("Warning:"));
         if kind == "file" {
             assert_eq!(

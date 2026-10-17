@@ -294,6 +294,17 @@ Keep truthful post-write failure reporting. If writing completed but feedback
 failed, explain that the manifest was created. The shortened success location
 does not remove paths needed to diagnose write failures or other errors.
 
+### Name current-directory collisions without repeating the absolute path
+
+For init's occupied-manifest refusal, use `layer.<extension> already exists in
+the current directory.` rather than the absolute path. Name the actual occupied
+entry, including when its format differs from the requested format. Keep the
+no-overwrite policy, safe next step, and no-files-changed outcome beneath it.
+Do not call the entry a valid manifest: it can be a malformed file, directory, or
+symlink. Adapt this structured error at the CLI boundary for both preflight and
+exclusive-creation collisions; preserve the library error and other diagnostic
+paths unchanged.
+
 ### Preserve the selected grid and spacing
 
 Count rows and columns from one. The motif occupies an unchanged 16-column by

@@ -20,3 +20,7 @@
 - [x] 4.1 Update existing README guidance concisely for presentation and completion streams, retain the brand explanation, and reconcile design-question links without changing unrelated product foundations.
 - [x] 4.2 Review actual runtime appearance at normal and narrow widths with colour enabled/disabled, record the environment and evidence separately from static studies, and assess all four DX goals.
 - [x] 4.3 Obtain an independent runtime review, address actionable findings, and pass formatting, clippy, locked tests, strict change validation, and diff checks before handoff.
+
+## 5. Concise occupied-manifest feedback
+
+- [x] 5.1 Shorten CLI collision headlines to the occupied filename and current-directory context, preserving library/other diagnostic paths, recovery guidance, and preflight/creation safety; verify captured and terminal regressions.

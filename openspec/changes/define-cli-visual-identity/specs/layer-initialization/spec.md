@@ -1,5 +1,73 @@
 ## MODIFIED Requirements
 
+### Requirement: Preserve existing manifests and project files
+
+At its initial target check, init MUST reject an occupied path at any supported
+manifest filename, regardless of the requested output format or content validity.
+This includes regular files, directories, and symlinks, including dangling
+symlinks. The command MUST NOT read, validate, repair, merge, rename, or replace an
+existing manifest. An initial duplicate discovery MUST be reported according to
+the manifest warning policy before refusal.
+
+Creation MUST remain exclusive for the exact chosen output path, including if an
+entry appears after the initial check. The initial check MUST NOT reserve the
+directory or create a lock. A different supported filename appearing after that
+check MUST NOT by itself prevent creation or turn a successful write into an
+error. Init MUST NOT repeat an all-format refusal check at the final write.
+A successful invocation MUST create only its selected manifest and MUST leave
+all pre-existing project files unchanged.
+
+When an entry occupies the manifest path, the CLI diagnostic MUST name its actual
+filename and identify the current directory as its location, without repeating
+the absolute directory path. Its headline MUST read `layer.<extension> already
+exists in the current directory.`, substituting the occupied filename even when
+another format was requested. It MUST explain that init does not overwrite
+existing entries and suggest inspecting the entry or running init in the intended
+different directory. It MUST state that this invocation did not change files,
+without assuming the entry is a valid layer or implying that Hydragen read its
+contents. It MUST NOT recommend blind deletion, offer force/overwrite confirmation,
+or suggest an unimplemented command. Other errors and the library's diagnostic
+path context MUST remain unchanged.
+
+#### Scenario: A manifest already exists
+
+- **WHEN** any supported manifest path is occupied when init performs its initial check, whether its contents are valid or not
+- **THEN** initialisation fails and names the occupied filename in the current directory, explains the no-overwrite policy, and gives safe next-step guidance, even if another format was requested
+- **AND** the existing entry and bytes remain unchanged
+
+#### Scenario: A directory or symlink occupies a manifest path
+
+- **WHEN** a directory or symlink, including a dangling symlink, occupies any supported manifest path at the initial check
+- **THEN** initialisation fails without replacing the entry or changing a symlink target
+- **AND** its diagnostic names the occupied filename and current directory with guidance accurate for an arbitrary entry, without assuming valid manifest contents
+
+#### Scenario: Repeat initialisation
+
+- **WHEN** initialisation is run again in a directory where it previously succeeded
+- **THEN** the second invocation fails without changing the manifest or other files, even if it requests a different format
+- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the manifest
+
+#### Scenario: Preserve an existing project
+
+- **WHEN** initialisation succeeds in a directory containing source files, configuration, and Git metadata
+- **THEN** all pre-existing files remain unchanged
+- **AND** no workspace, contribution files, Git metadata, lock files, or other project files are created
+
+#### Scenario: Another process creates the exact target first
+
+- **WHEN** another process creates an entry at the chosen manifest path before init opens its output
+- **THEN** initialisation fails rather than overwriting that entry
+- **AND** it does not retry with another format
+- **AND** it gives the same concise occupied-filename diagnostic, policy, and recovery guidance without claiming that the other process made no changes
+
+#### Scenario: Another format appears after the initial check
+
+- **WHEN** init's initial check finds no occupied supported manifest paths
+- **AND** a different supported manifest filename appears before the final write
+- **AND** exclusive creation and writing of the chosen target otherwise succeed
+- **THEN** initialisation succeeds without deleting or modifying either manifest
+- **AND** its final observation reports duplicates if both paths are then observed
+
 ### Requirement: Provide predictable command outcomes and help
 
 Successful initialisation MUST exit with status zero after writing completes and
