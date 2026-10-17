@@ -180,21 +180,31 @@ error. Init MUST NOT repeat an all-format refusal check at the final write.
 A successful invocation MUST create only its selected manifest and MUST leave
 all pre-existing project files unchanged.
 
+When an entry occupies the manifest path, the diagnostic MUST name the path,
+explain that init does not overwrite existing entries, and suggest a safe next
+step: inspect the entry or run init in the intended different directory. It MUST
+state that this invocation did not change files, without assuming the entry is
+a valid layer or implying that Hydragen read its contents. It MUST NOT recommend
+blind deletion, offer force/overwrite confirmation, or suggest an unimplemented
+command. The occupied path MUST remain intact in the diagnostic.
+
 #### Scenario: A manifest already exists
 
 - **WHEN** any supported manifest path is occupied when init performs its initial check, whether its contents are valid or not
-- **THEN** initialisation fails and identifies the existing path, even if another format was requested
+- **THEN** initialisation fails and identifies the existing path, explains the no-overwrite policy, and gives the safe next-step guidance, even if another format was requested
 - **AND** the existing entry and bytes remain unchanged
 
 #### Scenario: A directory or symlink occupies a manifest path
 
 - **WHEN** a directory or symlink, including a dangling symlink, occupies any supported manifest path at the initial check
 - **THEN** initialisation fails without replacing the entry or changing a symlink target
+- **AND** its diagnostic names the occupied path and gives guidance accurate for an arbitrary entry, without assuming valid manifest contents
 
 #### Scenario: Repeat initialisation
 
 - **WHEN** initialisation is run again in a directory where it previously succeeded
 - **THEN** the second invocation fails without changing the manifest or other files, even if it requests a different format
+- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the manifest
 
 #### Scenario: Preserve an existing project
 
@@ -207,6 +217,7 @@ all pre-existing project files unchanged.
 - **WHEN** another process creates an entry at the chosen manifest path before init opens its output
 - **THEN** initialisation fails rather than overwriting that entry
 - **AND** it does not retry with another format
+- **AND** it gives the same occupied-path policy and recovery guidance without claiming that the other process made no changes
 
 #### Scenario: Another format appears after the initial check
 
@@ -231,6 +242,22 @@ exit with a nonzero status and actionable diagnostics on standard error, without
 claiming success. A duplicate warning alone MUST NOT cause failure. Top-level and
 init help and version output MUST remain available without writing project files,
 requiring metadata, discovering manifests, or opening a prompt session.
+
+Root and init help MUST adapt ordinary explanatory prose and option descriptions
+to the detected terminal width, using word-boundary wrapping and readable
+continuation hierarchy rather than depending on terminal autowrap. Init option
+descriptions MUST start on a following line so their hierarchy remains clear at
+the representative 40-, 80-, and 100-column review widths. Help MUST remain plain
+and preserve all meaningful usage, defaults, input-route rules, and examples.
+Examples MUST retain argument boundaries and quoting so they can be copied as
+valid shell commands, with deliberate continuations when needed. A token too
+long to fit without splitting MUST remain intact rather than be truncated or
+changed. The review widths MUST NOT be treated as a general minimum-width promise.
+
+Help MUST cap normal wrapping at 100 columns while respecting narrower detected
+widths. When terminal width cannot be determined, help MUST use a 100-column
+fallback layout, without asking questions or opening another terminal. Width
+adaptation MUST NOT alter the command's meaning, exit behaviour, or output channel.
 
 #### Scenario: Request help
 
@@ -265,6 +292,26 @@ requiring metadata, discovering manifests, or opening a prompt session.
 
 - **WHEN** a developer runs `hydragen --version`
 - **THEN** it exits successfully with version information and no manifest discovery, prompts, or project-file changes
+
+#### Scenario: Help at representative terminal widths
+
+- **WHEN** root or init help is requested with `-h` or `--help` at detected widths of 40, 80, or 100 columns
+- **THEN** ordinary prose and descriptions wrap at word boundaries with readable hierarchy, preserving all content
+- **AND** init descriptions follow their option names on subsequent lines
+- **AND** deliberate example continuations retain valid shell argument boundaries and quoting
+- **AND** output is plain stdout, status is zero, and no prompts or files are created
+
+#### Scenario: Captured help without a detectable width
+
+- **WHEN** help is captured and no terminal width can be determined
+- **THEN** it uses the 100-column fallback layout and preserves the same usage information
+- **AND** it does not read answers or open another terminal and remains plain stdout with status zero
+
+#### Scenario: A help token exceeds the available width
+
+- **WHEN** a help token cannot fit at the reviewed width without splitting
+- **THEN** the full token is preserved even if it exceeds that width
+- **AND** surrounding prose still wraps normally without treating an entire long description as an unbreakable token
 
 ### Requirement: Initialisation works without external runtime services
 
