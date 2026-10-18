@@ -163,6 +163,22 @@ fn prepared_creation_validates_before_opening_the_target() {
 }
 
 #[test]
+fn prepared_creation_rejects_invalid_name_candidates_without_opening_the_target() {
+    for format in LayerManifestFormat::ALL {
+        for name in ["Shared-config", "two words", "_config", "@Scope/config"] {
+            let directory = tempfile::tempdir().unwrap();
+            let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
+            let failure = create_init(prepared, &metadata(name), format).unwrap_err();
+            let diagnostic = failure.error.to_string();
+            assert!(diagnostic.contains("--name"), "{diagnostic}");
+            assert!(!diagnostic.contains("non-whitespace"), "{diagnostic}");
+            assert!(failure.discovery.is_none());
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
 fn convenience_initialization_defaults_to_yaml() {
     let directory = tempfile::tempdir().unwrap();
     let path = initialize(directory.path(), &metadata("example")).unwrap();

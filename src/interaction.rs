@@ -252,6 +252,7 @@ fn validate_answer(field: &'static str, value: &str, optional: bool) -> Result<(
 
 fn answer_error_message(error: InitError, optional: bool) -> String {
     match error {
+        InitError::InvalidName { guidance } => format!("Name is invalid. {guidance}"),
         InitError::InvalidMetadata { field } if optional => {
             format!("Enter a non-blank {field}, or clear the field and press Enter to skip.")
         }
@@ -278,7 +279,7 @@ impl PromptValidation {
     fn check(&self, result: Result<(), InitError>, optional: bool) -> Result<(), String> {
         match result {
             Ok(()) => Ok(()),
-            Err(error @ InitError::InvalidMetadata { .. }) => {
+            Err(error @ (InitError::InvalidMetadata { .. } | InitError::InvalidName { .. })) => {
                 Err(answer_error_message(error, optional))
             }
             Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(error.to_string()),
@@ -328,7 +329,7 @@ fn directory_name_validating(
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "Could not derive a non-blank UTF-8 layer name from directory '{}'. Supply --name explicitly.",
+                "Could not derive a valid UTF-8 layer name from directory '{}'. Supply --name explicitly.",
                 directory.display()
             ),
         )
@@ -340,6 +341,13 @@ fn directory_name_validating(
     match validate("name", name) {
         Ok(()) => Ok(name.to_owned()),
         Err(InitError::InvalidMetadata { .. }) => Err(unusable()),
+        Err(error @ InitError::InvalidName { .. }) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Could not use directory '{}' as the layer name: {error} Supply --name explicitly.",
+                directory.display()
+            ),
+        )),
         Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
@@ -561,12 +569,8 @@ mod tests {
     #[test]
     fn default_name_uses_the_last_component_without_normalising_it() {
         assert_eq!(
-            directory_name(Path::new("parent/ My Project 配置 🦀 ")).unwrap(),
-            " My Project 配置 🦀 "
-        );
-        assert_eq!(
-            directory_name(Path::new("parent/\u{feff}")).unwrap(),
-            "\u{feff}"
+            directory_name(Path::new("parent/my-project.config_2")).unwrap(),
+            "my-project.config_2"
         );
     }
 
@@ -577,6 +581,10 @@ mod tests {
             Path::new(""),
             Path::new("   "),
             Path::new("\u{85}"),
+            Path::new("My-Project"),
+            Path::new(" my-project "),
+            Path::new("配置"),
+            Path::new("\u{feff}"),
         ] {
             let error = directory_name(directory).unwrap_err();
             assert!(error.to_string().contains("Supply --name explicitly"));
@@ -715,8 +723,11 @@ mod tests {
             assert!(validate_answer("author", value, true).is_err());
         }
         for value in [" name ", "quoted \"value\"", "配置 🦀", "\u{feff}"] {
-            assert!(validate_answer("name", value, false).is_ok());
+            assert!(validate_answer("name", value, false).is_err());
             assert!(validate_answer("description", value, true).is_ok());
+        }
+        for value in ["shared-config", "@example/.config", "@example/_config"] {
+            assert!(validate_answer("name", value, false).is_ok());
         }
     }
 
@@ -738,6 +749,24 @@ mod tests {
                 .unwrap_err()
                 .to_string();
             assert!(flag_error.contains(&format!("--{field}")));
+        }
+    }
+
+    #[test]
+    fn guided_name_policy_errors_explain_correction_without_flags() {
+        for name in ["Uppercase", " name ", "_config", &"a".repeat(215)] {
+            let retry = PromptValidation::default()
+                .check(validate_answer("name", name, false), false)
+                .unwrap_err();
+            assert!(retry.contains("Name is invalid"));
+            assert!(retry.contains("lowercase ASCII"));
+            assert!(!retry.contains("--name"));
+            assert!(!retry.contains("non-blank"));
+            assert!(!retry.contains("skip"));
+            let flag = validate_metadata_value("name", name)
+                .unwrap_err()
+                .to_string();
+            assert!(flag.contains("--name"));
         }
     }
 

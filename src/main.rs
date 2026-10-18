@@ -24,8 +24,25 @@ Input:
   No input flags: guided prompts only when stdin, stdout and stderr are terminals and CI is disabled.
   Any input flag: flag-only input; no follow-up questions. Input flags are --name, --author, --description and --format.
   Name defaults to the current directory name. Author and description are optional and omitted when not supplied.
+  Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum). Unscoped names and scopes cannot start with a dot or underscore.
+  Invalid names are not rewritten; supply --name to override an invalid directory default.
   Format defaults to yaml (layer.yaml). --format selects only the newly created layer manifest, not read-time priority.
   --non-interactive always disables prompts."#;
+
+const ADD_HELP: &str = r#"Examples:
+  hydragen add ../shared-config
+  hydragen add ./rules ../shared-tooling
+  hydragen --non-interactive add ../ui
+
+Sources:
+  Supply explicit local paths: ./, ../ or absolute paths. Local references have no version and are stored unchanged.
+  Add searches upward for the nearest layer manifest, through the filesystem root without stopping at Git boundaries.
+  Relative arguments resolve from that layer manifest's directory, NOT the invocation directory.
+  Adding published references (name@version) is not supported yet. Bare names are not local paths.
+
+Behaviour:
+  Verifies the complete batch and existing direct dependencies before one update. Repeated sources are harmless.
+  Only declares dependencies; does not fetch content, render files or change Git. Never prompts, in any environment."#;
 
 #[derive(Parser)]
 #[command(
@@ -48,12 +65,22 @@ struct Cli {
 enum Command {
     /// Initialise a layer in the current directory
     Init(InitArgs),
+    /// Declare verified local layer dependencies without fetching or rendering
+    Add(AddArgs),
+}
+
+#[derive(Args)]
+#[command(next_line_help = true, after_help = ADD_HELP)]
+struct AddArgs {
+    /// Explicit local source paths, relative to the declaring layer manifest directory
+    #[arg(value_name = "SOURCE", required = true, num_args = 1..)]
+    sources: Vec<String>,
 }
 
 #[derive(Args)]
 #[command(next_line_help = true, after_help = INIT_HELP)]
 struct InitArgs {
-    /// Optional name override (defaults to the current directory name; must not be blank)
+    /// Optional name override: lowercase, optionally @scope/name (defaults to the current directory name)
     #[arg(long)]
     name: Option<String>,
 
@@ -83,7 +110,10 @@ fn main() -> ExitCode {
                     "{}",
                     presentation.diagnostic(
                         presentation::Severity::Error,
-                        &diagnostics::init_error_message(error.as_ref())
+                        &match error.downcast_ref::<diagnostics::AddCommandError>() {
+                            Some(error) => error.to_string(),
+                            None => diagnostics::init_error_message(error.as_ref()),
+                        }
                     )
                 );
             }
@@ -93,6 +123,19 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn Error>> {
+    // Add has its own operational errors. Keep init's cancellation and flag-specific
+    // diagnostic adaptation unchanged.
+    if let Command::Add(arguments) = cli.command {
+        let directory =
+            std::env::current_dir().map_err(diagnostics::AddCommandError::CurrentDirectory)?;
+        return run_add(
+            &directory,
+            &arguments.sources,
+            presentation,
+            &mut io::stdout().lock(),
+        )
+        .map_err(Into::into);
+    }
     let directory = std::env::current_dir().map_err(|error| {
         io::Error::new(
             error.kind(),
@@ -142,8 +185,51 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
             diagnostics::report_observation(&created, presentation);
             interaction::finish(mode, &created.path, presentation)?;
         }
+        Command::Add(_) => unreachable!("add dispatched before init"),
     }
     Ok(())
+}
+
+fn run_add(
+    directory: &std::path::Path,
+    sources: &[String],
+    presentation: presentation::Presentation,
+    output: &mut impl Write,
+) -> Result<(), diagnostics::AddCommandError> {
+    use diagnostics::{AddCommandError, AddCompletionState};
+    let plan = hydragen::dependencies::prepare_add(directory, sources).map_err(|failure| {
+        for discovery in &failure.discoveries {
+            diagnostics::warn_duplicates(discovery, presentation);
+        }
+        AddCommandError::Verification(failure)
+    })?;
+    for discovery in plan.discoveries() {
+        diagnostics::warn_duplicates(discovery, presentation);
+    }
+    let state = if plan.is_noop() {
+        AddCompletionState::Unchanged
+    } else {
+        let candidate = hydragen::layer_manifest::edit::append_dependencies(
+            plan.current(),
+            &plan.new_references().collect::<Vec<_>>(),
+        )
+        .map_err(AddCommandError::Edit)?;
+        hydragen::replacement::replace_layer_manifest(&plan.current().path, candidate.as_bytes())
+            .map_err(AddCommandError::Replacement)?;
+        AddCompletionState::Updated
+    };
+    // Replacement has already committed before any completion bytes are sent.
+    // Flush too: buffered writers can fail after accepting the whole message.
+    let message = presentation.add_success(&plan);
+    output
+        .write_all(message.as_bytes())
+        .and_then(|()| output.flush())
+        .map_err(|source| AddCommandError::Completion {
+            state,
+            layer: plan.current().metadata.name.clone(),
+            path: plan.current().path.clone(),
+            source,
+        })
 }
 
 fn flag_metadata(
@@ -169,6 +255,133 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     use std::path::Path;
+
+    struct FailingOutput {
+        remaining: usize,
+        fail_flush: bool,
+    }
+
+    impl Write for FailingOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            let count = bytes.len().min(self.remaining);
+            self.remaining -= count;
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if self.fail_flush {
+                Err(io::ErrorKind::BrokenPipe.into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn add_completion_failures_retain_committed_or_noop_state() {
+        for noop in [false, true] {
+            for (remaining, fail_flush) in [(0, false), (12, false), (usize::MAX, true)] {
+                let root = tempfile::tempdir().unwrap();
+                let app = root.path().join("app");
+                let dependency = root.path().join("rules");
+                std::fs::create_dir(&app).unwrap();
+                std::fs::create_dir(&dependency).unwrap();
+                std::fs::write(dependency.join("layer.yaml"), "name: rules\n").unwrap();
+                let path = app.join("layer.yaml");
+                // A shared sequence alias cannot be edited safely, so a successful
+                // no-op here also proves that the editor is entirely bypassed.
+                let original = if noop {
+                    "name: app\ndependencies: &deps [../rules]\ncustom: *deps\n"
+                } else {
+                    "name: app\n"
+                };
+                std::fs::write(&path, original).unwrap();
+                let failure = run_add(
+                    &app,
+                    &["../rules".into()],
+                    presentation::Presentation {
+                        decorated: false,
+                        basic: false,
+                    },
+                    &mut FailingOutput {
+                        remaining,
+                        fail_flush,
+                    },
+                )
+                .unwrap_err();
+                let diagnostics::AddCommandError::Completion { state, source, .. } = &failure
+                else {
+                    panic!("unexpected error: {failure}");
+                };
+                assert_eq!(source.kind(), io::ErrorKind::BrokenPipe);
+                let message = failure.to_string();
+                if noop {
+                    assert_eq!(*state, diagnostics::AddCompletionState::Unchanged);
+                    assert!(message.contains("was not updated"));
+                    assert!(!message.contains("was already updated"));
+                    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+                } else {
+                    assert_eq!(*state, diagnostics::AddCompletionState::Updated);
+                    assert!(message.contains("was already updated"));
+                    assert!(message.contains(&path.display().to_string()));
+                    assert!(!message.contains("No files were changed"));
+                    let loaded = hydragen::discover(&app).unwrap().load().unwrap();
+                    assert_eq!(loaded.document["dependencies"][0], "../rules");
+                }
+                assert_eq!(std::fs::read_dir(&app).unwrap().count(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn add_help_wraps_and_usage_requires_sources_without_path_flag() {
+        for width in [40, 80, 100] {
+            let mut command = Cli::command();
+            command.build();
+            let help = command
+                .find_subcommand("add")
+                .unwrap()
+                .clone()
+                .term_width(width)
+                .render_long_help()
+                .to_string();
+            for line in help.lines() {
+                // Clap keeps generated usage on one line; prose still wraps.
+                assert!(
+                    line.starts_with("Usage:") || line.len() <= width,
+                    "width {width}: {line:?}"
+                );
+            }
+            let prose = help.split_whitespace().collect::<Vec<_>>().join(" ");
+            for phrase in [
+                "./, ../ or absolute paths",
+                "NOT the invocation directory",
+                "without stopping at Git boundaries",
+                "no version",
+                "stored unchanged",
+                "Never prompts",
+                "not supported yet",
+            ] {
+                assert!(prose.contains(phrase), "{phrase}: {help}");
+            }
+            assert!(!help.contains("--path"));
+            assert!(!help.contains('\x1b'));
+        }
+        assert!(Cli::try_parse_from(["hydragen", "add"]).is_err());
+        for arguments in [
+            vec!["hydragen", "--non-interactive", "add", "../rules"],
+            vec!["hydragen", "add", "../rules", "--non-interactive"],
+        ] {
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            assert!(cli.non_interactive);
+            assert!(
+                matches!(cli.command, Command::Add(AddArgs { sources }) if sources == ["../rules"])
+            );
+        }
+    }
 
     fn help_at_width(width: usize, init: bool, long: bool) -> String {
         let mut root = Cli::command();
@@ -258,5 +471,18 @@ mod tests {
             "explicit"
         );
         assert!(flag_metadata(arguments(""), Path::new("valid-directory")).is_err());
+        assert_eq!(
+            flag_metadata(
+                arguments("@example/_config"),
+                Path::new("Invalid Directory")
+            )
+            .unwrap()
+            .name,
+            "@example/_config"
+        );
+        for name in ["Shared-Config", " shared-config ", "配置", "_config"] {
+            let error = flag_metadata(arguments(name), Path::new("valid-directory")).unwrap_err();
+            assert!(error.to_string().contains("--name"));
+        }
     }
 }

@@ -167,9 +167,21 @@ Use `schemas/layer-manifest.schema.json` to determine layer manifest content val
 for every parsed format (YAML/YML, TOML, JSON, and JSONC), flags, guided answers,
 directory-name defaults, and complete candidates before writing. Field validation
 must use definitions from that same schema, not duplicate constraints in ad hoc
-predicates or separate field schemas. Keep presentation and input interpretation
+predicates or separate field schemas. This includes layer names, dependency
+references, and strict exact SemVer versions: do not add a second acceptance
+grammar or SemVer parser policy. Classify validated references through the shared
+schema-backed API. Keep presentation and input interpretation
 (such as treating an empty optional prompt answer as omission), format parsing,
-repository-location checks, and safe file creation separate from content validity.
+native path interpretation, filesystem resolution, cross-layer relationship
+checks, repository-location checks, and safe file creation/replacement separate
+from content validity.
+
+Apply the shared lowercase name policy to every loader, init flag, guided answer,
+and directory default without trimming, lowercasing, or sanitising. Directory
+names and path text are not layer names. An invalid init directory-name default
+must fail before prompts or writes with `--name` override guidance; a valid
+explicit name bypasses default derivation. Preserve arbitrary accepted non-blank
+author and description strings unchanged.
 
 Archived schemas are historical snapshots: do not synchronize them with maintained
 assets, require equality in tests, or use them as build or test inputs.
@@ -266,3 +278,76 @@ manifest, and report duplicates at most once per affected directory per invocati
 on standard error, before a dependent failure. Do not scan layer manifests for
 help, version, or argument-usage failures. Test both captured-output execution and
 real terminal sessions, with bounded waits and child-process cleanup.
+
+### Local dependency addition
+
+Keep `hydragen add <source> [<source> ...]` argument-only in every environment,
+without prompts, piped answers, branded openings, or session frames. Accept global
+`--non-interactive` before or after the subcommand without changing required
+arguments or eligible compact styling. Add declares relationships only: no fetch,
+copy, rendering, contribution capture, network access, Git mutation, or lockfile.
+
+Use add-specific ancestor search around shared single-directory discovery: inspect
+the invocation directory and parents through the filesystem root, crossing Git
+boundaries, and stop at the nearest directory with an occupied supported layer
+manifest filename. Keep the established priority and fail on an invalid selection
+without lower-priority or ancestor fallback. This does not change init's guard or
+exclusive-creation lifecycle. Refuse a symlinked or non-regular selected current
+layer manifest; dependency layer manifests remain read-only and may be symlinks
+to regular files.
+
+Resolve explicit native relative and absolute arguments and stored local references
+from the selected current layer manifest's directory, not the invocation directory.
+Never infer a local path from a bare name or rewrite stored path text. Keep internal
+resolved directory identity separate from the reference spelling. Diagnose
+recognisable unsupported host path forms rather than translating them or trying a
+registry. Do not expand literal home or environment-variable syntax.
+
+Reuse structured read-only verification for the current layer, all existing direct
+local dependencies, and each supplied target. A target must have its own valid
+layer manifest: do not search its ancestors or traverse its dependency chain.
+Existing published declarations receive offline syntax/name checks only, not an
+existence claim. Reserve the current layer's name and require unique names across
+local and published declarations. Reject existing duplicates, conflicting sources,
+and self-name matches without replacement or aliasing. Harmless requests for the
+same named resolved directory retain the existing reference; repeated new sources
+retain only their first occurrence. Verify the whole batch before editing, collect
+independent failures in source order, and append new references in argument order
+without reordering existing entries. These reusable checks do not limit the broader
+validate proposal's eventual scope or settle its traversal policy.
+
+Retain loaded source for insertion-only, format-specific edits. Preserve comments,
+their attachment to existing fields, unrelated source bytes, and decoded data;
+do not use broad reserialisation as a fallback. Support ordinary arrays and
+comments rather than blanket-refusing them. Reparse the prepared candidate with
+the established decoder, validate it with the maintained schema, and prove that
+only the intended dependency append changed decoded data. Refuse genuinely unsafe
+constructs with a specific explanation before staging. All-repeat plans bypass
+editing and staging entirely.
+
+For actual updates, write a hidden sibling staging file, preserve original file
+permissions, synchronise and close it, then atomically replace the selected file.
+Do not truncate in place, use a non-atomic copy fallback, or repair permissions
+after replacement. Attempt cleanup on handled failures and report cleanup failures
+with the staging path. Keep replacement success explicit: a subsequent reporting
+failure must say the layer manifest was already updated, not claim cancellation or
+no files changed. Do not add locks, stale-content checks, or automatic merges;
+document possible abrupt-termination leftovers and concurrent lost updates without
+promising unconditional power-loss durability or preservation of all metadata.
+
+Report one compact stdout result naming the destination layer, not its layer
+manifest path by default. Use separate counted `Added` and `Already present` name
+lists, omitting empty groups and unrequested dependencies. `Already present` means
+present before invocation; repeated new sources belong only under `Added`.
+All-repeat success reports no changes needed. Keep per-group first-appearance
+order, shared plain/styled status rules, and stderr warnings/errors. Render
+source-specific failure groups in order with actionable diagnostic paths and
+deduplicated warnings before dependent failures.
+
+Published references require exact SemVer, including optional prerelease/build
+identifiers, not ranges, tags, or implicit versions. Adding published dependencies,
+publishing, registry design/access, and registry-backed guided search/version
+selection remain deferred. Future published add must reject a different version
+of an already-declared layer, never overwrite it. Design the separate explicit
+upgrade/version-change workflow later; no command name or placeholder implementation
+is selected. Retrieval, rendering, and broader validation also remain separate work.

@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::Metadata;
 
 mod decode;
+pub mod edit;
 pub mod schema;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -110,6 +111,8 @@ pub struct LoadedLayerManifest {
     pub metadata: Metadata,
     /// Complete JSON-compatible data, including uninterpreted additional fields.
     pub document: Value,
+    /// Original UTF-8 text, including comments, formatting, and line endings.
+    pub source: String,
 }
 
 /// Read only the candidate selected by the original observation. Never retry a lower priority.
@@ -131,21 +134,32 @@ pub fn load(discovery: &LayerManifestDiscovery) -> Result<LoadedLayerManifest, L
     }
     // The string API rejects invalid UTF-8 before any parser can replace or reinterpret it.
     let text = fs::read_to_string(path).map_err(io_error)?;
+    parse_source(path, *format, text)
+}
+
+/// Decode and schema-check in-memory source with exactly the loading rules.
+/// The path is diagnostic context only: this operation never accesses the filesystem.
+pub fn parse_source(
+    path: &Path,
+    format: LayerManifestFormat,
+    source: String,
+) -> Result<LoadedLayerManifest, LayerManifestError> {
     let document =
-        decode::document(&text, *format).map_err(|message| LayerManifestError::Decode {
-            path: path.clone(),
-            format: *format,
+        decode::document(&source, format).map_err(|message| LayerManifestError::Decode {
+            path: path.to_owned(),
+            format,
             message,
         })?;
     let metadata = validate_document(&document).map_err(|source| LayerManifestError::Metadata {
-        path: path.clone(),
+        path: path.to_owned(),
         source,
     })?;
     Ok(LoadedLayerManifest {
-        path: path.clone(),
-        format: *format,
+        path: path.to_owned(),
+        format,
         metadata,
         document,
+        source,
     })
 }
 
@@ -155,6 +169,7 @@ pub enum MetadataError {
     MissingField { field: &'static str },
     NotString { field: &'static str },
     Blank { field: &'static str },
+    InvalidName { guidance: String },
     Schema(schema::Error),
 }
 
@@ -173,6 +188,11 @@ impl From<schema::Error> for MetadataError {
     fn from(error: schema::Error) -> Self {
         if let schema::Error::Content(violation) = &error {
             match &violation.kind {
+                schema::ViolationKind::Name { guidance } if violation.instance_path == "/name" => {
+                    return Self::InvalidName {
+                        guidance: guidance.clone(),
+                    };
+                }
                 schema::ViolationKind::Type if violation.instance_path.is_empty() => {
                     return Self::NotObject;
                 }
@@ -217,6 +237,9 @@ impl fmt::Display for MetadataError {
                 "Metadata field '{field}' must contain at least one non-whitespace character."
             ),
             Self::Schema(source) => source.fmt(formatter),
+            Self::InvalidName { guidance } => {
+                write!(formatter, "Metadata field 'name' is invalid. {guidance}")
+            }
         }
     }
 }

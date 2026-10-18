@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+pub mod dependencies;
 pub mod layer_manifest;
+pub mod replacement;
 pub use layer_manifest::{
     EncodeError, LayerManifestCandidate, LayerManifestDiscovery, LayerManifestError,
     LayerManifestFormat, LoadedLayerManifest, MetadataError, discover, encode_metadata, load,
@@ -45,6 +47,9 @@ pub enum InitError {
     InvalidMetadata {
         field: &'static str,
     },
+    InvalidName {
+        guidance: String,
+    },
     Schema(layer_manifest::schema::Error),
     NestedRepository {
         root: PathBuf,
@@ -64,6 +69,14 @@ pub enum InitError {
 
 impl From<layer_manifest::schema::Error> for InitError {
     fn from(error: layer_manifest::schema::Error) -> Self {
+        if let layer_manifest::schema::Error::Content(violation) = &error
+            && violation.instance_path == "/name"
+            && let layer_manifest::schema::ViolationKind::Name { guidance } = &violation.kind
+        {
+            return Self::InvalidName {
+                guidance: guidance.clone(),
+            };
+        }
         if let layer_manifest::schema::Error::Content(violation) = &error
             && violation.kind == layer_manifest::schema::ViolationKind::NonBlank
         {
@@ -89,6 +102,7 @@ impl fmt::Display for InitError {
                 "--{field} must contain at least one non-whitespace character."
             ),
             Self::Schema(source) => source.fmt(formatter),
+            Self::InvalidName { guidance } => write!(formatter, "--name is invalid. {guidance}"),
             Self::NestedRepository { root } => write!(
                 formatter,
                 "Run 'hydragen init' from the repository root '{}', not a subdirectory. No files were changed.",
@@ -391,14 +405,15 @@ mod tests {
     fn accepted_strings_round_trip_without_normalisation() {
         let original = "  Rules: \"quoted\" \\path\n配置 🦀  ";
         let metadata = Metadata {
-            name: original.into(),
+            name: "@example/.config".into(),
             author: Some(original.into()),
             description: Some(original.into()),
         };
         let value: Value =
             serde_json::from_slice(&encode_metadata(&metadata, LayerManifestFormat::Json).unwrap())
                 .unwrap();
-        for field in ["name", "author", "description"] {
+        assert_eq!(value["name"], "@example/.config");
+        for field in ["author", "description"] {
             assert_eq!(value[field], original);
         }
     }

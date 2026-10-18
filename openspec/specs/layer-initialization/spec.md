@@ -36,46 +36,52 @@ other metadata. Only when no input flags are supplied and interaction is availab
 MUST init collect input through the guided CLI interaction flow. It MUST NOT
 combine flags and prompt answers in one invocation.
 
-Name and every supplied optional metadata value MUST be strings containing at
-least one non-whitespace character, matching the layer manifest metadata requirements.
-The command MUST validate supplied flags without opening prompts, preserve
-accepted values unchanged, and MUST NOT impose additional naming or identity
-rules. Invalid flag values or flags written without a value MUST produce an error
-rather than a replacement question. Absent or interactively skipped optional
-fields MUST be omitted from the layer manifest, not written as empty strings or `null`.
+Name MUST satisfy the maintained schema's shared lowercase layer-name definition.
+Author and description, when supplied, MUST retain their existing non-blank string
+rules. Flags, guided answers, directory defaults, and complete candidates MUST use
+that same schema. Init MUST preserve accepted values without silently lowercasing,
+trimming, or replacing invalid characters. Init MUST NOT impose a stricter
+independent naming rule outside the schema.
+
+Invalid flag values or flags without a value MUST error rather than start a
+replacement question. A schema-invalid directory default MUST fail before prompts
+or writes with guidance to supply `--name`; a valid explicit name MUST bypass that
+default. Absent or interactively skipped optional fields MUST be omitted, not
+written as empty strings or `null`. Existing target checks, input routes, and
+exclusive creation MUST remain unchanged.
 
 #### Scenario: Only name is supplied
 
-- **WHEN** initialisation receives a non-blank name flag without author or description flags, in any terminal or CI state
+- **WHEN** initialisation receives a schema-valid name flag without author or description flags, in any terminal or CI state
 - **AND** all other initialisation conditions are satisfied
-- **THEN** it succeeds and creates a layer manifest containing only name
+- **THEN** it succeeds and creates a layer manifest containing only name without prompts
 
 #### Scenario: One optional field is supplied
 
-- **WHEN** initialisation receives a non-blank name flag and either a non-blank author or description flag, in any terminal or CI state
+- **WHEN** initialisation receives a valid name flag and either a non-blank author or description flag, in any terminal or CI state
 - **AND** all other initialisation conditions are satisfied
-- **THEN** it succeeds and records name and the supplied optional field
+- **THEN** it succeeds and records name and the supplied optional field unchanged
 - **AND** it omits the other optional field
 
 #### Scenario: All metadata is supplied
 
-- **WHEN** initialisation receives non-blank name, author, and description values as flags
+- **WHEN** initialisation receives a valid name and non-blank author and description values as flags
 - **THEN** it records those values unchanged in the corresponding layer manifest fields
 - **AND** it asks no metadata questions
 
 #### Scenario: Name override is omitted
 
 - **WHEN** an invocation is flag-only or interaction is unavailable, and it omits `--name`
-- **AND** the current directory's name is a non-blank UTF-8 string and other initialisation conditions are satisfied
+- **AND** the current directory's UTF-8 name satisfies the shared name definition and other initialisation conditions are satisfied
 - **THEN** the command succeeds using that directory name unchanged
 - **AND** it records any supplied author or description, omits unsupplied fields, and asks no questions
 
 #### Scenario: No usable directory-name default
 
-- **WHEN** no name override is supplied and the current directory has no final path component, has a whitespace-only name, or its name is not valid UTF-8
+- **WHEN** no name override is supplied and the current directory has no final path component, has a schema-invalid name including uppercase or spaces, or its name is not valid UTF-8
 - **THEN** init fails with guidance to supply `--name` explicitly before prompts or writes
 - **AND** a valid explicit `--name` bypasses directory-name derivation
-- **AND** it does not invent a name or replace invalid characters
+- **AND** it does not invent, lowercase, or sanitise a name
 
 #### Scenario: Metadata is blank
 
@@ -85,8 +91,20 @@ fields MUST be omitted from the layer manifest, not written as empty strings or 
 
 #### Scenario: Metadata includes format-sensitive characters
 
-- **WHEN** accepted metadata includes quotes, backslashes, newlines, whitespace, or non-ASCII characters
+- **WHEN** accepted optional metadata includes quotes, backslashes, newlines, whitespace, or non-ASCII characters alongside a valid name
 - **THEN** the created layer manifest is valid in the chosen format and decoding it recovers the original strings
+
+#### Scenario: Uppercase name is supplied explicitly
+
+- **WHEN** init receives `--name Shared-Config`
+- **THEN** it rejects the name without silently converting it to `shared-config`
+- **AND** creates no file and opens no replacement prompt
+
+#### Scenario: Invalid guided name can be corrected
+
+- **WHEN** the directory default is valid but a guided answer violates a name constraint
+- **THEN** schema-derived prompt feedback explains the correction without referring to flags
+- **AND** the developer can edit the answer before any layer manifest is written
 
 ### Requirement: Write a minimal readable layer manifest in the selected format
 

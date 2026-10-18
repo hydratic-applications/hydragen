@@ -1,10 +1,57 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Hydragen layer manifest metadata (draft)",
-  "description": "Initial metadata requirements for parsed YAML/YML, TOML, JSON, or JSONC layer manifest content at the root of a layer's repository. Name is required; author and description are optional. This schema validates contents, not filename or location, and does not yet validate dependency references or other layer behaviour.",
+  "title": "Hydragen layer manifest",
+  "description": "Content requirements for parsed YAML/YML, TOML, JSON, or JSONC layer manifests. Validation is offline and does not check filenames, locations, source existence, or relationships between layers.",
   "type": "object",
   "required": ["name"],
+  "x-hydragen-name-policy-sha256": "225f6b51735509610a0236ccd835ca20f7a00934da13e48254d59ddfb4a7f6a8",
+  "$comment": "The name-policy fingerprint approves friendly diagnostics only, using SHA-256 of the compact JSON array [layerName, layerNameSyntax] with sorted object keys. Review the guidance before renewing approval; stale approval leaves validity unchanged and retains generic structured failures.",
   "$defs": {
+    "layerNameSyntax": {
+      "type": "string",
+      "pattern": "^(?:[a-z0-9-][a-z0-9._-]*|@[a-z0-9-][a-z0-9._-]*/[a-z0-9._-]+)(?=@|(?![\\s\\S]))",
+      "$comment": "Shared name prefix grammar for standalone names and published references. The caller constrains the suffix and full-name length. The negative character-class lookahead denotes the absolute end, including after newlines."
+    },
+    "layerName": {
+      "allOf": [
+        { "$ref": "#/$defs/nonBlankString" },
+        { "$ref": "#/$defs/layerNameSyntax" },
+        {
+          "maxLength": 214,
+          "pattern": "^(?:[^@]+|@[^@]+)(?![\\s\\S])"
+        }
+      ],
+      "description": "Use lowercase ASCII letters, digits, dots, underscores, or hyphens, optionally as @scope/name; at most 214 characters in the complete name. Unscoped names and scopes cannot start with a dot or underscore; scoped package names can."
+    },
+    "exactVersionSuffix": {
+      "type": "string",
+      "pattern": "(?:^|@)(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])",
+      "$comment": "Strict SemVer 2.0.0 at the start of a version or after the published-reference separator. Build identifiers may contain leading zeroes; numeric prerelease identifiers may not."
+    },
+    "exactVersion": {
+      "allOf": [{ "$ref": "#/$defs/exactVersionSuffix" }],
+      "pattern": "^[^@]+(?![\\s\\S])"
+    },
+    "localReference": {
+      "type": "string",
+      "pattern": "^(?:\\.{1,2}(?![\\s\\S])|\\.{1,2}[/\\\\]|[/\\\\]|[A-Za-z]:)",
+      "description": "An explicit local path: ., .., ./, ../, an absolute slash path, or recognisable Windows relative, rooted, drive, UNC, or device syntax. Path text is preserved; native interpretation is separate."
+    },
+    "publishedReference": {
+      "allOf": [
+        { "$ref": "#/$defs/layerNameSyntax" },
+        { "$ref": "#/$defs/exactVersionSuffix" }
+      ],
+      "pattern": "^(?:[^@]{1,214}|@[^@]{1,213})@[^@]+(?![\\s\\S])",
+      "$comment": "Only the name prefix, not the whole reference, has the 214-character bound. The shared name grammar and exact version suffix exclude additional separators."
+    },
+    "reference": {
+      "type": "string",
+      "oneOf": [
+        { "$ref": "#/$defs/localReference" },
+        { "$ref": "#/$defs/publishedReference" }
+      ]
+    },
     "nonBlankString": {
       "type": "string",
       "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]",
@@ -19,12 +66,17 @@
       "description": "Optional schema URL or relative path used by an editor or validator."
     },
     "name": {
-      "$ref": "#/$defs/nonBlankString",
-      "description": "The layer's name. Naming syntax and uniqueness rules remain undecided."
+      "$ref": "#/$defs/layerName",
+      "description": "The layer's declared name, without normalization or registry-specific reserved-name exclusions."
     },
     "author": {
       "$ref": "#/$defs/nonBlankString",
       "description": "Optional person or organisation credited with authoring the layer. When supplied, this must be a non-blank string. This is descriptive metadata, not a verified identity."
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/reference" },
+      "description": "Ordered source references. Omission and an empty array both mean no dependencies; order does not yet define rendering precedence."
     },
     "description": {
       "$ref": "#/$defs/nonBlankString",

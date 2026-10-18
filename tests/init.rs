@@ -5,7 +5,8 @@ use std::sync::{Arc, Barrier};
 
 use hydragen::LayerManifestFormat;
 use serde_json::{Value, json};
-use tempfile::tempdir;
+mod support;
+use support::tempdir;
 
 fn command(directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_hydragen"));
@@ -263,16 +264,23 @@ fn accepts_independent_optional_fields() {
 }
 
 #[test]
-fn preserves_whitespace_escaping_and_unicode() {
+fn optional_metadata_preserves_whitespace_escaping_and_unicode() {
     let directory = tempdir().unwrap();
     let text = "  \"quoted\" \\path\n配置 🦀  ";
     assert_success(&init(
         directory.path(),
-        &["--name", text, "--author", text, "--description", text],
+        &[
+            "--name",
+            "@example/.config",
+            "--author",
+            text,
+            "--description",
+            text,
+        ],
     ));
     assert_eq!(
         read_layer_manifest(directory.path()),
-        json!({"name": text, "author": text, "description": text})
+        json!({"name": "@example/.config", "author": text, "description": text})
     );
 }
 
@@ -316,6 +324,81 @@ fn supplied_blank_metadata_is_an_error_without_writes() {
             };
             assert_failure(&init(directory.path(), &arguments), flag);
             assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn every_format_rejects_invalid_name_flags_without_normalization_or_writes() {
+    let mut names: Vec<_> = [
+        "Shared-Config",
+        " shared-config",
+        "shared-config ",
+        "shared config",
+        "配置",
+        "\u{feff}",
+        ".config",
+        "_config",
+        "@scope",
+        "@/config",
+        "@scope/",
+        "@Scope/config",
+        "@scope/Config",
+        "@.scope/config",
+        "@_scope/config",
+        "scope/config",
+        "name@1.2.3",
+        "config\n",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    names.extend(["a".repeat(215), format!("@s/{}", "a".repeat(212))]);
+    for format in LayerManifestFormat::ALL {
+        for name in &names {
+            let directory = tempdir().unwrap();
+            let output = init(
+                directory.path(),
+                &["--format", format.extension(), "--name", name],
+            );
+            assert_failure(&output, "--name");
+            let diagnostic = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !diagnostic.contains("non-whitespace"),
+                "{name:?}: {diagnostic}"
+            );
+            assert!(!diagnostic.contains("non-blank"), "{name:?}: {diagnostic}");
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn every_format_preserves_valid_scoped_names_and_full_name_length_boundaries() {
+    let mut names: Vec<_> = [
+        "shared-config.v2_rules",
+        "@scope/.config",
+        "@scope/_config",
+        "node_modules",
+        "fs",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    names.extend(["a".repeat(214), format!("@s/{}", "a".repeat(211))]);
+    for format in LayerManifestFormat::ALL {
+        for name in &names {
+            let directory = tempdir().unwrap();
+            let output = init(
+                directory.path(),
+                &["--format", format.extension(), "--name", name],
+            );
+            assert_success_in_format(&output, format);
+            assert_eq!(
+                independently_read_format(directory.path(), format),
+                json!({"name": name})
+            );
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
         }
     }
 }
@@ -437,15 +520,22 @@ fn copied_help_examples_keep_their_shell_arguments() {
 }
 
 #[test]
-fn directory_name_default_preserves_spaces_and_unicode() {
-    let parent = tempdir().unwrap();
-    let directory = parent.path().join(" My Project 配置 🦀 ");
-    fs::create_dir(&directory).unwrap();
-    assert_success(&init(&directory, &[]));
-    assert_eq!(
-        read_layer_manifest(&directory),
-        json!({"name": " My Project 配置 🦀 "})
-    );
+fn invalid_directory_defaults_are_not_sanitized_and_allow_explicit_overrides() {
+    for name in [
+        "MyProject",
+        "my project",
+        " My Project 配置 🦀 ",
+        ".project",
+        "_project",
+    ] {
+        let parent = tempdir().unwrap();
+        let directory = parent.path().join(name);
+        fs::create_dir(&directory).unwrap();
+        assert_failure(&init(&directory, &[]), "Supply --name explicitly");
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        assert_success(&init(&directory, &["--name", "explicit"]));
+        assert_eq!(read_layer_manifest(&directory), json!({"name": "explicit"}));
+    }
 }
 
 #[cfg(unix)]
@@ -738,7 +828,7 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
             for description in [false, true] {
                 let directory = tempdir().unwrap();
                 let text = "  true # \"quoted\" \\path\n配置 🦀  ";
-                let mut args = vec!["--format", format.extension(), "--name", text];
+                let mut args = vec!["--format", format.extension(), "--name", "@example/_config"];
                 if author {
                     args.extend(["--author", text]);
                 }
@@ -748,7 +838,7 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
                 let output = init(directory.path(), &args);
                 assert_success_in_format(&output, format);
                 let document = independently_read_format(directory.path(), format);
-                assert_eq!(document["name"], text);
+                assert_eq!(document["name"], "@example/_config");
                 assert_eq!(document.get("author"), author.then(|| json!(text)).as_ref());
                 assert_eq!(
                     document.get("description"),
@@ -765,15 +855,15 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
 }
 
 #[test]
-fn all_formats_validate_preserved_unicode_directory_defaults_and_optional_combinations() {
+fn all_formats_validate_unchanged_valid_directory_defaults_and_optional_combinations() {
     for format in LayerManifestFormat::ALL {
         for author in [false, true] {
             for description in [false, true] {
                 let parent = tempdir().unwrap();
-                let directory = parent.path().join(" My Project 配置 🦀 \u{feff} ");
+                let directory = parent.path().join("my-project.v2_config");
                 fs::create_dir(&directory).unwrap();
                 let mut args = vec!["--format", format.extension()];
-                let mut expected = json!({"name": " My Project 配置 🦀 \u{feff} "});
+                let mut expected = json!({"name": "my-project.v2_config"});
                 if author {
                     args.extend(["--author", "Team"]);
                     expected["author"] = json!("Team");
@@ -803,19 +893,25 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
             "0B10000000000000000000000000000000000000000000000000000000000000000",
         ] {
             let directory = tempdir().unwrap();
-            // Equals syntax permits a leading minus without changing clap policy.
-            let name = format!("--name={value}");
+            // Optional metadata keeps arbitrary strings, including leading minus.
             let author = format!("--author={value}");
             let description = format!("--description={value}");
             let output = init(
                 directory.path(),
-                &["--format", format.extension(), &name, &author, &description],
+                &[
+                    "--format",
+                    format.extension(),
+                    "--name",
+                    "example",
+                    &author,
+                    &description,
+                ],
             );
             assert!(output.status.success(), "{format}: {value:?}: {output:?}");
             assert!(output.stderr.is_empty(), "{output:?}");
             assert_eq!(
                 independently_read_format(directory.path(), format),
-                json!({"name": value, "author": value, "description": value})
+                json!({"name": "example", "author": value, "description": value})
             );
             // The real loader must also preserve writer-quoted numeric-looking strings.
             assert_eq!(
@@ -824,7 +920,7 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
                     .load()
                     .unwrap()
                     .document,
-                json!({"name": value, "author": value, "description": value})
+                json!({"name": "example", "author": value, "description": value})
             );
         }
     }
@@ -879,9 +975,17 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
 }
 
 #[test]
-fn every_format_rejects_schema_blank_defaults_but_preserves_explicit_overrides() {
+fn every_format_rejects_schema_invalid_defaults_but_preserves_explicit_overrides() {
     for format in LayerManifestFormat::ALL {
-        for name in ["   ", "\u{85}"] {
+        for name in [
+            "   ",
+            "\u{85}",
+            "MyProject",
+            "my project",
+            "配置",
+            ".project",
+            "_project",
+        ] {
             let parent = tempdir().unwrap();
             let directory = parent.path().join(name);
             fs::create_dir(&directory).unwrap();
@@ -905,12 +1009,22 @@ fn every_format_rejects_schema_blank_defaults_but_preserves_explicit_overrides()
 #[test]
 fn explicit_json_retains_two_space_pretty_style_and_escaping() {
     let directory = tempdir().unwrap();
-    let output = init(directory.path(), &["--format", "json", "--name", "a\"b\nc"]);
+    let output = init(
+        directory.path(),
+        &[
+            "--format",
+            "json",
+            "--name",
+            "example",
+            "--description",
+            "a\"b\nc",
+        ],
+    );
     assert!(output.status.success(), "{output:?}");
     assert!(output.stderr.is_empty());
     assert_eq!(
         fs::read_to_string(directory.path().join("layer.json")).unwrap(),
-        "{\n  \"name\": \"a\\\"b\\nc\"\n}\n"
+        "{\n  \"name\": \"example\",\n  \"description\": \"a\\\"b\\nc\"\n}\n"
     );
 }
 

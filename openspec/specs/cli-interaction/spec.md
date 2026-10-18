@@ -10,22 +10,26 @@ are handled without blocking automation or creating unintended files.
 
 ### Requirement: Select an interaction mode without blocking automation
 
-The CLI MUST accept a global `--non-interactive` flag before or after the
-subcommand. For init, it MUST select flag-only initialisation whenever any of
-`--name`, `--author`, `--description`, or `--format` is explicitly supplied,
-regardless of terminal or CI state and even when a supplied value is invalid.
-Otherwise, it MUST enable guided interaction by default only when standard input,
-output, and error are all terminals, the explicit non-interactive flag is absent,
-and CI mode is disabled. A non-empty `CI` value other than `0` or `false`, compared
-without case sensitivity, MUST disable interaction; unset, empty, `0`, and `false`
-values MUST NOT disable it by themselves.
+The CLI MUST accept global `--non-interactive` before or after the subcommand.
+For init, it MUST select flag-only input whenever any of `--name`, `--author`,
+`--description`, or `--format` is explicitly supplied, regardless of terminal/CI
+state or value validity. Otherwise, init MUST enable guided input only when all
+three standard streams are terminals, the explicit non-interactive flag is absent,
+and CI is disabled. A non-empty `CI` other than `0` or `false`, compared without
+case sensitivity, MUST disable interaction; unset, empty, `0`, and `false` MUST NOT
+disable it by themselves.
 
-When interaction is disabled, the CLI MUST NOT run prompts, read answers from
-standard input, or open another terminal for input. It MUST use supplied flags
-and documented defaults; omitted name MUST default to the current directory's
-name, omitted author and description MUST remain absent, and omitted format MUST
-default to YAML with filename `layer.yaml`. An inferred format default MUST NOT
-count as an explicitly supplied input flag.
+When interaction is disabled, the CLI MUST NOT prompt, read answers from standard
+input, or open another terminal. Init MUST use supplied flags and documented
+defaults: omitted name uses the directory name subject to schema validation;
+omitted author and description stay absent; omitted format is YAML (`layer.yaml`).
+The inferred format MUST NOT count as an input flag. Prompt eligibility MUST
+remain separate from compact status styling and colour preferences.
+
+The initial add command MUST require source arguments and remain prompt-free in
+every environment. Missing arguments MUST be a clap usage failure, not a guided
+flow. `--non-interactive` MUST remain accepted without changing add's required
+arguments or disabling otherwise eligible compact status styling.
 
 #### Scenario: Default terminal interaction
 
@@ -35,20 +39,20 @@ count as an explicitly supplied input flag.
 #### Scenario: Metadata flags select flag-only input
 
 - **WHEN** init receives `--name` in an otherwise eligible interactive terminal, with or without optional input flags
-- **THEN** it uses only supplied flags and documented defaults without prompts or cliclack presentation
+- **THEN** it uses only supplied flags and documented defaults without prompts or guided-session presentation
 - **AND** omitted optional metadata fields remain absent from the layer manifest
 
 #### Scenario: Optional metadata flags without a name override
 
 - **WHEN** init receives author or description flags without name, even in an eligible interactive terminal
-- **THEN** it uses the current directory's name and supplied metadata
+- **THEN** it uses the schema-valid directory default and supplied metadata
 - **AND** it does not ask for name, other metadata, or format
 
 #### Scenario: Format alone selects flag-only input
 
 - **WHEN** init receives `--format jsonc` without metadata flags in an otherwise eligible interactive terminal
-- **THEN** it uses the directory's name, omits author and description, and creates `layer.jsonc` if other conditions are satisfied
-- **AND** it asks no questions and uses no cliclack presentation
+- **THEN** it uses the schema-valid directory default, omits author and description, and creates `layer.jsonc` if other conditions are satisfied
+- **AND** it asks no questions and uses no guided-session presentation
 
 #### Scenario: Explicitly disable interaction in a terminal
 
@@ -71,6 +75,17 @@ count as an explicitly supplied input flag.
 
 - **WHEN** `CI` is unset, empty, `0`, or `false` in any letter case
 - **THEN** that value alone does not prevent otherwise eligible terminal interaction
+
+#### Scenario: Add never asks for missing sources
+
+- **WHEN** add runs without source arguments in an interactive terminal or automation
+- **THEN** clap reports the missing arguments without prompts, layer manifest discovery, or file changes
+
+#### Scenario: Add accepts the global interaction control
+
+- **WHEN** valid local-source arguments are supplied with `--non-interactive` before or after add
+- **THEN** add remains argument-only
+- **AND** compact status styling follows the shared presentation policy independently
 
 ### Requirement: Collect metadata through a guided cliclack session
 

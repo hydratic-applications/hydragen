@@ -4,28 +4,29 @@
 
 Define a layer's identifying metadata, supported layer manifest filenames and formats,
 read-only discovery and loading, duplicate warnings, dependency declaration
-requirements, and shared validation through the maintained metadata schema.
+requirements, and shared validation through the maintained content schema.
 
 ## Requirements
 
 ### Requirement: Every layer has identifying metadata
 
-Every layer MUST have a layer manifest declaring its name. Author and description MUST
-be optional independently of each other. Name and any supplied author or
-description MUST be strings containing at least one non-whitespace character.
-These rules apply to both root and dependent layers, whether intended primarily
-for reuse, as working projects, or both.
+Every layer MUST have a layer manifest declaring its name. The name MUST satisfy
+the shared layer-name requirements. Author and description MUST be optional
+independently of each other and, when supplied, MUST be strings containing at
+least one non-whitespace character. Accepted values MUST be preserved without
+normalisation. These rules MUST apply to both root and dependent layers, whether
+intended primarily for reuse, as working projects, or both.
 
 #### Scenario: Root layer metadata
 
 - **WHEN** a root layer is defined
-- **THEN** its layer manifest declares its name
+- **THEN** its layer manifest declares a valid layer name
 - **AND** author and description can each be omitted
 
 #### Scenario: Dependent layer metadata
 
 - **WHEN** a dependent layer is defined
-- **THEN** its layer manifest declares its name
+- **THEN** its layer manifest declares a valid layer name
 - **AND** author and description can each be omitted
 
 ### Requirement: Layer manifest has a fixed filename and location
@@ -74,45 +75,64 @@ MUST state the complete priority order explicitly.
 
 ### Requirement: Layer manifest declares layer dependencies
 
-The selected layer manifest MUST list the other layers that the layer depends
-on, regardless of its supported format. Omitting the dependency list and
-providing an empty list MUST both mean that the layer has no dependencies and
-is therefore a root layer. The dependency field name and reference format remain
-open; this change MUST NOT introduce or validate a dependency reference syntax.
+The selected layer manifest MUST declare dependencies in an optional
+`dependencies` array of source-reference strings in every supported format. An
+omitted field and an empty array MUST both mean no dependencies and therefore a
+root layer. Other shapes, including maps, nested tuples, objects, and `null`, MUST
+fail content validation. Local and published references MUST use the defined
+source-reference syntax without separate name or version properties.
+
+Array order MUST be retained. Defining ordered declarations MUST NOT itself
+establish rendering precedence. The content schema MUST NOT attempt filesystem
+lookup or substitute for cross-layer name-uniqueness checks.
 
 #### Scenario: Layer depends on other layers
 
-- **WHEN** a layer depends on other layers
-- **THEN** those dependencies are listed in its selected layer manifest
+- **WHEN** a layer declares `dependencies: ["../shared-agent-rules", "shared-config@1.2.0"]`
+- **THEN** content validation accepts the ordered array of syntactically valid references
+- **AND** does not claim either target exists or has been retrieved
 
 #### Scenario: Omitted dependency list
 
-- **WHEN** a layer's selected layer manifest omits the dependency list
+- **WHEN** a layer's selected layer manifest omits `dependencies`
 - **THEN** the layer has no dependencies and is a root layer
 
 #### Scenario: Empty dependency list
 
-- **WHEN** a layer's selected layer manifest includes an empty dependency list
-- **THEN** the layer has no dependencies and is a root layer, with the same outcome as omitting the list
+- **WHEN** a layer's selected layer manifest includes `dependencies: []`
+- **THEN** the layer has no dependencies and is a root layer, with the same outcome as omitting the field
+
+#### Scenario: Dependency entries do not duplicate names in keys
+
+- **WHEN** a layer manifest supplies a name-keyed dependency map, source objects, nested name/version arrays, or non-string entries
+- **THEN** content validation rejects the declaration with the affected content path
 
 ### Requirement: A schema describes metadata requirements
 
 The layer manifest format MUST have a maintained JSON Schema at
 `schemas/layer-manifest.schema.json`, using JSON Schema Draft 2020-12. The schema
-MUST require an object with name and permit optional author and description, with
-non-blank string validation for each supplied metadata field. Optional metadata
-MUST be independently omittable, not represented by blank strings or `null`.
+MUST require an object with a valid layer name, permit optional author and
+description with the existing non-blank string rules, and define the optional
+ordered dependency array and source-reference syntax. Optional metadata MUST be
+independently omittable, not represented by blank strings or `null`.
 
-The same metadata rules MUST apply after parsing every supported layer manifest format.
-The CLI MUST NOT require an external runtime schema validator or add a schema
-property to generated layer manifests.
+Shared definitions in that schema MUST determine name and reference content
+validity, including exact published versions. Field checks, parsed-content checks,
+every format loader, init input/defaults, and complete candidates before writing
+MUST use those definitions rather than duplicate constraints in independent
+predicates or separate schemas.
 
-The schema MUST permit an optional `$schema` property containing a non-blank
-string and MUST permit additional properties without interpreting them. Validation
-MUST cover metadata only; it MUST NOT establish dependency reference syntax, how
-versioning works or whether it belongs in the layer manifest, or how layers combine.
-Schema validation MUST NOT substitute for filename, repository-location, or safe
-file-creation checks.
+The same content rules MUST apply after parsing every supported format. The CLI
+MUST NOT require an external runtime validator or add a schema property to
+generated layer manifests. The schema MUST permit an optional `$schema` property
+containing a non-blank string and MUST permit unknown properties without
+interpreting them. A supplied `$schema` MUST NOT select another validator or cause
+retrieval. Unknown-field acceptance MUST NOT make an invalid known `dependencies`
+field acceptable.
+
+Schema validation MUST NOT perform filesystem or network access, establish
+cross-layer name uniqueness, choose registry versions, define how layers combine,
+or replace filename, repository-location, or safe-write checks.
 
 #### Scenario: Missing name
 
@@ -122,18 +142,25 @@ file-creation checks.
 #### Scenario: Optional metadata is omitted
 
 - **WHEN** a layer manifest contains a valid name and omits author and description
-- **THEN** it passes metadata validation against the schema in every supported format
+- **THEN** it passes content validation in every supported format when its other known fields are valid
 
 #### Scenario: Optional metadata is supplied independently
 
 - **WHEN** a layer manifest contains a valid name and supplies either or both of author and description as non-blank strings
-- **THEN** it passes metadata validation against the schema in every supported format
+- **THEN** those metadata values pass validation in every supported format
+- **AND** their accepted content is retained unchanged
 
 #### Scenario: Supplied metadata is invalid
 
 - **WHEN** name or a supplied author or description is blank, whitespace-only, or not a string, including `null`
 - **THEN** it fails validation against the schema in every format that can represent the supplied value
 - **AND** the loader does not turn a non-string value into a string or treat explicit null as omission
+
+#### Scenario: Name violates the new naming policy
+
+- **WHEN** a layer manifest uses an uppercase, overlength, or otherwise invalid layer name
+- **THEN** field and complete-content validation reject it through the maintained schema
+- **AND** no path silently normalises it into a valid name
 
 #### Scenario: Content is not an object
 
@@ -142,16 +169,16 @@ file-creation checks.
 
 #### Scenario: Editor schema reference is supplied
 
-- **WHEN** otherwise valid metadata includes a `$schema` property
-- **THEN** metadata validation accepts a non-blank string value for that property
+- **WHEN** otherwise valid content includes a `$schema` property
+- **THEN** content validation accepts a non-blank string value for that property
 - **AND** rejects blank, whitespace-only, or non-string values
-- **AND** validation does not retrieve the referenced address or path
+- **AND** validation does not retrieve the referenced address or path or use it to replace the bundled schema
 
 #### Scenario: Content includes an additional property
 
-- **WHEN** otherwise valid metadata includes a property outside the schema's defined properties
-- **THEN** it passes metadata validation without interpreting that property's value
-- **AND** this result does not establish that the property or any dependency declaration is supported
+- **WHEN** otherwise valid content includes a property outside the schema's defined properties
+- **THEN** content validation accepts it without interpreting that property's value
+- **AND** this result does not establish that the unknown property's behaviour is supported
 
 #### Scenario: Schema document is checked
 
@@ -215,10 +242,11 @@ another candidate or intentionally waiting for input from a special file.
 
 ### Requirement: Parse familiar formats into the same layer manifest data
 
-Each parser MUST produce one object/mapping document for shared metadata
+Each parser MUST produce one object/mapping document for shared content
 validation. Accepted string values MUST retain their content without trimming or
 normalisation. Additional fields MUST be accepted and retained as decoded data,
-without implying dependency validation or implementing their behaviour.
+without implementing their behaviour. Parsing MUST remain separate from reference
+classification, schema validation, and dependency relationship checks.
 Repeated object/mapping keys MUST be rejected before a map discards duplicates,
 including duplicate unknown fields and nested keys. JSON key comparison MUST use
 decoded names. Supported data MUST use string object keys and JSON-compatible
@@ -241,8 +269,8 @@ disabled to accept unbounded alias expansion or nesting.
 TOML MUST use a maintained standard TOML parser and a top-level table without a
 required `[layer]` wrapper. It MUST accept ordinary comments, basic/literal and
 multiline strings, dotted keys, tables, inline tables, and arrays of tables when
-their decoded values satisfy the shared layer manifest data model. Duplicate keys and
-invalid table redefinitions MUST be rejected according to TOML rules; valid
+their decoded values satisfy the shared layer manifest data model and content
+schema. Duplicate keys and invalid table redefinitions MUST be rejected according to TOML rules; valid
 arrays of tables MUST NOT be treated as duplicate declarations.
 
 TOML values MUST retain their native types until conversion to the shared data
@@ -251,11 +279,13 @@ or expose a Serde datetime wrapper as a user-supplied object. Native date/time
 literals and non-finite numbers MUST fail with a path-specific unsupported-data
 diagnostic; date/time-like text MUST be quoted to be a layer manifest string. Omitted
 optional keys MUST remain absent. The loader MUST NOT invent a TOML null syntax.
+Read-only loading MUST NOT rewrite source files.
 
 #### Scenario: Equivalent metadata across formats
 
-- **WHEN** the same name, author, and description are expressed as valid strings in each supported format
-- **THEN** loading produces identical metadata, preserving whitespace, Unicode, quotes, and newlines
+- **WHEN** the same valid name, author, and description are expressed in each supported format
+- **THEN** loading produces identical metadata without normalisation
+- **AND** optional metadata retains accepted whitespace, Unicode, quotes, and newlines
 
 #### Scenario: JSONC comments and trailing commas
 
@@ -271,14 +301,14 @@ optional keys MUST remain absent. The loader MUST NOT invent a TOML null syntax.
 #### Scenario: Ordinary YAML strings and aliases
 
 - **WHEN** a YAML or YML layer manifest uses comments, a block description string, or an ordinary alias to a string anchor
-- **THEN** loading accepts them with their normal YAML meaning and the same metadata validation
+- **THEN** loading accepts them with their normal YAML meaning and the shared content schema
 - **AND** an explicitly tagged `!!str` value is still treated as a string
 
 #### Scenario: YAML scalar types are not coerced
 
 - **WHEN** YAML metadata contains an unquoted boolean, number, null, or empty value
-- **THEN** metadata validation rejects the non-string value
-- **AND** quoting a non-blank scalar as a string permits it
+- **THEN** content validation rejects the non-string value without string conversion
+- **AND** quoting a value permits it only when the resulting string satisfies that field's schema
 - **AND** ordinary YAML 1.2 plain strings such as `yes` or `on` remain strings
 
 #### Scenario: Repeated keys within a layer manifest
@@ -288,15 +318,15 @@ optional keys MUST remain absent. The loader MUST NOT invent a TOML null syntax.
 
 #### Scenario: Ordinary TOML content
 
-- **WHEN** a TOML layer manifest declares top-level string name, author, or description using ordinary comment and string syntax, with supported additional tables or arrays of tables
-- **THEN** loading validates the same metadata and retains the additional decoded data
-- **AND** it does not require a `[layer]` wrapper or invent dependency semantics
+- **WHEN** TOML supplies ordinary top-level metadata, an ordered dependency string array, and supported unknown tables or arrays of tables
+- **THEN** loading applies the same shared schema and retains additional decoded data
+- **AND** it does not require a `[layer]` wrapper or perform dependency filesystem resolution
 
 #### Scenario: TOML typed metadata is not coerced
 
 - **WHEN** TOML supplies a boolean, number, array, table, or native date/time literal as name, author, or description
 - **THEN** loading rejects the invalid metadata or unsupported data without converting it to a string
-- **AND** a quoted non-blank string with the same textual content can pass metadata validation
+- **AND** quoted text is accepted only when it satisfies the field's schema
 
 #### Scenario: TOML native values outside the common data model
 
@@ -311,7 +341,7 @@ optional keys MUST remain absent. The loader MUST NOT invent a TOML null syntax.
 #### Scenario: Additional fields remain uninterpreted
 
 - **WHEN** a valid layer manifest includes an additional field with supported decoded data
-- **THEN** loading preserves that data without interpreting it or claiming its dependency declarations are valid
+- **THEN** loading preserves that data without interpreting the unknown field or claiming dependency relationship validity
 - **AND** no source file is rewritten
 
 #### Scenario: Unsupported YAML composition or document stream
@@ -321,20 +351,22 @@ optional keys MUST remain absent. The loader MUST NOT invent a TOML null syntax.
 
 ### Requirement: Warn about multiple layer manifest paths on applicable commands
 
-A CLI command that touches or depends on a layer manifest MUST use shared
-discovery and report discovered duplicate supported paths. It MUST emit at most
-one duplicate warning per affected directory per invocation, on standard error,
-identifying the directory, all discovered filenames in priority order, and which
-takes priority. The warning MUST communicate that one layer manifest is selected, not
-that their contents are merged. Non-interactive warnings MUST be plain text.
+Applicable commands MUST report duplicate layer manifest paths.
+A command that touches or depends on a layer manifest, including init and add,
+MUST use shared discovery and report duplicate supported paths. It MUST emit
+at most one warning per affected directory per invocation on stderr, naming the
+directory, all discovered filenames in priority order, and the selected filename.
+Repeated references to one directory MUST NOT multiply its warning. The message
+MUST explain selection, not merging. Warnings MUST follow the shared compact
+status-styling policy; CI and redirected execution MUST remain plain, while
+`--non-interactive` alone MUST NOT disable otherwise eligible styling.
 
 Warnings MUST remain available before a subsequent load, validation, or
 existing-layer-manifest refusal error. Initialisation warnings MUST NOT claim an
 existing layer manifest was loaded. A duplicate warning alone MUST NOT cause a nonzero
 exit status. Commands with no duplicates MUST NOT emit a duplicate warning.
 Help, version, and argument-usage failures MUST NOT discover layer manifests or emit
-layer manifest warnings. This increment MUST integrate the convention into init;
-future commands using layer manifests MUST adopt it when introduced.
+layer manifest warnings.
 
 #### Scenario: Duplicate layer manifests followed by a load failure
 
@@ -357,6 +389,12 @@ future commands using layer manifests MUST adopt it when introduced.
 
 - **WHEN** discovery finds at most one supported layer manifest path
 - **THEN** the CLI emits no duplicate warning
+
+#### Scenario: Add references a directory repeatedly
+
+- **WHEN** several local references resolve to one directory with duplicate layer manifests
+- **THEN** its warning is emitted at most once before any dependent failure
+- **AND** follows the same terminal/plain policy as other statuses
 
 ### Requirement: YAML decoding preserves type boundaries before schema validation
 
@@ -548,40 +586,108 @@ MUST remain available without preparing validation.
 
 ### Requirement: Schema-backed validation preserves useful feedback and metadata semantics
 
-Schema-backed validation MUST preserve current non-blank metadata semantics,
-including rejection of ASCII- and Unicode-whitespace-only strings and preservation
-of accepted values without normalization. Friendly field-specific errors and
-inline retries MUST be derived from schema failures, not duplicated validity
-checks or matching the validator's human-readable error text. Other constraint
-failures MUST receive an accurate field/path and rule explanation instead of being
-mislabelled as blank-string errors.
+Schema-backed validation MUST enforce the shared name policy and preserve the
+non-blank semantics for author and description, including rejection of ASCII-
+and Unicode-whitespace-only strings. Accepted values MUST remain unchanged.
+Field-specific errors and guided retries MUST derive from structured schema
+failures, not duplicated predicates or matching human-readable validator text.
+Non-blank, name, and reference failures MUST receive accurate field/content-path
+and correction information rather than all being described as blank metadata.
 
 An invalid bundled schema or validator configuration MUST be distinguishable from
 invalid user input. Such internal failures MUST cause a nonzero exit before
 prompts or writes, without panic, retry prompts, success output, or misleading
 guidance to change valid metadata. Existing interaction selection, output-stream
 separation, cancellation, and file-safety requirements MUST remain unchanged.
+Adding this command MUST NOT enable guided add input.
 
 #### Scenario: Whitespace-only metadata includes Unicode characters
 
 - **WHEN** a supplied metadata value consists only of whitespace, including ASCII whitespace, NBSP, EM SPACE, or U+0085
 - **THEN** schema-backed validation rejects it consistently across fields and complete-content checks
-- **AND** a value containing a non-whitespace character remains accepted and preserved unchanged, including surrounding whitespace
+- **AND** a non-blank author or description remains accepted and preserved unchanged, including surrounding whitespace
+- **AND** names are additionally subject to the stricter name grammar
 
 #### Scenario: A known non-blank constraint fails
 
 - **WHEN** the schema reports that a supplied metadata string violates its non-blank constraint
 - **THEN** CLI feedback identifies the field and explains the need for a non-whitespace character
-- **AND** guided input allows correction while flag-only execution fails without a replacement question
+- **AND** guided init allows correction while supplied-input routes fail without a replacement question
 
 #### Scenario: A different schema constraint fails
 
-- **WHEN** validation reports a rule violation other than the known non-blank constraint
+- **WHEN** a name, dependency reference, or other property violates a schema constraint other than the known non-blank constraint
 - **THEN** the diagnostic reflects the failed rule and affected field or content path
 - **AND** it does not incorrectly describe every failure as blank metadata
 
 #### Scenario: Bundled schema cannot be prepared
 
 - **WHEN** the bundled schema is invalid or validator configuration fails
-- **THEN** init reports an internal validation setup failure and exits nonzero before prompts or writes
+- **THEN** init or add reports an internal validation setup failure and exits nonzero before prompts or writes
 - **AND** it does not panic, report an unusable directory-name default, or ask the user to retry metadata
+
+### Requirement: Layer names follow an explicit lowercase naming policy
+
+A layer name MUST be a nonempty string using lowercase ASCII letters, digits,
+`.`, `_`, and `-`, optionally structured as `@scope/name`. Both scoped components
+MUST be nonempty. The complete name, including scope and separators, MUST have at
+most 214 characters. An unscoped name and a scope component MUST NOT begin with
+`.` or `_`; a scoped package component MUST be allowed to begin with either.
+Other characters, whitespace, and uppercase MUST be rejected without trimming,
+case conversion, or other normalisation. Node-specific reserved-name exclusions
+MUST NOT be introduced. These rules MUST apply to every declared layer name and
+published-reference name, independently of registry availability or ownership.
+
+#### Scenario: Valid names and scopes
+
+- **WHEN** names include `shared-config`, `@example/shared-config`, `@example/.config`, `@example/_config`, or `node_modules`
+- **THEN** they pass name validation without implying publication availability
+
+#### Scenario: Invalid names are not rewritten
+
+- **WHEN** a name includes uppercase, surrounding spaces, Unicode, an empty scoped component, a forbidden leading character, or exceeds the full-name length limit
+- **THEN** validation rejects it with corrective guidance
+- **AND** does not lowercase, trim, shorten, or otherwise rewrite it
+
+### Requirement: Dependency reference syntax distinguishes local paths from exact published versions
+
+Reference syntax MUST be defined through the maintained schema. Explicit relative
+path prefixes, standalone `.` and `..`, and explicit absolute path forms MUST
+identify local references. Their strings MUST have no separate version. Bare
+directory names MUST NOT be inferred as local, even if such a directory exists.
+Path contents MUST NOT be subjected to layer-name restrictions, and references
+MUST NOT be trimmed or rewritten. Native filesystem interpretation and unsupported
+platform-path diagnostics MUST remain separate from content validity.
+
+Published references MUST be `name@version` or `@scope/name@version`, using the
+shared name rules and one complete strict SemVer 2.0.0 version. Prerelease and
+build metadata MUST be accepted and retained. Partial versions, forbidden leading
+zeroes, `v` prefixes, surrounding whitespace, ranges, tags, empty versions, and
+implicit versions MUST fail validation. Git, alias, `file:`, and `link:` reference
+protocols MUST NOT be introduced.
+
+Reference content validation MUST be offline. It MUST NOT claim a source exists,
+select a version, retrieve content, or generate a lockfile.
+
+#### Scenario: Local paths remain local regardless of existence
+
+- **WHEN** a reference is `./shared-config`, `../shared-agent-rules`, or an explicit absolute path
+- **THEN** it is classified as a path without testing directory existence
+- **AND** spaces or uppercase in directory names are preserved rather than subjected to the layer-name grammar
+
+#### Scenario: Bare names are not local paths
+
+- **WHEN** a reference is bare `shared-config`, even with a matching local directory
+- **THEN** it fails the required explicit-path-or-exact-published-reference syntax
+- **AND** does not acquire a different meaning based on the filesystem
+
+#### Scenario: Exact published versions
+
+- **WHEN** references are `shared-config@1.2.0`, `shared-config@1.2.0-beta.1`, or `@example/shared-config@1.2.0+build.7`
+- **THEN** they pass content validation without registry access
+- **AND** their complete identifiers remain unchanged
+
+#### Scenario: Unsupported published selectors
+
+- **WHEN** references include `shared-config@^1.2.0`, `shared-config@latest`, `shared-config@1.2`, `shared-config@v1.2.0`, `shared-config@01.2.0`, or `shared-config@`
+- **THEN** content validation rejects them instead of resolving or normalising a selector

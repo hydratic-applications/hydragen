@@ -143,6 +143,49 @@ impl Presentation {
         }
         output
     }
+
+    pub fn add_success(self, plan: &hydragen::dependencies::AddPlan) -> String {
+        let name = &plan.current().metadata.name;
+        let headline = if plan.is_noop() {
+            format!("No changes needed for {name}.")
+        } else {
+            format!("Dependencies updated for {name}.")
+        };
+        let mut output = if self.decorated {
+            let prefix = if plan.is_noop() {
+                "✓ No changes needed for "
+            } else {
+                "✓ Dependencies updated for "
+            };
+            format!(
+                "{}{}{}",
+                self.style().green().apply_to(prefix),
+                self.style().green().bold().apply_to(name),
+                self.style().green().apply_to(".")
+            )
+        } else {
+            headline
+        };
+        for (label, entries) in [
+            ("Added", plan.added()),
+            ("Already present", plan.already_present()),
+        ] {
+            if entries.is_empty() {
+                continue;
+            }
+            output.push_str(&format!(
+                "\n\n{} {}",
+                self.style().bold().apply_to(label),
+                self.style().dim().apply_to(format!("({})", entries.len()))
+            ));
+            for entry in entries {
+                output.push_str("\n  ");
+                output.push_str(&entry.name);
+            }
+        }
+        output.push('\n');
+        output
+    }
 }
 
 #[derive(Clone, Copy)]

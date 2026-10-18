@@ -16,9 +16,11 @@ configuration, and project files. Its building block is a **layer**: a project o
 reusable set of files that other layers can depend on. The goal is to keep shared
 content connected to its sources while making project-specific changes clear.
 
-**This is an initial prototype.** The CLI currently provides only `hydragen init`,
-which creates a layer manifest identifying the layer. Dependency management,
-inheritance, rendering, and contribution capture are not implemented yet.
+**This is an initial prototype.** Use `hydragen init` to create a layer manifest
+identifying a layer, and `hydragen add` to record verified local-path dependencies.
+Add declares relationships only: it does not fetch or copy files, render a
+workspace, or capture contributions. Publishing and registry access are not
+implemented.
 
 See [FOUNDATIONS.md](FOUNDATIONS.md) for the product goals and
 [GLOSSARY.md](GLOSSARY.md) for the layer model's terminology.
@@ -73,6 +75,12 @@ format. Press Enter to use the directory's name, skip either optional field,
 or accept the default format, YAML (`layer.yaml`). Escape or Ctrl-C cancels
 without creating a file.
 
+To use the directory-name default, it must satisfy the
+[layer-name rules](#the-layer-manifest). If it contains uppercase letters or
+spaces, for example, init stops before prompting; supply a valid override such as
+`hydragen init --name my-project`. Hydragen does not rename the directory or
+silently convert the name.
+
 ### Using flags
 
 Supply any of `--name`, `--author`, `--description`, or `--format` to run without
@@ -109,9 +117,62 @@ Without input flags, this uses the directory's name and YAML format, omitting
 author and description. Prompts are also disabled in CI or when any standard
 stream is not a terminal; init does not read piped answers.
 
-Init confirms the created layer manifest filename once. Guided feedback, warnings,
-and errors use standard error; flag-only success uses standard output. Errors
-return a nonzero exit status.
+Init confirms the created layer manifest filename once. Guided feedback uses
+standard error; flag-only success uses standard output.
+
+## Add local dependencies
+
+Suppose `my-project`, `shared-agent-rules`, and `shared-config` are sibling
+directories, each already initialised as a layer. From `my-project`, run:
+
+```sh
+hydragen add ../shared-agent-rules ../shared-config
+```
+
+For a layer manifest initially containing only `name: my-project`, the resulting
+`layer.yaml` declares the following ordered dependencies (formatting may differ):
+
+```yaml
+name: my-project
+dependencies:
+  - ../shared-agent-rules
+  - ../shared-config
+```
+
+Use explicit paths: `./shared-config`, `../shared-config`, or a native absolute
+path, not a bare directory name. Path spelling is stored unchanged; directory
+names can contain spaces or uppercase even though declared layer names cannot.
+
+You can run add from a nested directory. It searches upward to the filesystem
+root for the nearest directory with a supported layer manifest filename, crossing
+Git boundaries if necessary. An invalid selection fails there rather than falling
+back to a parent layer. **Relative paths resolve from the selected layer
+manifest's directory, not your current directory.** Running the example from
+`my-project/src` therefore still selects the two siblings of `my-project`.
+
+Before any update, add validates the current layer, all existing direct local
+dependencies, and the whole requested batch. Each target directory must have its
+own valid layer manifest; its parents and dependency chain are not searched.
+Dependency names must be unique and cannot equal the current layer's name. Broken
+existing dependencies or any batch error prevent all additions.
+
+New references append in argument order without reordering existing entries.
+Re-adding the same named local directory is harmless, even with a different path
+spelling: the existing reference stays unchanged. A name claimed by a different
+directory or an existing published dependency is a conflict, not an implicit
+replacement. Repeated new sources are added only once.
+
+Success names the destination layer and lists requested dependency names under
+separate counted `Added` and `Already present` groups, omitting empty groups and
+the layer manifest path. `Already present` means declared before this invocation;
+an all-repeat batch reports no changes and does not rewrite the file. Add always
+requires arguments and never prompts, uses the network, or changes Git.
+
+## Output and automation
+
+Add success uses standard output. Warnings and errors from either command use
+standard error, and errors return a nonzero exit status. Global
+`--non-interactive` is accepted before or after either subcommand.
 
 Terminal status messages use colour when appropriate. CI, redirected execution,
 or `NO_COLOR=1` keep results plain; `--non-interactive` disables questions without
@@ -119,9 +180,21 @@ disabling eligible terminal styling.
 
 ## The layer manifest
 
-The layer manifest lives at the layer's repository root. It requires a `name`;
-`author` and `description` are optional. Each supplied metadata value must be a
-string containing at least one non-whitespace character. Leave optional fields out
+The layer manifest lives at the layer's repository root. It requires a `name` and
+can include optional `author`, `description`, and an ordered `dependencies` list.
+An omitted or empty dependency list means the layer has no dependencies.
+
+**Layer names must be lowercase.** Use lowercase ASCII letters, digits, `.`, `_`,
+and `-`, optionally as `@scope/name`, with at most 214 characters in the complete
+name. Unscoped names and scopes cannot start with `.` or `_`; the name after a
+scope can. Whitespace, uppercase, and other characters are rejected, never silently
+rewritten. These rules apply to init flags, answers, directory defaults, and every
+layer manifest loader; existing layer manifests with invalid names need deliberate
+correction. A layer's declared name is separate from its directory name and the
+fixed layer manifest filename.
+
+Author and description remain arbitrary strings containing at least one
+non-whitespace character, preserved unchanged. Omit unsupplied optional fields
 rather than setting them to empty strings or `null`.
 
 Supported formats are **YAML** (`layer.yaml` or `layer.yml`), **TOML**
@@ -136,10 +209,20 @@ Hydragen warns about duplicates. Layer manifests are not merged, and an invalid
 higher-priority layer manifest does not cause fallback to another file. Keep only
 the layer manifest you intend to use.
 
-The library provides read-only layer manifest discovery and loading; there is no
-CLI read or validate command yet. For the detailed content rules, see the
+Existing published declarations such as `shared-config@1.2.0` or
+`@example/shared-config@1.2.0-beta.1+build.7` are accepted for offline syntax and
+name checks only, not verified existence. They require complete, strict
+[Semantic Versioning (SemVer) 2.0.0](https://semver.org/spec/v2.0.0.html) versions,
+including optional prerelease and build identifiers; ranges, tags such as `latest`,
+and implicit versions are not supported. Local paths have no version, and no
+lockfile is generated. Adding published dependencies, publishing, and
+registry-backed guided search/version selection are deferred. Future published
+add must reject a different version of an already-declared layer, not overwrite
+it; a separate explicit upgrade/version-change workflow has not been chosen.
+
+There is no CLI read or validate command yet. For detailed content rules, see the
 [layer manifest schema](schemas/layer-manifest.schema.json) and
-[layer manifest specification](openspec/specs/layer-manifest/spec.md).
+[dependency declaration specification](openspec/specs/layer-manifest/spec.md).
 
 ## Existing files and failures
 
@@ -152,11 +235,27 @@ If a write fails, a partial new layer manifest may remain. Inspect the path
 reported in the error before retrying. If creation succeeds but reporting the
 result fails, the error tells you the layer manifest was already created.
 
+Add edits only the selected current layer manifest, which must be a regular file,
+not a symlink. It preserves the format, comments, and unrelated source text and
+data, or refuses an edit it cannot perform safely. Dependency files are read only.
+Updates use a hidden staging file beside the layer manifest and atomic replacement,
+preserving file permissions. Handled failures before replacement leave the original
+intact; cleanup failures identify any staging file left behind. If replacement
+succeeds but reporting fails, the error says the layer manifest was already updated.
+
+Abrupt termination can leave a hidden staging file. Atomic replacement does not
+guarantee survival of every power failure or preserve all filesystem metadata.
+There is no lock or concurrent-edit check: simultaneous writers can overwrite
+each other's updates. Avoid editing the layer manifest concurrently with add.
+See the [addition and safety specification](openspec/specs/layer-dependency-addition/spec.md)
+for the detailed contract.
+
 ## Help
 
 ```sh
 hydragen --help
 hydragen init --help
+hydragen add --help
 hydragen --version
 ```
 
@@ -170,10 +269,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Tests cover flag-based and guided input, layer manifest formats and validation,
-repository boundaries, and file safety. Product requirements and design
-decisions live in [OpenSpec](openspec/); those documents are not build or runtime
-inputs.
+Product requirements and design decisions live in [OpenSpec](openspec/); those
+documents are not build or runtime inputs.
 
 ## License
 

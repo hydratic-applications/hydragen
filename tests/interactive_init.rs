@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 use hydragen::LayerManifestFormat;
 use portable_pty::{Child, CommandBuilder, ExitStatus, PtyPair, PtySize, native_pty_system};
 use serde_json::{Value, json};
-use tempfile::tempdir;
+mod support;
+use support::tempdir;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 // Bound terminal allocation independently of the test runner's thread count.
@@ -948,16 +949,16 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
     session.wait_for("Name");
     let guidance = "Enter accepts the default or skips an optional field.";
     assert!(visible_text(&session.stderr).contains(guidance));
-    session.send("  配置 🦀  \r".as_bytes());
+    session.send(b"@example/.config\r");
     session.wait_for("Author (optional");
-    session.send(b"  Example team  \r");
+    session.send("  Example team 配置 🦀  \r".as_bytes());
     session.wait_for("Description (optional");
     session.send(b"Description\r");
     session.choose_format(directory.path(), LayerManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(
         layer_manifest(directory.path()),
-        json!({"name": "  配置 🦀  ", "author": "  Example team  ", "description": "Description"})
+        json!({"name": "@example/.config", "author": "  Example team 配置 🦀  ", "description": "Description"})
     );
     session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
     let transcript = visible_text(&session.stderr);
@@ -971,7 +972,7 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
 #[test]
 fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     let parent = tempdir().unwrap();
-    let directory = parent.path().join(" My Project 配置 🦀 ");
+    let directory = parent.path().join("my-project.v2_config");
     fs::create_dir(&directory).unwrap();
     let default_name = directory.file_name().unwrap().to_str().unwrap();
     let mut session = Session::new(&directory, &["init"], None);
@@ -985,6 +986,103 @@ fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     session.choose_format(&directory, LayerManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(layer_manifest(&directory), json!({"name": default_name}));
+}
+
+#[test]
+fn invalid_directory_defaults_fail_before_guided_prompts_and_allow_explicit_overrides() {
+    for name in [
+        "MyProject",
+        "my project",
+        "   ",
+        "配置",
+        ".project",
+        "_project",
+    ] {
+        let parent = tempdir().unwrap();
+        let directory = parent.path().join(name);
+        fs::create_dir(&directory).unwrap();
+        let mut session = Session::new(&directory, &["init"], None);
+        assert!(!session.finish().success());
+        session.assert_no_prompts();
+        assert!(session.stdout.is_empty());
+        assert!(visible_text(&session.stderr).contains("Supply --name explicitly"));
+        assert_no_layer_manifests(&directory);
+        assert_only_files(&directory, &[]);
+        // Drop the finished session to release the shared terminal-allocation lock.
+        drop(session);
+        let mut session = Session::new(&directory, &["init", "--name", "@scope/.config"], None);
+        assert!(session.finish().success());
+        session.assert_compact_success(LayerManifestFormat::Yaml, true);
+        assert_eq!(
+            layer_manifest(&directory),
+            json!({"name": "@scope/.config"})
+        );
+        assert_only_files(&directory, &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn invalid_guided_name_rules_explain_correction_and_retry_before_any_write() {
+    for invalid in [
+        "Shared-config",
+        "two words",
+        ".config",
+        "@Scope/config",
+        "配置",
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        session.send(format!("{invalid}\r").as_bytes());
+        session.wait_for("Name is invalid.");
+        let transcript = visible_text(&session.stderr);
+        assert!(transcript.contains("lowercase"), "{transcript}");
+        assert!(!transcript.contains("non-blank"), "{transcript}");
+        assert!(!transcript.contains("--name"), "{transcript}");
+        assert!(!transcript.contains("Author (optional"), "{transcript}");
+        assert_style(&session.stderr, "✕", |style| style.foreground == Some(31));
+        assert_no_layer_manifests(directory.path());
+        // The editor keeps rejected input. Clear exactly its characters, not bytes.
+        session
+            .send(format!("{}@scope/_config\r", "\x7f".repeat(invalid.chars().count())).as_bytes());
+        session.wait_for("Author (optional");
+        session.send(b"\r");
+        session.wait_for("Description (optional");
+        session.send(b"\r");
+        session.choose_format(directory.path(), LayerManifestFormat::Yaml);
+        assert!(session.finish().success());
+        session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name": "@scope/_config"})
+        );
+        assert_only_files(directory.path(), &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn invalid_guided_name_can_be_cancelled_without_any_file_changes() {
+    for key in [b"\x1b".as_slice(), b"\x03"] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        session.send(b"Shared-config\r");
+        session.wait_for("Name is invalid.");
+        assert_no_layer_manifests(directory.path());
+        session.send(key);
+        assert!(!session.finish().success());
+        let text = visible_text(&session.stderr);
+        assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+        assert_eq!(
+            text.to_lowercase().matches("no files were changed").count(),
+            1,
+            "{text}"
+        );
+        assert!(!text.contains("Error:"), "{text}");
+        assert!(!text.contains("Layer initialised"), "{text}");
+        assert!(session.stdout.is_empty());
+        assert_only_files(directory.path(), &[]);
+    }
 }
 
 #[test]
@@ -1080,7 +1178,7 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
                 }));
             }
             assert_no_layer_manifests(directory.path());
-            session.send("\x7f  配置 🦀  \r".as_bytes());
+            session.send(b"\x7f@example/_config\r");
             session.wait_for("Author (optional");
             session.send(b" \r");
             session
@@ -1108,9 +1206,9 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             session.choose_format(directory.path(), LayerManifestFormat::Yaml);
             assert!(session.finish().success());
             let expected = if supply_author {
-                json!({"name": "  配置 🦀  ", "author": "  Team 配置  "})
+                json!({"name": "@example/_config", "author": "  Team 配置  "})
             } else {
-                json!({"name": "  配置 🦀  ", "description": "  Description 配置  "})
+                json!({"name": "@example/_config", "description": "  Description 配置  "})
             };
             assert_eq!(layer_manifest(directory.path()), expected);
             assert_only_files(directory.path(), &["layer.yaml"]);
@@ -1138,19 +1236,19 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank name.");
     assert_no_layer_manifests(directory.path());
-    session.send("\x7f\u{feff}\r".as_bytes());
+    session.send(b"\x7fexample\r");
     session.wait_for("Author (optional");
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
     assert_no_layer_manifests(directory.path());
-    session.send(b"\x7f\r");
+    session.send("\x7f\u{feff}\r".as_bytes());
     session.wait_for("Description (optional");
     session.send("\u{85}visible 配置 🦀\u{2003}\r".as_bytes());
     session.choose_format(directory.path(), LayerManifestFormat::Jsonc);
     assert!(session.finish().success());
     assert_eq!(
         layer_manifest_in_format(directory.path(), LayerManifestFormat::Jsonc),
-        json!({"name": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
+        json!({"name": "example", "author": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
     );
     assert_only_files(directory.path(), &["layer.jsonc"]);
     session.assert_guided_success(directory.path(), LayerManifestFormat::Jsonc);
@@ -1280,6 +1378,8 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
     for arguments in [
         vec!["init", "--author", " "],
         vec!["init", "--name", ""],
+        vec!["init", "--name", "Shared-config"],
+        vec!["init", "--name", "two words"],
         vec!["init", "--name", "example", "--author", " "],
         vec!["init", "--format", "invalid"],
         vec!["init", "--format"],

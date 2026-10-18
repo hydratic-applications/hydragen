@@ -181,6 +181,15 @@ Hydragen uses layers both for content maintained primarily for reuse and for
 functioning projects. These are not separate kinds of layer: any layer can serve
 as another layer's dependency.
 
+A **[local dependency](GLOSSARY.md#local-dependency)** refers to a directory's
+current contents rather than a selected version. Editing that shared directory
+changes the source available to its dependent layers without choosing a new
+version. A **[published dependency](GLOSSARY.md#published-dependency)** instead
+selects a source by name and one exact version, making adoption of a different
+version an explicit choice. Both retain the reuse relationship; a local path is
+not a version pin. Recognising a published declaration does not itself verify
+that its source exists or retrieve its content.
+
 A layer's **[contributions](GLOSSARY.md#contribution)** are what it supplies itself
 rather than inherits. The three
 **[contribution types](GLOSSARY.md#contribution-type)** are additions,
