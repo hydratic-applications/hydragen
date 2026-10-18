@@ -20,9 +20,9 @@ through simplicity and ease of use.
 
 ## The molecule: connected layers
 
-The icon is the **Hydragen molecule**: a stylised hydrogen molecule, **H₂**, with
-two circular atoms joined by a diagonal bond. The atoms represent layers; the
-bond represents a dependency, allowing one layer to build on another.
+The icon depicts a stylised hydrogen molecule, **H₂**, with two circular atoms
+joined by a diagonal bond. The atoms represent layers; the bond represents a
+dependency, allowing one layer to build on another.
 
 This expresses **granular reuse** and **reuse beyond setup**: combining the pieces
 a project needs while preserving their connection to shared sources. The molecule
