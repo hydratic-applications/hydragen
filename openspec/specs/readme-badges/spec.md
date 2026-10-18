@@ -13,7 +13,8 @@ guarantees or affecting local builds.
 The README SHALL display six linked badges immediately below its top-level
 Hydragen heading and before the introduction: static `status: prototype` and
 `language: Rust` badges served over HTTPS by `img.shields.io`, followed by a live
-dependencies badge served over HTTPS by `deps.rs`, and a static `repo: GitHub`
+dependencies badge served over HTTPS by `deps.rs`, and a static
+`repo: hydratic-applications/hydragen`
 badge served over HTTPS by `img.shields.io`, followed by dynamic stars and sponsors
 badges served over HTTPS by `img.shields.io`. All six SHALL use the compact
 `flat-square` style with square corners and no gradients. The layout SHALL use
@@ -77,7 +78,7 @@ destination reference definitions SHALL appear together at the bottom of the REA
 content. The `Deps Badge` definition SHALL identify the SVG URL and the `Deps`
 definition SHALL identify the deps.rs report page.
 The `Repo Badge` definition SHALL use
-`https://img.shields.io/badge/repo-GitHub-181717?style=flat-square&logo=github&logoColor=white`
+`https://img.shields.io/badge/repo-hydratic--applications%2Fhydragen-181717?style=flat-square&logo=github&logoColor=white`
 and the `Repo` definition SHALL identify the GitHub repository page.
 
 #### Scenario: Inspect the README source
@@ -96,7 +97,7 @@ and the `Repo` definition SHALL identify the GitHub repository page.
 #### Scenario: Render the repo reference link
 
 - **WHEN** a Markdown renderer resolves `[![Repo Badge]][Repo]`
-- **THEN** it displays the static `repo: GitHub` image linked to
+- **THEN** it displays the static `repo: hydratic-applications/hydragen` image linked to
   `https://github.com/hydratic-applications/hydragen`, rather than to the badge SVG
 
 ### Requirement: Badges do not imply unsupported project guarantees

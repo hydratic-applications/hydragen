@@ -177,7 +177,7 @@ inputs.
 [Rust]: #build-and-run-locally
 [Deps Badge]: https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=flat-square
 [Deps]: https://deps.rs/repo/github/hydratic-applications/hydragen
-[Repo Badge]: https://img.shields.io/badge/repo-GitHub-181717?style=flat-square&logo=github&logoColor=white
+[Repo Badge]: https://img.shields.io/badge/repo-hydratic--applications%2Fhydragen-181717?style=flat-square&logo=github&logoColor=white
 [Repo]: https://github.com/hydratic-applications/hydragen
 [Stars Badge]: https://img.shields.io/github/stars/hydratic-applications/hydragen?style=flat-square&label=stars
 [Stars]: https://github.com/hydratic-applications/hydragen/stargazers
