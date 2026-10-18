@@ -2,7 +2,7 @@
 
 ## The name
 
-**Hydragen** is a variation of **Hydratic**, the organisation namespace under which
+The name **Hydragen** draws on **Hydratic**, the organisation namespace under which
 the project is developed.
 
 The **-gen** ending reflects the system's generative nature: combining reusable
