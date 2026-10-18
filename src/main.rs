@@ -1,12 +1,13 @@
 mod diagnostics;
 mod interaction;
 mod presentation;
+mod usage_errors;
 
 use std::error::Error;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use hydragen::{LayerManifestFormat, Metadata, create_init, inspect_init};
 use interaction::Mode;
 
@@ -47,8 +48,10 @@ Behaviour:
 #[derive(Parser)]
 #[command(
     name = "hydragen",
+    bin_name = "hydragen",
     version,
     color = clap::ColorChoice::Never,
+    styles = clap::builder::Styles::plain(),
     max_term_width = 100,
     about = "Build projects from shared layers"
 )]
@@ -98,9 +101,20 @@ struct InitArgs {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
     let presentation = presentation::Presentation::detect();
     presentation.configure();
+    let cli = match parse_cli(std::env::args_os(), presentation) {
+        Ok(cli) => cli,
+        Err(output) => {
+            // Every parsing outcome returns here, before even resolving current_dir.
+            if output.stderr {
+                let _ = io::stderr().lock().write_all(output.text.as_bytes());
+            } else {
+                let _ = io::stdout().lock().write_all(output.text.as_bytes());
+            }
+            return ExitCode::from(output.exit_code);
+        }
+    };
     match run(cli, presentation) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -120,6 +134,46 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+#[derive(Debug)]
+struct ParseOutput {
+    text: String,
+    stderr: bool,
+    exit_code: u8,
+}
+
+fn parse_cli<I, T>(
+    arguments: I,
+    presentation: presentation::Presentation,
+) -> Result<Cli, ParseOutput>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    // Keep the built static definition: error adaptation needs its argument metadata.
+    let mut command = Cli::command();
+    command.build();
+    command
+        .try_get_matches_from_mut(arguments)
+        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches))
+        .map_err(|error| {
+            // Capture these before the renderer consumes the error. Help-on-missing-
+            // input is not DisplayHelp: clap deliberately keeps it stderr/status 2.
+            let stderr = error.use_stderr();
+            let exit_code = u8::try_from(error.exit_code()).expect("clap exit code fits in u8");
+            let text = match error.kind() {
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+                    error.render().to_string()
+                }
+                _ => usage_errors::render(error, &command, presentation),
+            };
+            ParseOutput {
+                text,
+                stderr,
+                exit_code,
+            }
+        })
 }
 
 fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn Error>> {
@@ -258,6 +312,126 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     use std::path::Path;
+
+    fn parse_output(arguments: &[&str], decorated: bool) -> ParseOutput {
+        match parse_cli(
+            arguments,
+            presentation::Presentation {
+                decorated,
+                basic: false,
+            },
+        ) {
+            Err(output) => output,
+            Ok(_) => panic!("expected a parser outcome, not operational input"),
+        }
+    }
+
+    #[test]
+    fn root_missing_input_and_explicit_help_keep_distinct_streams_and_statuses() {
+        for decorated in [false, true] {
+            let root = parse_output(&["hydragen"], decorated);
+            assert_eq!(root.exit_code, 2);
+            assert!(root.stderr);
+            assert!(
+                root.text.contains("Error: A command is required."),
+                "{}",
+                root.text
+            );
+            for detail in ["Usage: hydragen", "Commands:", "init", "add", "--help"] {
+                assert!(root.text.contains(detail), "{detail}: {}", root.text);
+            }
+            let global_only = parse_output(&["hydragen", "--non-interactive"], decorated);
+            assert_eq!(global_only.exit_code, 2);
+            assert!(global_only.stderr);
+            assert!(global_only.text.contains("requires a subcommand"));
+            assert!(global_only.text.contains("Usage: hydragen"));
+            assert!(!global_only.text.contains("Could not parse"));
+
+            for arguments in [
+                vec!["hydragen", "--help"],
+                vec!["hydragen", "-h"],
+                vec!["hydragen", "init", "--help"],
+                vec!["hydragen", "init", "-h"],
+                vec!["hydragen", "add", "--help"],
+                vec!["hydragen", "add", "-h"],
+                vec!["hydragen", "help", "init"],
+                vec!["hydragen", "help", "add"],
+                vec!["hydragen", "--version"],
+                vec!["hydragen", "-V"],
+            ] {
+                let output = parse_output(&arguments, decorated);
+                assert_eq!(output.exit_code, 0, "{arguments:?}");
+                assert!(!output.stderr, "{arguments:?}");
+                assert!(!output.text.contains("Error:"));
+                assert!(!output.text.contains('\x1b'));
+                assert!(output.text.contains("hydragen"));
+                assert!(output.text.ends_with('\n'));
+            }
+        }
+    }
+
+    #[test]
+    fn command_context_never_uses_untrusted_argv_zero() {
+        for tail in [
+            vec![],
+            vec!["--help"],
+            vec!["--version"],
+            vec!["--non-interactive"],
+            vec!["init", "--nme"],
+            vec!["add"],
+            vec!["add", "--unknown"],
+        ] {
+            let mut arguments = vec!["untrusted\x1b[2J\nname"];
+            arguments.extend(tail);
+            let output = parse_output(&arguments, false);
+            assert!(!output.text.contains("untrusted"), "{}", output.text);
+            assert!(!output.text.contains('\x1b'));
+            assert!(output.text.contains("hydragen"));
+        }
+    }
+
+    #[test]
+    fn successful_parse_does_not_rewrite_argument_values() {
+        let raw = "./配置 🦀\\literal\\n\x1b[2J\npath";
+        let cli = parse_cli(
+            ["hydragen", "add", raw],
+            presentation::Presentation {
+                decorated: false,
+                basic: false,
+            },
+        )
+        .unwrap_or_else(|error| panic!("{}", error.text));
+        assert!(matches!(cli.command, Command::Add(AddArgs { sources }) if sources == [raw]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invalid_utf8_is_a_parser_outcome_not_an_args_unicode_panic() {
+        use std::os::unix::ffi::OsStringExt;
+        let arguments = [
+            std::ffi::OsString::from("hydragen"),
+            std::ffi::OsString::from("add"),
+            std::ffi::OsString::from_vec(vec![b'.', b'/', 0xff]),
+        ];
+        let output = match parse_cli(
+            arguments,
+            presentation::Presentation {
+                decorated: false,
+                basic: false,
+            },
+        ) {
+            Err(output) => output,
+            Ok(_) => panic!("String-valued sources must reject invalid UTF-8"),
+        };
+        assert!(output.stderr);
+        assert_eq!(output.exit_code, 2);
+        assert!(
+            output.text.starts_with("Error: Invalid UTF-8"),
+            "{}",
+            output.text
+        );
+        assert!(output.text.contains("Usage: hydragen add"));
+    }
 
     struct FailingOutput {
         remaining: usize,

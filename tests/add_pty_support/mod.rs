@@ -1,4 +1,4 @@
-//! Small add-only terminal harness: no input or init prompt machinery.
+//! Small one-shot terminal harness: no input or init prompt machinery.
 
 use std::io::Read;
 use std::path::Path;
@@ -45,7 +45,9 @@ impl Output {
     }
 
     pub fn evidence(&self, label: &str) {
-        if let Some(directory) = std::env::var_os("HYDRAGEN_ADD_EVIDENCE") {
+        if let Some(directory) = std::env::var_os("HYDRAGEN_USAGE_EVIDENCE")
+            .or_else(|| std::env::var_os("HYDRAGEN_ADD_EVIDENCE"))
+        {
             let directory = Path::new(&directory);
             std::fs::create_dir_all(directory).unwrap();
             std::fs::write(directory.join(format!("{label}.ansi.txt")), &self.raw).unwrap();
@@ -100,6 +102,10 @@ pub fn run(directory: &Path, arguments: &[&str], settings: Settings<'_>) -> Outp
 stdin) exec \"$@\" </dev/null;;
 stdout) exec \"$@\" >\"$CAPTURE\";;
 stderr) exec \"$@\" 2>\"$CAPTURE\";;
+stdin,stdout) exec \"$@\" </dev/null >\"$CAPTURE\";;
+stdin,stderr) exec \"$@\" </dev/null 2>\"$CAPTURE\";;
+stdout,stderr) exec \"$@\" >\"$CAPTURE\" 2>&1;;
+stdin,stdout,stderr) exec \"$@\" </dev/null >\"$CAPTURE\" 2>&1;;
 *) exec \"$@\";;
 esac",
         "add-terminal",

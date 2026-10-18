@@ -905,7 +905,7 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
 }
 
 #[test]
-fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
+fn terminal_version_stays_plain_and_argument_errors_use_shared_style_without_writes() {
     for (arguments, success) in [
         (vec!["--version"], true),
         (vec![], false),
@@ -924,10 +924,10 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
                 ..Default::default()
             },
         );
-        assert_eq!(session.finish().success(), success);
+        let status = session.finish();
+        assert_eq!(status.success(), success);
         session.assert_no_header();
         assert!(!session.stdout.contains(&b'\x1b'));
-        assert!(!session.stderr.contains(&b'\x1b'));
         if success {
             assert!(session.stderr.is_empty());
             assert_eq!(
@@ -935,7 +935,14 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
                 format!("hydragen {}\r\n", env!("CARGO_PKG_VERSION"))
             );
         } else {
+            assert_eq!(status.exit_code(), 2);
             assert!(session.stdout.is_empty());
+            let stderr = String::from_utf8_lossy(&session.stderr);
+            assert!(stderr.contains("\x1b[31m"), "{stderr:?}");
+            assert!(visible_text(&session.stderr).starts_with("✕ Error:"));
+            for line in stderr.lines().skip(1) {
+                assert!(!line.contains('\x1b'), "{line:?}");
+            }
             assert!(visible_text(&session.stderr).contains("help"));
         }
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
@@ -1386,16 +1393,20 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
     ] {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &arguments, None);
-        assert!(!session.finish().success());
+        let status = session.finish();
+        assert_eq!(
+            status.exit_code(),
+            if arguments.contains(&"--format") {
+                2
+            } else {
+                1
+            }
+        );
         session.assert_no_prompts();
         assert!(session.stdout.is_empty());
-        if arguments.contains(&"--format") {
-            session.assert_plain();
-        } else {
-            assert_style(&session.stderr, "✕ Error:", |style| {
-                style.foreground == Some(31)
-            });
-        }
+        assert_style(&session.stderr, "✕ Error:", |style| {
+            style.foreground == Some(31)
+        });
         assert_no_layer_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
     }

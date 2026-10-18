@@ -231,7 +231,12 @@ colour. Allow compact styled flag-only statuses only when all standard streams
 are terminals, CI is disabled, and `TERM` is not `dumb`. A non-empty `NO_COLOR`
 or `CLICOLOR=0` disables decorative status styling; explicit disables win over
 forced colour. CI or any redirected standard stream keeps status output plain
-even when colour is forced. Help, version, and clap usage errors remain plain.
+even when colour is forced. Explicit help and version remain plain successful
+output on standard output. Route root and subcommand parser failures, including
+future commands, through the shared parser-error presentation using these same
+styling controls. Preserve clap's usage-error exit status and standard-error stream,
+useful argument details, choices, suggestions, and usage/help guidance, without
+branded openings or guided-session frames.
 
 Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
 where styled; keep supporting details and recovery guidance in the normal
@@ -275,9 +280,11 @@ files changed.
 
 Use shared read-only discovery and loading for commands that depend on a layer
 manifest, and report duplicates at most once per affected directory per invocation
-on standard error, before a dependent failure. Do not scan layer manifests for
-help, version, or argument-usage failures. Test both captured-output execution and
-real terminal sessions, with bounded waits and child-process cleanup.
+on standard error, before a dependent failure. Handle help, version, and
+argument-usage failures before operational dispatch, current-directory resolution,
+layer manifest discovery or loading, schema preparation, prompts, or writes.
+Test both captured-output execution and real terminal sessions, with bounded
+waits and child-process cleanup.
 
 ### Local dependency addition
 

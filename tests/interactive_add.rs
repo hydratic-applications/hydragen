@@ -226,7 +226,7 @@ fn mixed_stream_redirection_stays_plain_despite_force_and_does_not_prompt() {
 }
 
 #[test]
-fn terminal_help_and_missing_arguments_are_plain_and_never_discover_layers() {
+fn terminal_help_stays_plain_and_usage_failures_are_styled_without_discovery() {
     let fixture = Fixture::new();
     fs::write(fixture.app.join("layer.yaml"), "[").unwrap();
     fs::write(fixture.app.join("layer.json"), "{}").unwrap();
@@ -244,11 +244,21 @@ fn terminal_help_and_missing_arguments_are_plain_and_never_discover_layers() {
             },
         );
         assert_eq!(output.status.success(), success, "{}", output.plain());
-        assert!(!output.raw.contains('\x1b'), "{}", output.raw);
+        if success {
+            assert!(!output.raw.contains('\x1b'), "{}", output.raw);
+            assert!(!output.plain().contains("Error:"));
+        } else {
+            assert_eq!(output.status.exit_code(), 2);
+            assert!(output.raw.contains("\x1b[31m"), "{}", output.raw);
+            assert!(output.plain().starts_with("✕ Error:"));
+            for line in output.raw.lines().skip(1) {
+                assert!(!line.contains('\x1b'), "{line:?}");
+            }
+        }
         assert!(!output.plain().contains("Warning:"));
         assert!(!output.plain().contains("Could not add dependencies"));
         if label == "missing-args-40" {
-            assert!(output.plain().contains("required arguments"));
+            assert!(output.plain().contains("Add requires at least one source."));
             assert!(output.plain().contains("<SOURCE>..."));
         }
         output.evidence(label);

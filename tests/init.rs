@@ -1185,12 +1185,13 @@ fn invalid_format_values_are_clap_errors_not_paths_or_prompts() {
         assert_failure(
             &output,
             if value.is_empty() {
-                "a value is required"
+                "Error: A value is required"
             } else {
-                "invalid value"
+                "Error: Invalid value"
             },
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2));
         assert!(stderr.contains("yaml, yml, toml, json, jsonc"));
         assert!(!stderr.contains("Warning:"));
         assert!(!stderr.contains("already exists"));

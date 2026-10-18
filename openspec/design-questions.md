@@ -227,6 +227,17 @@ design everything upfront.
       independent errors cleanly in source order with actionable details and a
       plain-output equivalent. Review both terminal and captured output. See the
       [feedback decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#report-actual-additions-and-pre-existing-dependencies-separately).
+    - **Approved usage-error follow-up:** Root and subcommand parser failures use
+      the shared compact red-cross error style in eligible terminals and meaningful
+      plain output otherwise, under the existing colour controls. Explicit help
+      and version remain plain and successful; usage failures retain clap's stderr
+      and nonzero exit status, useful diagnostic context, and concise recovery
+      guidance. All parsing outcomes precede layer discovery, schema preparation,
+      prompts, or writes. This supersedes only the earlier plain-usage-error
+      exception, not the input, session-header, help/version, or stream policies.
+      See the [shared presentation decision](changes/unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
+      [syntax-first decision](changes/unify-cli-usage-errors/design.md#keep-error-priority-independent-of-layer-state),
+      and [policy-history boundary](changes/unify-cli-usage-errors/design.md#record-the-policy-without-rewriting-historical-decisions).
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to
