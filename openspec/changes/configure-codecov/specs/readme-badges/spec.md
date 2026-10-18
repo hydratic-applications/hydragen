@@ -9,7 +9,7 @@ order, adding coverage between dependencies and license. A line break SHALL
 retain repo, stars, and sponsors as the second group. Status, language, coverage,
 repo, stars, sponsors, and license images SHALL use HTTPS Shields.io URLs; the
 dependencies image SHALL use the existing HTTPS deps.rs URL. All eight SHALL
-use `for-the-badge` styling and `height="20"` to match the header. Images SHALL NOT
+use `for-the-badge` styling and `height="22"` to match the header. Images SHALL NOT
 use fixed widths that prevent wrapping on narrow displays.
 
 #### Scenario: Read the README introduction
@@ -17,7 +17,7 @@ use fixed widths that prevent wrapping on narrow displays.
 - **WHEN** a reader opens the rendered README with badge images available
 - **THEN** status, language, dependencies, coverage, and license appear in that
   order in the first group, with repo, stars, and sponsors in the second group
-- **AND** all eight use `for-the-badge` styling at 20px height without replacing introductory text
+- **AND** all eight use `for-the-badge` styling at 22px height without replacing introductory text
 
 #### Scenario: Read on a narrow display
 
@@ -27,7 +27,7 @@ use fixed widths that prevent wrapping on narrow displays.
 ### Requirement: Accessible labels and useful navigation
 
 The existing badges SHALL retain descriptive alternative text and their current
-destinations: status to `#hydragen`, language to `#build-and-run-locally`,
+destinations: status to `#hydragen`, language to `https://rust-lang.org/`,
 dependencies to `https://deps.rs/repo/github/hydratic-applications/hydragen`,
 repo to `https://github.com/hydratic-applications/hydragen`, stars to
 `https://github.com/hydratic-applications/hydragen/stargazers`, sponsors to

@@ -14,7 +14,7 @@ review and show the latest measured `main` coverage in the README.
 - Configure project and patch coverage checks against the measured base coverage,
   without inventing a fixed percentage target or changing branch protection.
 - Add a live Shields.io coverage badge matching the README's `for-the-badge`
-  styling at 20px height and explicitly tracking `main`,
+  styling at 22px height and explicitly tracking `main`,
   linked to that branch's Codecov report and integrated into the existing README
   header without reorganising unrelated badges.
 - Document local coverage generation and the remaining private-repository service

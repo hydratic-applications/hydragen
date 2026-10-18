@@ -156,6 +156,15 @@
 
 ## Pending post-merge verification
 
+### README alignment — 2026-10-19
+
+- Fetched main through `bcda0ca` and integrated its newer wordmark, Rust website
+  link, and 22px badge heights. At the maintainer's request, the Codecov shield
+  now uses the same `for-the-badge` style at 22px height. Its explicit `main`
+  branch, report link, alternative text, and token-free URL are unchanged.
+- Aligned the change's current badge requirements with main while preserving the
+  earlier 20px styling decision above as historical verification evidence.
+
 **Progress: 16/18 tasks complete.** Tasks 5.2 and 5.3 remain unchecked.
 
 - No merge was authorised or performed. Hosted verification above covers a

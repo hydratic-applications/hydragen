@@ -14,7 +14,7 @@
 
 ## 3. Add the shield and focused documentation
 
-- [x] 3.1 Insert the linked main-branch coverage shield after dependencies in the existing README HTML header, matching its current `for-the-badge` style at 20px height as approved during the merge from main; preserve other badges, destinations, and wrapping, and use approved badge access only or explicitly document unavailable private access.
+- [x] 3.1 Insert the linked main-branch coverage shield after dependencies in the existing README HTML header, matching its current `for-the-badge` style at 22px height as requested after the latest changes on main; preserve other badges, destinations, and wrapping, and use approved badge access only or explicitly document unavailable private access.
 - [x] 3.2 Add a concise local coverage example and reference link under README Development; keep ordinary build and test commands unchanged.
 - [x] 3.3 Add `docs/coverage.md` covering prerequisites, OIDC, private account and badge access, line/Linux measurement limits, fork and bot behaviour, job versus Codecov status semantics, first-main baseline, caches, and troubleshooting. Link to `docs/going-public-checklist.md` for the separate later public-access checks and badge-token removal/revocation without making publication a prerequisite or a task in this change.
 
