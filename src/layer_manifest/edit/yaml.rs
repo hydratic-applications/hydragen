@@ -86,6 +86,7 @@ enum Syntax {
     Close,
     Comma,
     Dash,
+    Value,
     Other,
 }
 
@@ -204,6 +205,7 @@ impl<'source> Document<'source> {
                 TokenType::FlowSequenceEnd | TokenType::FlowMappingEnd => Syntax::Close,
                 TokenType::FlowEntry => Syntax::Comma,
                 TokenType::BlockEntry => Syntax::Dash,
+                TokenType::Value => Syntax::Value,
                 TokenType::Comment(_) => {
                     comments.push(range);
                     continue;
@@ -325,11 +327,26 @@ impl<'source> Document<'source> {
         // Recover only this scanner-identified dash, never search YAML content.
         let line = line_start(source, dash.range.start);
         let prefix = source[line..dash.range.start].trim_end_matches([' ', '\t']);
-        let indent = prefix
+        let prefix = prefix
             .strip_suffix('-')
-            .filter(|prefix| prefix.bytes().all(|byte| byte == b' '))
-            .ok_or("Cannot identify the indentation of the YAML dependencies dash.")?
-            .len();
+            .ok_or("Cannot identify the YAML dependencies dash before its entry token.")?;
+        let dash_start = line + prefix.len();
+        // An explicit mapping key can introduce its sequence compactly as
+        // `: - old`. That dash's actual column, not the value indicator's
+        // indentation, determines the column of subsequent sequence entries.
+        let compact_value = self.tokens.iter().any(|token| {
+            token.kind == Syntax::Value
+                && token.range.start >= line
+                && token.range.start < dash_start
+                && source.get(token.range.start..token.range.start + 1) == Some(":")
+                && source[token.range.start + 1..dash_start]
+                    .bytes()
+                    .all(|byte| matches!(byte, b' ' | b'\t'))
+        });
+        if !prefix.bytes().all(|byte| byte == b' ') && !compact_value {
+            return Err("Cannot identify the indentation of the YAML dependencies dash.".into());
+        }
+        let indent = prefix.chars().count();
         let last = &self.nodes[*node.children.last().ok_or("Empty YAML block sequence.")?];
         if !matches!(last.kind, Kind::Scalar(..) | Kind::Alias(_)) {
             return Err("YAML dependencies must contain scalar references.".into());
@@ -352,6 +369,7 @@ impl<'source> Document<'source> {
         } else {
             next_line(source, end)
         };
+        let position = self.trailing_item_comment_end(source, position, indent);
         let eol = newline(source);
         let mut addition = String::new();
         if position > 0 && !source[..position].ends_with(['\r', '\n']) {
@@ -369,6 +387,32 @@ impl<'source> Document<'source> {
             addition.push_str(eol);
         }
         Ok((position, addition))
+    }
+
+    fn trailing_item_comment_end(&self, source: &str, mut position: usize, indent: usize) -> usize {
+        for comment in &self.comments {
+            if comment.start < position {
+                continue;
+            }
+            let line = line_start(source, comment.start);
+            let prefix = &source[line..comment.start];
+            // More-indented own-line comments belong to the previous item.
+            // Keep that item and its complete comment group together, allowing
+            // blank lines between comments. Sequence-level footers and comments
+            // for following fields stay after the new entries: the first such
+            // comment, or any intervening data, ends the attached group.
+            if line < position
+                || !source[position..line]
+                    .bytes()
+                    .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+                || prefix.len() <= indent
+                || !prefix.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
+            {
+                break;
+            }
+            position = next_line(source, comment.end);
+        }
+        position
     }
 }
 
@@ -468,6 +512,123 @@ mod tests {
             .count();
         assert!(output[common..].ends_with(&source[common..]), "{output:?}");
         output
+    }
+
+    fn check_guarded_exact(source: &str, expected: &str) {
+        use crate::layer_manifest::edit::append_dependencies;
+        use crate::layer_manifest::{LayerManifestFormat, parse_source};
+        use std::path::Path;
+
+        for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+            let path = Path::new(format.filename());
+            let original = parse_source(path, format, source.to_owned()).unwrap();
+            let candidate = append_dependencies(&original, &["../new"])
+                .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+            assert_eq!(candidate, expected, "{format}: {source:?}");
+            let mut intended = original.document;
+            intended["dependencies"]
+                .as_array_mut()
+                .unwrap()
+                .push(Value::String("../new".into()));
+            let decoded = parse_source(path, format, candidate).unwrap();
+            assert_eq!(decoded.document, intended);
+        }
+        assert_eq!(check(source, &["../new"]), expected);
+    }
+
+    #[test]
+    fn block_trailing_item_comment_regression() {
+        check_guarded_exact(
+            "name: app\ndependencies:\n  - ../old\n    # Required by old, not new\ncustom: unchanged\n",
+            "name: app\ndependencies:\n  - ../old\n    # Required by old, not new\n  - \"../new\"\ncustom: unchanged\n",
+        );
+        check_guarded_exact(
+            "name: app\ndependencies:\n- &old '../old' # inline old\n  # Required by old\n# Following alias field\ncustom: *old\n",
+            "name: app\ndependencies:\n- &old '../old' # inline old\n  # Required by old\n- \"../new\"\n# Following alias field\ncustom: *old\n",
+        );
+    }
+
+    #[test]
+    fn block_compact_explicit_key_regression() {
+        check_guarded_exact(
+            "name: app\n? dependencies\n: - ../old\ncustom: unchanged\n",
+            "name: app\n? dependencies\n: - ../old\n  - \"../new\"\ncustom: unchanged\n",
+        );
+    }
+
+    #[test]
+    fn block_trailing_item_comments_keep_adjacency_across_scalar_styles_and_boundaries() {
+        for item in [
+            "../old # inline old",
+            "'../old' # quoted old",
+            "\"../old\" # double quoted old",
+            "&old ../old # anchored old",
+            "|- # literal header\n      ../old",
+            ">- # folded header\n      ../old",
+        ] {
+            for gap in ["", "\n", "  \n"] {
+                let attached = format!(
+                    "name: app\ndependencies:\n  - ../before # earlier item\n  - {item}\n{gap}    # Required by old, not new\n{gap}    # More detail about old"
+                );
+                for suffix in [
+                    "\ncustom: unchanged\n",
+                    "\n# Following field\ncustom: unchanged",
+                    "\n  # Sequence footer\n# Following field\ncustom: unchanged\n",
+                    "",
+                    "\n",
+                    "\n\n  # Sequence footer at EOF",
+                    "\n... # End document\n# Outside document\n",
+                ] {
+                    for eol in ["\n", "\r\n"] {
+                        let source = format!("{attached}{suffix}").replace('\n', eol);
+                        let expected =
+                            format!("{attached}\n  - \"../new\"{suffix}").replace('\n', eol);
+                        check_guarded_exact(&source, &expected);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn block_compact_sequences_support_key_properties_items_comments_and_indentation() {
+        for key in [
+            "dependencies",
+            "'dependencies'",
+            "\"depend\\u0065ncies\"",
+            "!!str dependencies",
+            "&key dependencies",
+            "!!str &key 'dependencies'",
+        ] {
+            for root_indent in ["", "  "] {
+                for item in ["../old", "'../old'", "&old ../old", "!!str \"../old\""] {
+                    for more in [
+                        String::new(),
+                        format!("\n{root_indent}  - ../second # second inline"),
+                    ] {
+                        let attached = format!(
+                            "{root_indent}name: app\n{root_indent}? {key}\n{root_indent}: - {item} # first inline{more}\n{root_indent}    # Last existing item detail"
+                        );
+                        for suffix in [
+                            String::new(),
+                            "\n".into(),
+                            format!("\n{root_indent}custom: unchanged\n"),
+                            format!(
+                                "\n{root_indent}  # Sequence footer\n{root_indent}# Following field\n{root_indent}custom: unchanged"
+                            ),
+                        ] {
+                            for eol in ["\n", "\r\n"] {
+                                let source = format!("{attached}{suffix}").replace('\n', eol);
+                                let expected =
+                                    format!("{attached}\n{root_indent}  - \"../new\"{suffix}")
+                                        .replace('\n', eol);
+                                check_guarded_exact(&source, &expected);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

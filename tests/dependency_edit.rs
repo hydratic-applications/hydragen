@@ -358,6 +358,57 @@ fn jsonc_absent_property_preserves_final_property_and_root_closing_comments() {
 }
 
 #[test]
+fn jsonc_array_keeps_comments_attached_to_a_comma_on_the_next_line() {
+    for comment in [
+        "// Required by old",
+        "/* Required by old */",
+        "/* Required by old\n       Keep this explanation with old */",
+    ] {
+        for ending in ["\n", "\r\n"] {
+            let old_group = format!("    \"../old\"\n    , {comment}\n");
+            let source = format!(
+                "{{\n  \"name\": \"app\",\n  \"dependencies\": [\n{old_group}  ],\n  \"custom\": {{\"dependencies\": [false]}}\n}}\n"
+            )
+            .replace('\n', ending);
+            let old_group = old_group.replace('\n', ending);
+            let result = assert_append(
+                LayerManifestFormat::Jsonc,
+                &source,
+                &["../new-a", "../new-b"],
+                &[&old_group, "\"custom\": {\"dependencies\": [false]}"],
+            );
+            let old_end = result.find(&old_group).unwrap() + old_group.len();
+            assert!(old_end <= result.find("../new-a").unwrap());
+            assert_new_edit_line_endings(&source, &result);
+        }
+    }
+}
+
+#[test]
+fn jsonc_absent_dependencies_keep_the_final_property_comma_comment_group() {
+    for comment in [
+        "// Name of this app",
+        "/* Name of this app */",
+        "/* Name of this app\n     Keep this explanation with name */",
+    ] {
+        for ending in ["\n", "\r\n"] {
+            let old_group = format!("  \"name\": \"app\"\n  , {comment}\n");
+            let source = format!("{{\n{old_group}}}").replace('\n', ending);
+            let old_group = old_group.replace('\n', ending);
+            let result = assert_append(
+                LayerManifestFormat::Jsonc,
+                &source,
+                &["../new-a", "../new-b"],
+                &[&old_group],
+            );
+            let old_end = result.find(&old_group).unwrap() + old_group.len();
+            assert!(old_end <= result.find("\"dependencies\"").unwrap());
+            assert_new_edit_line_endings(&source, &result);
+        }
+    }
+}
+
+#[test]
 fn toml_missing_root_key_is_not_inserted_into_table_or_array_of_tables() {
     for tail in [
         "[custom]\nkeep = true\ndependencies = ['not-a-layer-reference']\n",
@@ -436,6 +487,118 @@ fn yaml_indentless_arrays_keep_attached_and_following_comments() {
                 "# next field\ncustom: true\n",
             ],
         );
+    }
+}
+
+#[test]
+fn yaml_last_item_keeps_more_indented_comment_lines_at_eof() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for ending in ["\n", "\r\n"] {
+            for final_newline in [false, true] {
+                let old_group =
+                    "  - ../old\n    # Required by old\n    # Keep this explanation with old";
+                let source = format!(
+                    "name: app\ndependencies:\n{old_group}{}",
+                    if final_newline { "\n" } else { "" }
+                )
+                .replace('\n', ending);
+                let old_group = old_group.replace('\n', ending);
+                let result =
+                    assert_append(format, &source, &["../new-a", "../new-b"], &[&old_group]);
+                let old_end = result.find(&old_group).unwrap() + old_group.len();
+                assert!(old_end <= result.find("../new-a").unwrap());
+                assert_new_edit_line_endings(&source, &result);
+            }
+        }
+    }
+}
+
+#[test]
+fn yaml_old_item_comments_stay_before_new_items_but_footers_stay_after_them() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for ending in ["\n", "\r\n"] {
+            let old_group =
+                "  - ../old # Existing dependency\n    # Required by old\n    # Old item details\n";
+            let footer = "  # Sequence footer\n# Custom field\ncustom: {dependencies: [false]}\n";
+            let source =
+                format!("name: app\ndependencies:\n{old_group}{footer}").replace('\n', ending);
+            let old_group = old_group.replace('\n', ending);
+            let footer = footer.replace('\n', ending);
+            let result = assert_append(
+                format,
+                &source,
+                &["../new-a", "../new-b"],
+                &[&old_group, &footer],
+            );
+            let old_end = result.find(&old_group).unwrap() + old_group.len();
+            assert!(old_end <= result.find("../new-a").unwrap());
+            assert!(result.find("../new-b").unwrap() < result.find(&footer).unwrap());
+            assert_new_edit_line_endings(&source, &result);
+        }
+    }
+}
+
+#[test]
+fn yaml_compact_explicit_dependency_key_accepts_an_existing_sequence() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for ending in ["\n", "\r\n"] {
+            let source = "name: app\n? dependencies\n: - ../old".replace('\n', ending);
+            let declaration = "? dependencies\n: - ../old".replace('\n', ending);
+            let result = assert_append(format, &source, &["../new-a", "../new-b"], &[&declaration]);
+            assert_new_edit_line_endings(&source, &result);
+        }
+    }
+}
+
+#[test]
+fn yaml_compact_explicit_keys_preserve_comment_groups_and_neighboring_ranges() {
+    // Vary key spelling and root indentation without multiplying unrelated fixtures.
+    for (key, indent) in [
+        ("dependencies", ""),
+        ("'dependencies'", "  "),
+        ("!!str dependencies", ""),
+        ("!!str \"dependencies\"", "  "),
+    ] {
+        for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+            for ending in ["\n", "\r\n"] {
+                let heading = format!("{indent}? {key}\n{indent}: - ../first # First item\n");
+                let old_group = format!(
+                    "{indent}  - '../old' # Last existing item\n{indent}    # Required by old\n"
+                );
+                let neighbor = format!(
+                    "{indent}# Custom field\n{indent}custom:\n{indent}  dependencies: [false]\n{indent}  literal: '? dependencies : - ../old'\n"
+                );
+                let source = format!(
+                    "{indent}name: app\n{indent}description: '配置 before ranges'\n{heading}{old_group}{neighbor}"
+                )
+                .replace('\n', ending);
+                let heading = heading.replace('\n', ending);
+                let old_group = old_group.replace('\n', ending);
+                let neighbor = neighbor.replace('\n', ending);
+                let result = assert_append(
+                    format,
+                    &source,
+                    &["../new-a", "../new-b"],
+                    &[&heading, &old_group, &neighbor],
+                );
+                let old_end = result.find(&old_group).unwrap() + old_group.len();
+                assert!(old_end <= result.find("../new-a").unwrap());
+                assert!(result.find("../new-b").unwrap() < result.find(&neighbor).unwrap());
+                assert_new_edit_line_endings(&source, &result);
+            }
+        }
+    }
+}
+
+fn assert_new_edit_line_endings(source: &str, result: &str) {
+    assert_eq!(result.ends_with('\n'), source.ends_with('\n'));
+    if source.contains("\r\n") {
+        assert!(
+            !result.replace("\r\n", "").contains('\n'),
+            "edit inserted a bare LF: {result:?}"
+        );
+    } else {
+        assert!(!result.contains('\r'), "edit inserted a CR: {result:?}");
     }
 }
 

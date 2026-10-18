@@ -138,19 +138,25 @@ fn insert_items(
         .iter()
         .find(|token| matches!(token.token, Token::Comma));
 
-    // Do not insert between an entry and its inline comments, including a line
-    // comment after a trailing comma. A comment beginning on a later line is a
-    // closing comment and can stay after the additions.
-    let mut attached_end = end;
+    // A trailing comma belongs to the old entry even on a later line. Start
+    // after that token so its own inline comment group remains attached too;
+    // everything between the entry and comma is already protected. Multiline
+    // block comments stay in the group, as do comments on their closing line.
+    // Only a line break between tokens starts a separate closing comment.
+    let attachment_start = comma.map_or(end, |token| token.range.end);
+    let mut attached_end = attachment_start;
     if !items.is_empty() {
-        for token in &tail {
+        for token in tail
+            .iter()
+            .filter(|token| token.range.start >= attachment_start)
+        {
             if has_line_break(&source[attached_end..token.range.start]) {
                 break;
             }
             attached_end = token.range.end;
         }
     }
-    let minimum = comma.map_or(attached_end, |token| attached_end.max(token.range.end));
+    let minimum = attached_end;
     let next = tail
         .iter()
         .find(|token| token.range.start >= minimum)
@@ -371,6 +377,84 @@ mod tests {
             LayerManifestFormat::Jsonc,
             "{\n  \"custom\": {\"text\": \"},]\"}, // custom\n  \"dependencies\": [\"../new\"],\n  /* root closing */\n}",
         );
+    }
+
+    #[test]
+    fn jsonc_newline_before_comma_keeps_old_dependency_inline_comment() {
+        check(
+            "{\n \"name\":\"app\",\n \"dependencies\":[\n \"../old\"\n , // Required by old, not new\n ]\n}\n",
+            &["../new"],
+            LayerManifestFormat::Jsonc,
+            "{\n \"name\":\"app\",\n \"dependencies\":[\n \"../old\"\n , // Required by old, not new\n \"../new\",\n ]\n}\n",
+        );
+    }
+
+    #[test]
+    fn jsonc_newline_before_comma_keeps_old_property_inline_comment() {
+        check(
+            "{\n \"name\":\"app\"\n , // About name, not dependencies\n // Root footer\n}\n",
+            &["../new", "../last"],
+            LayerManifestFormat::Jsonc,
+            "{\n \"name\":\"app\"\n , // About name, not dependencies\n \"dependencies\": [\"../new\", \"../last\"],\n // Root footer\n}\n",
+        );
+    }
+
+    #[test]
+    fn jsonc_newline_before_comma_preserves_inline_groups_and_separate_footers() {
+        let groups = [
+            "// Required by old, not new",
+            "/* Required by old, not new */",
+            "/* Old first */ /* Old second */ // Still old",
+            "/* Required by old\n    old continuation 🦀 */",
+            "/* Required by old\n    old continuation */ /* Still old */ // Last old",
+            "\t/* Old first */\t/* Old second\n    old continuation */\t// Still old",
+        ];
+        for newline in ["\n", "\r\n"] {
+            for final_newline in ["", "\n"] {
+                for group in groups {
+                    for references in [&["../new"][..], &["../new", "../last"][..]] {
+                        let literals = references
+                            .iter()
+                            .map(|reference| format!("\"{reference}\""))
+                            .collect::<Vec<_>>();
+                        let array_prefix = "{\n \"name\":\"app\",\n \"é🦀\":{\"text\":\"値\\u0041\",\"n\":1e+2},\n \"depend\\u0065ncies\":[\n \"..\\/old\" /* Old entry */ // Old entry line\n";
+                        let root_prefix = "{\n \"é🦀\":{\"text\":\"値\\u0041\",\"n\":1e+2},\n \"name\":\"app\" /* Old field */ // Old field line\n";
+                        for (prefix, additions, suffix) in [
+                            (
+                                array_prefix,
+                                format!(" {},\n", literals.join(",\n ")),
+                                format!(
+                                    " // Array footer\n /* Array footer block */\n ]\n}}{final_newline}"
+                                ),
+                            ),
+                            (
+                                root_prefix,
+                                format!(" \"dependencies\": [{}],\n", literals.join(", ")),
+                                format!(
+                                    " // Root footer\n /* Root footer block */\n}}{final_newline}"
+                                ),
+                            ),
+                        ] {
+                            let original_group = format!(" , {group}\n");
+                            let source =
+                                format!("{prefix}{original_group}{suffix}").replace('\n', newline);
+                            let expected = format!("{prefix}{original_group}{additions}{suffix}")
+                                .replace('\n', newline);
+                            let candidate =
+                                append(&source, references, LayerManifestFormat::Jsonc).unwrap();
+                            // The comma and its entire inline group must remain
+                            // contiguous before additions, not merely survive as
+                            // comment tokens now describing the new declaration.
+                            assert!(candidate.starts_with(
+                                &format!("{prefix}{original_group}").replace('\n', newline)
+                            ));
+                            assert!(candidate.ends_with(&suffix.replace('\n', newline)));
+                            check(&source, references, LayerManifestFormat::Jsonc, &expected);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
