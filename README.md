@@ -7,8 +7,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=for-the-badge" alt="License: GPL-3.0-or-later" height="20"></a>
   <br>
   <a href="https://github.com/hydratic-applications/hydragen"><img src="https://img.shields.io/badge/GitHub-hydratic--applications%2Fhydragen-blue?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub: hydratic-applications/hydragen" height="20"></a>
-  <a href="https://github.com/hydratic-applications/hydragen/stargazers"><img src="https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&amp;label=stars" alt="GitHub stars" height="20"></a>
-  <a href="https://github.com/sponsors/hydratic-applications"><img src="https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&amp;label=sponsors&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyMSAzIDEyQy0zIDYgNi0zIDEyIDVjNi04IDE1IDEgOSA3WiIvPjwvc3ZnPg%3D%3D" alt="GitHub sponsors" height="20"></a>
+  <a href="https://github.com/hydratic-applications/hydragen/stargazers"><img src="https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&amp;label=stars&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Im0xMiAyIDMuMDkgNi4yNkwyMiA5LjI3bC01IDQuODdMMTguMTggMjEgMTIgMTcuNzYgNS44MiAyMSA3IDE0LjE0IDIgOS4yN2w2LjkxLTEuMDFaIi8%2BPC9zdmc%2B" alt="GitHub stars" height="20"></a>
+  <a href="https://github.com/sponsors/hydratic-applications"><img src="https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&amp;label=sponsors&amp;color=EA4AAA&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyMSAzIDEyQy0zIDYgNi0zIDEyIDVjNi04IDE1IDEgOSA3WiIvPjwvc3ZnPg%3D%3D" alt="GitHub sponsors" height="20"></a>
 </p>
 
 Hydragen is a development system for building distinct projects from shared code,
