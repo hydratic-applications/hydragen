@@ -1,6 +1,27 @@
 use std::io::{self, Write};
 
-use hydragen::{CreatedLayerManifest, LayerManifestDiscovery, LayerManifestFormat};
+use hydragen::{
+    CreatedLayerManifest, InitCreationError, InitError, LayerManifestDiscovery, LayerManifestFormat,
+};
+
+use crate::presentation::{Presentation, Severity};
+
+pub fn init_error_message(error: &(dyn std::error::Error + 'static)) -> String {
+    let init_error = error.downcast_ref::<InitError>().or_else(|| {
+        error
+            .downcast_ref::<InitCreationError>()
+            .map(|failure| &failure.error)
+    });
+    if let Some(InitError::ExistingLayerManifest { path }) = init_error
+        && let Some(filename) = path.file_name()
+    {
+        return format!(
+            "This directory already has a layer manifest ({}).\nInitialisation creates a new layer manifest; it won’t overwrite an existing one.",
+            std::path::Path::new(filename).display()
+        );
+    }
+    error.to_string()
+}
 
 /// Shared by init and future layer manifest readers, before refusing or loading a candidate.
 fn duplicate_warning(discovery: &LayerManifestDiscovery) -> Option<String> {
@@ -18,15 +39,15 @@ fn duplicate_warning(discovery: &LayerManifestDiscovery) -> Option<String> {
         .map(LayerManifestFormat::filename)
         .join(" > ");
     Some(format!(
-        "Warning: Multiple layer manifests found in '{}': {names}. {selected} takes priority (priority: {priority}). Layer manifests are not merged; keep only the intended layer manifest.",
+        "Warning: Multiple layer manifests found in '{}': {names}.\n{selected} takes priority (priority: {priority}).\nLayer manifests are not merged; keep only the intended layer manifest.",
         discovery.directory.display()
     ))
 }
 
-pub fn warn_duplicates(discovery: &LayerManifestDiscovery) {
+pub fn warn_duplicates(discovery: &LayerManifestDiscovery, presentation: Presentation) {
     if let Some(warning) = duplicate_warning(discovery) {
         // Diagnostic delivery must not turn a completed write into a failure.
-        let _ = writeln!(io::stderr().lock(), "{warning}");
+        report_warning(&warning, presentation);
     }
 }
 
@@ -34,22 +55,69 @@ fn observation_warning(created: &CreatedLayerManifest) -> Option<String> {
     match &created.observation {
         Ok(discovery) => duplicate_warning(discovery),
         Err(error) => Some(format!(
-            "Warning: Layer manifest '{}' was created, but duplicate checking failed: {error}",
+            "Warning: Layer manifest '{}' was created, but duplicate checking failed:\n{error}",
             created.path.display()
         )),
     }
 }
 
-pub fn report_observation(created: &CreatedLayerManifest) {
+pub fn report_observation(created: &CreatedLayerManifest, presentation: Presentation) {
     if let Some(warning) = observation_warning(created) {
-        let _ = writeln!(io::stderr().lock(), "{warning}");
+        report_warning(&warning, presentation);
     }
+}
+
+fn report_warning(warning: &str, presentation: Presentation) {
+    let message = warning.strip_prefix("Warning: ").unwrap_or(warning);
+    let _ = writeln!(
+        io::stderr().lock(),
+        "{}",
+        presentation.diagnostic(Severity::Warning, message)
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn current_directory_collisions_name_the_file_for_preflight_and_creation() {
+        for format in LayerManifestFormat::ALL {
+            let path = std::path::Path::new("/a/long/project/directory").join(format.filename());
+            let error = InitError::ExistingLayerManifest { path: path.clone() };
+            let message = init_error_message(&error);
+            assert_eq!(
+                message,
+                format!(
+                    "This directory already has a layer manifest ({}).\nInitialisation creates a new layer manifest; it won’t overwrite an existing one.",
+                    format.filename()
+                )
+            );
+            assert!(!message.contains(&path.display().to_string()));
+            assert!(error.to_string().contains(&path.display().to_string()));
+            let creation_error = InitCreationError::from(error);
+            assert_eq!(init_error_message(&creation_error), message);
+        }
+    }
+
+    #[test]
+    fn other_init_errors_retain_their_full_diagnostic_paths() {
+        let path = std::path::Path::new("/another/project/directory");
+        for error in [
+            InitError::NestedRepository {
+                root: path.to_owned(),
+            },
+            InitError::Io {
+                action: "inspect layer manifest path",
+                path: path.join("layer.yaml"),
+                source: io::ErrorKind::PermissionDenied.into(),
+            },
+        ] {
+            assert_eq!(init_error_message(&error), error.to_string());
+            assert!(init_error_message(&error).contains(&path.display().to_string()));
+        }
+    }
 
     #[test]
     fn warning_survives_load_failure_and_precedes_the_error() {
@@ -61,7 +129,7 @@ mod tests {
         let error = discovery.load().unwrap_err();
         let output = format!("{warning}\nError: {error}\n");
         assert!(output.starts_with("Warning: Multiple layer manifests"));
-        assert!(output.contains("layer.yaml, layer.json. layer.yaml takes priority"));
+        assert!(output.contains("layer.yaml, layer.json.\nlayer.yaml takes priority"));
         assert!(
             output
                 .contains("Layer manifests are not merged; keep only the intended layer manifest.")
@@ -121,7 +189,7 @@ mod tests {
             )
             .unwrap();
             let warning = observation_warning(&created).unwrap();
-            assert!(warning.contains("layer.yaml, layer.json. layer.yaml takes priority"));
+            assert!(warning.contains("layer.yaml, layer.json.\nlayer.yaml takes priority"));
             assert_eq!(warning.matches("Warning:").count(), 1);
             assert!(!warning.contains("another process"));
             assert_eq!(created.path.file_name().unwrap(), created_format.filename());

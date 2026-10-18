@@ -1,0 +1,282 @@
+use std::ffi::OsStr;
+use std::io::{self, IsTerminal};
+
+use console::Style;
+
+// The blank braille cells, including the two-cell visible inset, are intentional.
+const MOTIF: [&str; 8] = [
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⣰⣾⣿⣿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⣿⣿⡁⠈⠻⡿⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠙⠿⣿⡦⢠⣶⣄⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠙⠿⠃⠺⣿⣶⣄⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⣾⣦⡀⢈⣿⣿⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠘⢿⣿⣿⡿⠏⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+];
+
+pub fn ci_enabled(value: Option<&OsStr>) -> bool {
+    value.is_some_and(|value| {
+        let value = value.to_string_lossy();
+        !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+    })
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Presentation {
+    pub decorated: bool,
+    pub basic: bool,
+}
+
+impl Presentation {
+    pub fn detect() -> Self {
+        Self::select(
+            [
+                io::stdin().is_terminal(),
+                io::stdout().is_terminal(),
+                io::stderr().is_terminal(),
+            ],
+            std::env::var_os("CI").as_deref(),
+            std::env::var_os("TERM").as_deref(),
+            std::env::var_os("NO_COLOR").as_deref(),
+            std::env::var_os("CLICOLOR").as_deref(),
+        )
+    }
+
+    fn select(
+        terminals: [bool; 3],
+        ci: Option<&OsStr>,
+        term: Option<&OsStr>,
+        no_color: Option<&OsStr>,
+        clicolor: Option<&OsStr>,
+    ) -> Self {
+        let basic = term == Some(OsStr::new("dumb"));
+        let disabled =
+            no_color.is_some_and(|value| !value.is_empty()) || clicolor == Some(OsStr::new("0"));
+        Self {
+            decorated: terminals.into_iter().all(|terminal| terminal)
+                && !ci_enabled(ci)
+                && !basic
+                && !disabled,
+            basic,
+        }
+    }
+
+    pub fn configure(self) {
+        // Some cliclack defaults use stdout styles even though prompts use stderr.
+        // Explicit decisions also prevent force variables bypassing our stream gate.
+        console::set_colors_enabled(self.decorated);
+        console::set_colors_enabled_stderr(self.decorated);
+    }
+
+    pub fn style(self) -> Style {
+        Style::new().force_styling(self.decorated)
+    }
+
+    pub fn init_header(self, width: Option<usize>, version: &str) -> String {
+        let identity = format!(
+            "{}  {}",
+            self.style().bold().apply_to("Hydragen"),
+            self.style().dim().apply_to(format!("v{version}"))
+        );
+        let operation = self.style().cyan().bold().apply_to("INIT").to_string();
+        let description = "Initialise a layer";
+        let text = [identity, operation, description.to_owned()];
+        let needed = 17
+            + text
+                .iter()
+                .map(|line| console::measure_text_width(line))
+                .max()
+                .unwrap_or(0);
+        if self.basic || width.is_none_or(|width| width < needed) {
+            return format!("{}\n\n{}\n{}\n", text[0], text[1], text[2]);
+        }
+        let mut header = String::new();
+        for (row, motif) in MOTIF.iter().enumerate() {
+            header.push_str(&self.style().cyan().apply_to(motif).to_string());
+            if let Some(line) = match row {
+                2 => Some(&text[0]),
+                4 => Some(&text[1]),
+                5 => Some(&text[2]),
+                _ => None,
+            } {
+                header.push(' ');
+                header.push_str(line);
+            }
+            header.push('\n');
+        }
+        header
+    }
+
+    pub fn success(self, filename: &str) -> String {
+        let message = format!(
+            "Layer initialised, layer manifest created at: {}",
+            self.style().bold().apply_to(filename)
+        );
+        if self.decorated {
+            self.style()
+                .green()
+                .apply_to(format!("✓ {message}"))
+                .to_string()
+        } else {
+            message
+        }
+    }
+
+    pub fn diagnostic(self, severity: Severity, message: &str) -> String {
+        let mut lines = message.lines();
+        let headline = format!("{}: {}", severity.label(), lines.next().unwrap_or(""));
+        let mut output = if self.decorated {
+            let style = match severity {
+                Severity::Warning => self.style().yellow(),
+                Severity::Error => self.style().red(),
+            };
+            style
+                .apply_to(format!("{} {headline}", severity.symbol()))
+                .to_string()
+        } else {
+            headline
+        };
+        for line in lines {
+            output.push_str("\n  ");
+            output.push_str(line);
+        }
+        output
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Severity {
+    Warning,
+    Error,
+}
+
+impl Severity {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Warning => "Warning",
+            Self::Error => "Error",
+        }
+    }
+
+    fn symbol(self) -> &'static str {
+        match self {
+            Self::Warning => "▲",
+            Self::Error => "✕",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn presentation(decorated: bool) -> Presentation {
+        Presentation {
+            decorated,
+            basic: false,
+        }
+    }
+
+    #[test]
+    fn decoration_requires_every_terminal_and_respects_explicit_disables() {
+        for mask in 0..8 {
+            for (ci, ci_on) in [
+                (None, false),
+                (Some(""), false),
+                (Some("FaLsE"), false),
+                (Some("0"), false),
+                (Some("1"), true),
+            ] {
+                for term in [None, Some("xterm-256color"), Some("dumb")] {
+                    for no_color in [None, Some(""), Some("1")] {
+                        for clicolor in [None, Some("0"), Some("1")] {
+                            // Force is deliberately not an input: it cannot bypass a gate.
+                            let policy = Presentation::select(
+                                [mask & 1 != 0, mask & 2 != 0, mask & 4 != 0],
+                                ci.map(OsStr::new),
+                                term.map(OsStr::new),
+                                no_color.map(OsStr::new),
+                                clicolor.map(OsStr::new),
+                            );
+                            assert_eq!(
+                                policy.decorated,
+                                mask == 7
+                                    && !ci_on
+                                    && term != Some("dumb")
+                                    && no_color != Some("1")
+                                    && clicolor != Some("0")
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn motif_and_text_preserve_the_selected_grid() {
+        assert!(MOTIF.iter().all(|row| row.chars().count() == 16));
+        let header = presentation(false).init_header(Some(80), "12.34.56");
+        let rows = header.lines().collect::<Vec<_>>();
+        assert_eq!(rows.len(), 8);
+        for (index, row) in rows.iter().enumerate() {
+            assert!(row.starts_with(MOTIF[index]));
+        }
+        assert_eq!(rows[2], format!("{} Hydragen  v12.34.56", MOTIF[2]));
+        assert_eq!(rows[4], format!("{} INIT", MOTIF[4]));
+        assert_eq!(rows[5], format!("{} Initialise a layer", MOTIF[5]));
+    }
+
+    #[test]
+    fn header_fit_uses_actual_visible_version_and_conservative_fallbacks() {
+        let policy = presentation(true);
+        let version = "1.2.3-a-very-long-version";
+        let full = policy.init_header(Some(100), version);
+        let needed = full.lines().map(console::measure_text_width).max().unwrap();
+        assert!(policy.init_header(Some(needed), version).contains(MOTIF[1]));
+        for width in [None, Some(needed - 1)] {
+            let fallback = policy.init_header(width, version);
+            assert!(!fallback.contains('⠀'));
+            assert!(
+                console::strip_ansi_codes(&fallback).contains(&format!("Hydragen  v{version}"))
+            );
+        }
+        assert!(
+            !Presentation {
+                basic: true,
+                ..policy
+            }
+            .init_header(Some(100), version)
+            .contains('⠀')
+        );
+        let description = full.lines().nth(5).unwrap().split_once(' ').unwrap().1;
+        assert_eq!(description, "Initialise a layer");
+    }
+
+    #[test]
+    fn statuses_share_wording_and_colour_only_the_headline() {
+        for severity in [Severity::Warning, Severity::Error] {
+            let plain = presentation(false).diagnostic(severity, "Headline\nRecovery /full/path");
+            let styled = presentation(true).diagnostic(severity, "Headline\nRecovery /full/path");
+            assert!(!plain.contains('\x1b'));
+            assert!(styled.starts_with('\x1b'));
+            assert_eq!(styled.lines().nth(1).unwrap(), "  Recovery /full/path");
+            assert!(console::strip_ansi_codes(&styled).ends_with(&plain));
+        }
+        for format in hydragen::LayerManifestFormat::ALL {
+            let plain = presentation(false).success(format.filename());
+            assert_eq!(
+                plain,
+                format!(
+                    "Layer initialised, layer manifest created at: {}",
+                    format.filename()
+                )
+            );
+            assert_eq!(
+                console::strip_ansi_codes(&presentation(true).success(format.filename())),
+                format!("✓ {plain}")
+            );
+        }
+    }
+}

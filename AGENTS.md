@@ -188,7 +188,11 @@ surface tradeoffs rather than silently demoting a goal.
 
 Use clap for argument parsing and help, and cliclack for suitable guided prompts
 and interactive feedback. Not every command needs prompts or decorative output.
-Keep terminal presentation outside the layer manifest and filesystem logic.
+Choose guided interaction, full branding, and status styling separately. Full
+branded openings establish multi-step guided or long-running foreground sessions
+once; one-shot actions use compact feedback. Keep terminal presentation outside
+the layer manifest and filesystem logic, and use supported cliclack theme hooks
+rather than replace its interaction handling.
 
 When a command offers guided input and input flags, keep those routes separate.
 With no input flags, allow a guided flow when interaction is available; any input
@@ -210,8 +214,24 @@ layer manifest metadata and does not override read-time priority.
 
 Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal
 standard stream disables guided input. Do not reopen a terminal or read piped
-answers to work around that choice. Keep flag-only output plain, result output on
-standard output, and prompts and diagnostics on standard error.
+answers to work around that choice. `--non-interactive` controls questions, not
+colour. Allow compact styled flag-only statuses only when all standard streams
+are terminals, CI is disabled, and `TERM` is not `dumb`. A non-empty `NO_COLOR`
+or `CLICOLOR=0` disables decorative status styling; explicit disables win over
+forced colour. CI or any redirected standard stream keeps status output plain
+even when colour is forced. Help, version, and clap usage errors remain plain.
+
+Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
+where styled; keep supporting details and recovery guidance in the normal
+foreground. Rejected guided input uses a red cross, frame, and correction text,
+not a recoloured warning triangle. Cancellation uses red cancellation feedback.
+Plain status output retains the meaningful wording without ANSI or status icons.
+
+After init writes successfully, report once: `Layer initialised, layer manifest
+created at: layer.<extension>`, using the actual created filename, not its absolute
+directory. Guided completion joins the session on standard error with no separate
+stdout result. Flag-only completion uses standard output; warnings and errors
+always use standard error. Preserve full diagnostic paths where needed for errors.
 
 Adapt schema-derived validation feedback to the input route: guided feedback
 names the field and explains correction without referring to flags, including
@@ -226,6 +246,9 @@ five supported layer manifest paths before questions; any occupied entry,
 including a directory or dangling symlink, refuses init without reading its
 contents. Do not write until guided input, including format, is complete.
 Cancellation must exit nonzero without creating files.
+Give deliberate cancellation one no-files-changed report, without a duplicate
+generic error. Do not suppress unexpected interrupted I/O or post-write failures
+as though cancellation had already been reported.
 
 The initial check does not reserve the directory. Keep exclusive creation
 (`create_new`) for the exact chosen target, but do not repeat all-format refusal

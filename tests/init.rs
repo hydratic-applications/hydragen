@@ -22,12 +22,19 @@ fn init(directory: &Path, arguments: &[&str]) -> Output {
 }
 
 fn assert_success(output: &Output) {
+    assert_success_in_format(output, LayerManifestFormat::Yaml);
+}
+
+fn assert_success_in_format(output: &Output, format: LayerManifestFormat) {
     assert!(output.status.success(), "{output:?}");
     assert!(output.stderr.is_empty(), "{output:?}");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Initialised layer:"), "{stdout}");
-    assert!(stdout.contains("layer.yaml"), "{stdout}");
-    assert!(!output.stdout.contains(&b'\x1b'));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!(
+            "Layer initialised, layer manifest created at: {}\n",
+            format.filename()
+        )
+    );
 }
 
 fn assert_failure(output: &Output, message: &str) {
@@ -39,17 +46,15 @@ fn assert_failure(output: &Output, message: &str) {
 }
 
 fn assert_occupied_layer_manifest(output: &Output) {
-    assert_failure(output, "already exists");
+    assert_failure(output, "This directory already has a layer manifest (");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    for phrase in [
-        "does not overwrite existing entries",
-        "Inspect the entry",
-        "in a different directory",
-        "This command did not change any files.",
-    ] {
-        assert!(stderr.contains(phrase), "{stderr}");
-    }
-    let advice = stderr.split_once("already exists.").unwrap().1;
+    let refusal = stderr.split_once("Error: ").unwrap().1;
+    assert_eq!(refusal.lines().count(), 2, "{stderr}");
+    let advice = refusal.lines().nth(1).unwrap().trim();
+    assert_eq!(
+        advice,
+        "Initialisation creates a new layer manifest; it won’t overwrite an existing one."
+    );
     for unsafe_advice in ["delete", "remove", "--force"] {
         assert!(!advice.contains(unsafe_advice), "{stderr}");
     }
@@ -84,6 +89,56 @@ fn ci_and_explicit_override_use_the_directory_name_without_prompts() {
             read_layer_manifest(directory.path()),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
         );
+    }
+}
+
+#[test]
+fn captured_results_and_diagnostics_stay_plain_even_when_colour_is_forced() {
+    for ci in ["", "false", "0", "true", "1"] {
+        for format in LayerManifestFormat::ALL {
+            let directory = tempdir().unwrap();
+            let run = |arguments: &[&str]| {
+                command(directory.path())
+                    .env("CI", ci)
+                    .env("TERM", "xterm-256color")
+                    .env_remove("NO_COLOR")
+                    .env_remove("CLICOLOR")
+                    .env("CLICOLOR_FORCE", "1")
+                    .args(arguments)
+                    .output()
+                    .unwrap()
+            };
+            let invalid = run(&["init", "--format", format.extension(), "--name", " "]);
+            assert_failure(&invalid, "--name");
+            assert!(!String::from_utf8_lossy(&invalid.stderr).contains('✕'));
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+
+            let output = run(&["init", "--format", format.extension()]);
+            assert_success_in_format(&output, format);
+            let original = fs::read(directory.path().join(format.filename())).unwrap();
+            let duplicate = LayerManifestFormat::ALL
+                .into_iter()
+                .find(|other| *other != format)
+                .unwrap();
+            fs::write(directory.path().join(duplicate.filename()), "keep").unwrap();
+            let refused = run(&["init"]);
+            assert_occupied_layer_manifest(&refused);
+            let stderr = String::from_utf8_lossy(&refused.stderr);
+            assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
+            assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
+            for forbidden in ["Hydragen", "Initialise a layer", "✓", "▲", "✕"] {
+                assert!(!stderr.contains(forbidden), "{stderr}");
+            }
+            assert_eq!(
+                fs::read(directory.path().join(format.filename())).unwrap(),
+                original
+            );
+            assert_eq!(
+                fs::read_to_string(directory.path().join(duplicate.filename())).unwrap(),
+                "keep"
+            );
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+        }
     }
 }
 
@@ -362,10 +417,7 @@ fn copied_help_examples_keep_their_shell_arguments() {
             .output()
             .unwrap();
         let format = if index == 4 {
-            assert!(output.status.success(), "{output:?}");
-            assert!(output.stderr.is_empty(), "{output:?}");
-            assert!(String::from_utf8_lossy(&output.stdout).contains("layer.json"));
-            assert!(!output.stdout.contains(&b'\x1b'));
+            assert_success_in_format(&output, LayerManifestFormat::Json);
             LayerManifestFormat::Json
         } else {
             assert_success(&output);
@@ -483,7 +535,7 @@ fn refuses_existing_layer_manifests_even_when_malformed() {
 }
 
 #[test]
-fn occupied_layer_manifest_guidance_preserves_a_long_unicode_path() {
+fn occupied_layer_manifest_guidance_uses_the_filename_in_a_long_unicode_directory() {
     let parent = tempdir().unwrap();
     let directory = parent
         .path()
@@ -494,7 +546,11 @@ fn occupied_layer_manifest_guidance_preserves_a_long_unicode_path() {
     let output = init(&directory, &["--name", "example"]);
     assert_occupied_layer_manifest(&output);
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains(&path.canonicalize().unwrap().display().to_string()));
+    assert!(
+        stderr.starts_with("Error: This directory already has a layer manifest (layer.json).\n")
+    );
+    assert!(!stderr.contains(&directory.display().to_string()));
+    assert!(!stderr.contains(&directory.canonicalize().unwrap().display().to_string()));
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
         "not a valid layer manifest"
@@ -666,11 +722,7 @@ fn every_format_flag_alone_uses_directory_name_and_exact_filename() {
     for format in LayerManifestFormat::ALL {
         let directory = tempdir().unwrap();
         let output = init(directory.path(), &["--format", format.extension()]);
-        assert!(output.status.success(), "{output:?}");
-        assert!(output.stderr.is_empty(), "{output:?}");
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains(format.filename()), "{stdout}");
-        assert!(!stdout.contains('\x1b'));
+        assert_success_in_format(&output, format);
         assert_eq!(
             independently_read_format(directory.path(), format),
             json!({"name": directory.path().file_name().unwrap().to_str().unwrap()})
@@ -694,8 +746,7 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
                     args.extend(["--description", text]);
                 }
                 let output = init(directory.path(), &args);
-                assert!(output.status.success(), "{output:?}");
-                assert!(output.stderr.is_empty(), "{output:?}");
+                assert_success_in_format(&output, format);
                 let document = independently_read_format(directory.path(), format);
                 assert_eq!(document["name"], text);
                 assert_eq!(document.get("author"), author.then(|| json!(text)).as_ref());
@@ -732,8 +783,7 @@ fn all_formats_validate_preserved_unicode_directory_defaults_and_optional_combin
                     expected["description"] = json!("Layer");
                 }
                 let output = init(&directory, &args);
-                assert!(output.status.success(), "{output:?}");
-                assert!(output.stderr.is_empty(), "{output:?}");
+                assert_success_in_format(&output, format);
                 assert_eq!(independently_read_format(&directory, format), expected);
                 assert_eq!(fs::read_dir(directory).unwrap().count(), 1);
             }
@@ -797,8 +847,7 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
                 "Shared rules",
             ],
         );
-        assert!(output.status.success(), "{output:?}");
-        assert!(output.stderr.is_empty());
+        assert_success_in_format(&output, format);
         let expected = match format {
             LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
                 "name: example\nauthor: Example team\ndescription: Shared rules\n"
@@ -944,9 +993,8 @@ fn duplicate_refusal_warns_once_in_priority_order_before_error() {
         assert_eq!(stderr.matches("Warning:").count(), 1, "{stderr}");
         assert!(stderr.starts_with("Warning: Multiple layer manifests"));
         assert!(stderr.contains(&*directory.path().canonicalize().unwrap().to_string_lossy()));
-        assert!(stderr.contains(
-            "layer.yaml, layer.yml, layer.toml, layer.json, layer.jsonc. layer.yaml takes priority"
-        ));
+        assert!(stderr.contains("layer.yaml, layer.yml, layer.toml, layer.json, layer.jsonc."));
+        assert!(stderr.contains("layer.yaml takes priority"));
         assert!(
             stderr.contains(
                 "priority: layer.yaml > layer.yml > layer.toml > layer.json > layer.jsonc"

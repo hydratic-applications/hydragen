@@ -152,6 +152,40 @@ design everything upfront.
       applies this review to width-aware help, prompt-specific validation feedback,
       and safe recovery advice for occupied layer manifest paths without selecting a visual theme
       or minimum terminal width.
+      The subsequent [visual-identity increment](changes/define-cli-visual-identity/design.md#decisions)
+      implements init's selected dense 16-by-8 braille motif, separate brand and
+      operation text, and console-reviewed styling and spacing. Its broader header
+      policy establishes multi-step guided or
+      long-running foreground sessions once, rather than announcing one-shot
+      actions. Use cliclack where interactive input or a guided process is useful,
+      independently of the header decision—not as every command's renderer.
+      See the [header policy](changes/define-cli-visual-identity/design.md#use-the-full-header-to-establish-a-session-not-announce-every-invocation)
+      and [cliclack decision](changes/define-cli-visual-identity/design.md#use-cliclack-for-suitable-guided-interactions).
+      The [status decision](changes/define-cli-visual-identity/design.md#share-status-styling-without-coupling-it-to-prompts-or-the-header)
+      selects consistent green-check success, yellow-triangle warning, and
+      red-cross error feedback, including compact flag-only terminal output.
+      [Rejected input and cancellation](changes/define-cli-visual-identity/design.md#use-red-for-rejected-input-and-cancellation)
+      also use red, with rejected input sharing the red-cross error pairing rather
+      than a recoloured warning triangle. Placement, wording, and behaviour
+      distinguish editable input errors, deliberate stops, and operational failures.
+      The [completion decision](changes/define-cli-visual-identity/design.md#report-init-completion-once-naming-the-layer-manifest-rather-than-its-directory)
+      selects a single success naming the layer manifest filename; guided feedback
+      uses stderr without a duplicate stdout result, while flag-only results use stdout.
+      [Occupied-entry refusals](changes/define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
+      identify the existing layer manifest and its filename, with one sentence
+      explaining that init creates rather than overwrites it. They do not append
+      generic recovery advice, assume valid contents, or shorten unrelated paths.
+      These revise the earlier contracts through the change's delta
+      specifications and aligned project guidance. The
+      [increment policy](changes/define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)
+      keeps CI and mixed redirected execution plain, honours explicit colour
+      disables over force, and uses text-only openings when the motif cannot fit
+      or the terminal is basic. Broader font detection and future-command display
+      policy remain outside this increment.
+      The [name and icon](../docs/brand.md) express the
+      generative layer model, simplicity, connected dependencies, and visibility
+      into the result; see the
+      [identity decision](changes/define-cli-visual-identity/design.md#preserve-the-meaning-of-the-name-and-icon).
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to
