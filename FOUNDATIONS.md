@@ -15,6 +15,14 @@ adopt improvements. AI support is native and optional.
 Its intended first interface is the [Hydragen CLI](GLOSSARY.md#hydragen-cli), a
 command-line tool run from a terminal and written in Rust.
 
+Hydragen-owned code and project material are licensed under GNU GPL version 3 or
+later (`GPL-3.0-or-later`); see the [project notice](README.md#license) and
+[license text](LICENSE). This allows commercial use while requiring covered
+distributions to meet the GPL's source-sharing and licensing conditions. Using
+Hydragen does not, by itself, require independently authored projects or layers
+to use the GPL. Third-party material retains its applicable terms; see the
+[third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Who it is for
 
 Hydragen is for developers who want to share and reuse code, configuration, and

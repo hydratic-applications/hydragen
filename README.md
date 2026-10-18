@@ -6,6 +6,7 @@
 [![Repo Badge]][Repo]
 [![Stars Badge]][Stars]
 [![Sponsors Badge]][Sponsors]
+[![License Badge]][License]
 
 Hydragen is a development system for building distinct projects from shared code,
 configuration, and project files. Its building block is a **layer**: a project or
@@ -171,6 +172,30 @@ repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
 
+## License
+
+Hydragen is licensed under **GNU GPL version 3 or later** (`GPL-3.0-or-later`).
+
+Copyright (C) 2026 Leyton Blackler
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program in [LICENSE](LICENSE). If not, see
+<https://www.gnu.org/licenses/>.
+
+Using Hydragen does not, by itself, require your independently authored projects
+or layers to use the GPL. Third-party content retains its applicable terms;
+see [third-party notices](THIRD_PARTY_NOTICES.md) for material included here.
+
 [Status Badge]: https://img.shields.io/badge/status-prototype-orange?style=flat-square
 [Status]: #hydragen
 [Rust Badge]: https://img.shields.io/badge/language-Rust-DEA584?style=flat-square&logo=rust&logoColor=white
@@ -183,3 +208,5 @@ inputs.
 [Stars]: https://github.com/hydratic-applications/hydragen/stargazers
 [Sponsors Badge]: https://img.shields.io/github/sponsors/hydratic-applications?style=flat-square&label=sponsors
 [Sponsors]: https://github.com/sponsors/hydratic-applications
+[License Badge]: https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square
+[License]: LICENSE

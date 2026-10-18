@@ -191,3 +191,15 @@ design everything upfront.
 12. **Patch structure.** What internal structure should `.patch` files use to
     describe modifications to inherited files? The filename suffix does not select
     an existing patch format. See [Patch](../GLOSSARY.md#patch) for the agreed meaning.
+13. **Project licensing.** Which license should govern Hydragen before the
+    repository becomes public, and does using the CLI constrain a layer's license?
+    - **Project-license decision:** Adopt `GPL-3.0-or-later`
+      for Hydragen-owned project content, naming Leyton Blackler in the project
+      notice and preserving third-party terms. Using Hydragen does not, by itself,
+      impose the GPL on independently authored projects or layers. Confirm
+      licensing authority and third-party compatibility before applying the grant;
+      the [prerequisite review](changes/archive/2026-10-18-add-project-license/licensing-review.md)
+      records that check. Publication remains a separate action. See the
+      [licensing decisions](changes/archive/2026-10-18-add-project-license/design.md#decisions).
+      Broader license policy or enforcement for layer dependencies is not settled
+      by this project-license choice.

@@ -3,6 +3,7 @@ name = "hydragen"
 version = "0.1.0"
 edition = "2024"
 description = "Build distinct projects from shared layers"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "wrap_help"] }
