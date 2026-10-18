@@ -65,7 +65,10 @@ run on another platform can therefore differ from CI.
    account-limit banner does not identify which limit was reached; check the
    account details and upload/processing results before assuming uploads are
    blocked. Consult [current plan details](https://about.codecov.io/pricing/)
-   rather than infer entitlement from another project's public shield.
+   rather than infer entitlement from another project's public shield. Check
+   project-coverage reporting separately: successful uploads and browsable
+   aggregate reports do not prove the account can publish the overall-coverage
+   assessment.
 3. Run the Coverage workflow through a PR or a push to `main`. It requests only
    repository read access and job-scoped OIDC token issuance. No `CODECOV_TOKEN`
    secret is required for the configured OIDC route. Authentication or upload

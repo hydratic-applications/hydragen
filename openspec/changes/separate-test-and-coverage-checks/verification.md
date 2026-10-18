@@ -155,13 +155,64 @@ specification synchronisation or archival was performed.
   may be absent when report production/uploading fails; reviewed that explanation
   for a first-time reader.
 - The maintainer authorised committing/pushing this focused repair and observing
-  hosted CI and Codecov feedback. The repair's hosted outcome is not yet claimed
-  by these local results. Configuration and trust boundaries remain unchanged.
+  hosted CI and Codecov feedback. These local results alone did not establish
+  the repair's hosted outcome. Configuration and trust boundaries remain unchanged.
+- Pushed the repair as `a6bd453`; hosted run
+  [39178427489](https://github.com/hydratic-applications/hydragen/actions/runs/39178427489)
+  was started for that commit. The working tree was clean immediately after
+  the push, before adding these subsequent rollout observations.
+- Read-only inspection of Codecov's
+  [configuration manager](https://app.codecov.io/gh/hydratic-applications/hydragen/config)
+  listed `Coverage reports` as configured, but `Project coverage` under
+  `Available with Pro Plan`. Its YAML settings showed default branch `main`.
+  [Codecov's pricing page](https://about.codecov.io/pricing/) also distinguishes
+  patch coverage/status access from project coverage. This is an account-feature
+  warning to verify, not proof that uploading is blocked or that a paid plan
+  must be purchased. No trial, purchase, or configuration change was made.
+  Browsable aggregate coverage from earlier uploads does not establish that the
+  named overall-coverage status can be published on this account. Documentation
+  now makes that distinction explicit.
+
+## Hosted repair outcome
+
+- Run [39178427489](https://github.com/hydratic-applications/hydragen/actions/runs/39178427489)
+  passed on `a6bd453`: `Tests` completed in 1 minute 31 seconds and
+  `Coverage report` in 1 minute 26 seconds. Both previously failing terminal
+  tests passed under instrumentation. All 186 instrumented tests passed;
+  library/CLI report validation and OIDC uploading also succeeded.
+- The uploader used head SHA `a6bd4532c8242e092a16f0de35984421545abe9c`, found the
+  intended LCOV file, verified CLI integrity, and reported successful storage
+  upload and queueing. The Codecov commit page subsequently displayed one merged
+  `github-actions` upload linked to the coverage job, confirming report processing
+  rather than merely upload acceptance.
+- The [processed commit's file explorer](https://app.codecov.io/gh/hydratic-applications/hydragen/commit/a6bd4532c8242e092a16f0de35984421545abe9c/tree)
+  showed 2,348/2,443 tracked lines covered (96.11%). That aggregate report is
+  available without any account or billing change. It is not evidence that the
+  overall 80% status was published or enforced.
+- Opened `view YAML file` on that commit. Codecov's effective YAML contained
+  `patch.changed-lines` and `project.total-coverage`, both with target 80.0,
+  threshold 0.0, and `informational: false`, and both `default: false` entries.
+  The new configuration is therefore accepted for the uploaded commit, not
+  just syntactically valid at the standalone validator.
+- GitHub still showed only the two successful Actions checks after processing;
+  the commit-status API returned an empty `statuses` list. No live named Codecov
+  assessment or extra default assessment was observed. Codecov's commit page
+  showed no changed covered files, while its PR page retained the first-upload
+  onboarding/missing-default-branch comparison limitation. The earlier account
+  feature warning remains unresolved; do not claim that a main merge alone
+  guarantees all four checks, or that project reporting definitely requires a
+  purchase based only on that warning.
+- No merge, trial, purchase, visibility change, alternate local gate, fabricated
+  success status, or required-check change was used to conceal the remaining
+  service-verification gap. The terminal-test/report-pipeline failure is fixed;
+  baseline establishment and actual Codecov status availability are follow-up
+  prerequisites, not source failures in this successful run.
 
 ## Pending
 
 Progress remains **10/12 tasks complete**. The Actions display names have been
-observed, but task 4.2 still needs Codecov's actual rendered names after an
-eligible upload. Task 4.3 needs independent Codecov pass/fail outcomes with
-eligible reports and a processed base report. No merge, publication, billing,
+observed and Codecov accepted/processed the named configuration, but task 4.2
+still needs its actual rendered assessment names. Task 4.3 needs independent
+Codecov pass/fail outcomes with eligible reports, a processed base report, and
+confirmed account feature availability. No merge, publication, billing,
 membership, or required-check changes are authorised by this rollout.
