@@ -1,12 +1,15 @@
-# Hydragen
+<h1 align="center"><a name="hydragen"></a>Hydragen</h1>
 
-[![Status Badge]][Status]
-[![Rust Badge]][Rust]
-[![Deps Badge]][Deps]
-[![Repo Badge]][Repo]
-[![Stars Badge]][Stars]
-[![Sponsors Badge]][Sponsors]
-[![License Badge]][License]
+<p align="center">
+  <a href="#hydragen"><img src="https://img.shields.io/badge/status-prototype-orange?style=flat-square" alt="Status: prototype"></a>
+  <a href="#build-and-run-locally"><img src="https://img.shields.io/badge/language-Rust-DEA584?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Language: Rust"></a>
+  <a href="https://deps.rs/repo/github/hydratic-applications/hydragen"><img src="https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=flat-square" alt="Dependency status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License: GPL-3.0-or-later"></a>
+  <br>
+  <a href="https://github.com/hydratic-applications/hydragen"><img src="https://img.shields.io/badge/repo-hydratic--applications%2Fhydragen-blue?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Repository: hydratic-applications/hydragen"></a>
+  <a href="https://github.com/hydratic-applications/hydragen/stargazers"><img src="https://img.shields.io/github/stars/hydratic-applications/hydragen?style=flat-square&amp;label=stars" alt="GitHub stars"></a>
+  <a href="https://github.com/sponsors/hydratic-applications"><img src="https://img.shields.io/github/sponsors/hydratic-applications?style=flat-square&amp;label=sponsors" alt="GitHub sponsors"></a>
+</p>
 
 Hydragen is a development system for building distinct projects from shared code,
 configuration, and project files. Its building block is a **layer**: a project or
@@ -195,18 +198,3 @@ along with this program in [LICENSE](LICENSE). If not, see
 Using Hydragen does not, by itself, require your independently authored projects
 or layers to use the GPL. Third-party content retains its applicable terms;
 see [third-party notices](THIRD_PARTY_NOTICES.md) for material included here.
-
-[Status Badge]: https://img.shields.io/badge/status-prototype-orange?style=flat-square
-[Status]: #hydragen
-[Rust Badge]: https://img.shields.io/badge/language-Rust-DEA584?style=flat-square&logo=rust&logoColor=white
-[Rust]: #build-and-run-locally
-[Deps Badge]: https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=flat-square
-[Deps]: https://deps.rs/repo/github/hydratic-applications/hydragen
-[Repo Badge]: https://img.shields.io/badge/repo-hydratic--applications%2Fhydragen-181717?style=flat-square&logo=github&logoColor=white
-[Repo]: https://github.com/hydratic-applications/hydragen
-[Stars Badge]: https://img.shields.io/github/stars/hydratic-applications/hydragen?style=flat-square&label=stars
-[Stars]: https://github.com/hydratic-applications/hydragen/stargazers
-[Sponsors Badge]: https://img.shields.io/github/sponsors/hydratic-applications?style=flat-square&label=sponsors
-[Sponsors]: https://github.com/sponsors/hydratic-applications
-[License Badge]: https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square
-[License]: LICENSE
