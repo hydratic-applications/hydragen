@@ -4,6 +4,7 @@
   <a href="#hydragen"><img src="https://img.shields.io/badge/status-prototype-orange?style=flat-square" alt="Status: prototype"></a>
   <a href="#build-and-run-locally"><img src="https://img.shields.io/badge/language-Rust-DEA584?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Language: Rust"></a>
   <a href="https://deps.rs/repo/github/hydratic-applications/hydragen"><img src="https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=flat-square" alt="Dependency status"></a>
+  <a href="https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main"><img src="https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=flat-square" alt="Code coverage on main"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License: GPL-3.0-or-later"></a>
   <br>
   <a href="https://github.com/hydratic-applications/hydragen"><img src="https://img.shields.io/badge/repo-hydratic--applications%2Fhydragen-blue?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Repository: hydratic-applications/hydragen"></a>
@@ -174,6 +175,22 @@ Tests cover flag-based and guided input, layer manifest formats and validation,
 repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
+
+CI measures Rust line coverage on PRs and pushes to `main`, then uploads eligible
+reports to [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main).
+The coverage shield tracks `main`; it may be unavailable while the repository is
+private because its URL deliberately contains no badge-access token.
+
+With the [coverage tools installed](docs/coverage.md#local-coverage), generate a
+report locally without uploading:
+
+```sh
+mkdir -p target/coverage
+cargo +stable llvm-cov --locked --workspace --all-targets --lcov --output-path target/coverage/lcov.info
+```
+
+See [coverage setup and checks](docs/coverage.md) for private-repository setup,
+fork limitations, and troubleshooting.
 
 ## License
 

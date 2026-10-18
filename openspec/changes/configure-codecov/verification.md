@@ -1,0 +1,142 @@
+# Codecov implementation verification
+
+## Prerequisite check — 2026-10-18
+
+- Opened `https://app.codecov.io/gh/hydratic-applications/hydragen` in the browser.
+  The browser is signed out; Codecov shows a not-found page explaining that
+  private repositories require login. This does not establish whether the
+  repository is configured or whether the account supports private coverage.
+- After the maintainer signed in, the repository's Coverage Analytics setup page
+  became visible at `https://app.codecov.io/gh/hydratic-applications/hydragen/new`.
+  This confirms Codecov recognises the repository and the signed-in user can
+  access its setup page. However, the page displays **"Plan limits reached, you
+  can upgrade or manage members"**, alongside a trial offer. Private-account
+  entitlement and successful processing therefore remain unverified.
+- The maintainer noted the warning may concern the private plan's member limit,
+  not upload availability. Codecov's official pricing page, checked 2026-10-18,
+  lists 250 private uploads for the free Developer plan and unlimited public
+  uploads: <https://about.codecov.io/pricing/>. The banner alone is not evidence
+  that uploads are blocked.
+- That pricing page lists Patch Coverage and Status Checks on Developer, but
+  marks Project Coverage unavailable on Developer (both private and open-source)
+  and available on Pro. This marketing label alone does not establish whether
+  ordinary aggregate coverage badges, report views, or a particular project
+  status are restricted for this account. Do not infer a paid-plan requirement
+  for the README shield from that row.
+- The maintainer supplied Ratatui as a public example. Its Codecov page exposes
+  branch coverage totals, its `codecov.yml` configures a project status, and its
+  CI uses stable Rust, `cargo-llvm-cov`, and Codecov action v7.1.1. None of this
+  reveals Ratatui's billing plan or proves a paid subscription. Codecov's official
+  open-source page explicitly advertises free coverage and status checks:
+  <https://about.codecov.io/for/open-source/>. Retain account-dependent behaviour
+  as a live-verification question rather than a confirmed paid-plan blocker.
+- The maintainer approved proceeding with both project and patch configuration,
+  aiming for coverage reporting comparable to Ratatui where the account supports
+  it. Task 1.1 remains incomplete only for account-specific private processing and
+  feature verification. No trial, upgrade, visibility, membership, billing, or
+  account-setting changes were made.
+- Task 1.2 is complete: the maintainer chose to keep the badge URL token-free.
+  The private shield may show an unavailable result until public access is
+  enabled. Do not retrieve or embed a badge-access token.
+
+## Implemented and locally verified — 2026-10-18
+
+- Added `.github/workflows/coverage.yml`, root `codecov.yml`, a main-specific
+  token-free README shield, local coverage instructions, and `docs/coverage.md`.
+  Kept the going-public checklist and clarified that token revocation is
+  conditional: this implementation introduces no badge token.
+- Rechecked the official Rust example, current Rust/cargo-llvm-cov guidance,
+  Ratatui's workflow, current action releases, and supported inputs. Release
+  commits used by the workflow:
+  - checkout v7.0.1: `3d3c42e5aac5ba805825da76410c181273ba90b1`.
+  - install-action v2.87.29: `8cca0918f8471c33515202b73f56ab27f2bed283`.
+  - codecov-action v7.1.1: `303a32d7a59b442fa8d48b6a1cc6825c09c847a5`.
+  - cargo-llvm-cov is explicitly versioned at 0.9.1; checksum verification remains
+    enabled, with the install action's fallback disabled.
+
+### Static workflow and report checks
+
+- `actionlint .github/workflows/coverage.yml` passed.
+- `curl --data-binary @codecov.yml https://codecov.io/validate` returned `Valid!`,
+  confirming the main branch, automatic project/patch targets, zero threshold,
+  and non-informational statuses.
+- Parsed the actual workflow and checked each pinned action's input names against
+  its pinned `action.yml`. Verified event coverage, scoped permissions, the
+  timeout, disabled credential persistence, explicit report selection,
+  `use_oidc: true`, `disable_search: true`, and `fail_ci_if_error: true`.
+- Evaluated the actual upload/skip expressions for main pushes, manual dispatch,
+  same-repository PRs, and fork PRs. Only forks skip uploading. GitHub's implicit
+  success condition prevents either post-validation step from reporting success
+  after a preceding failure. Actual bot/OIDC permissions remain a rollout check.
+- Executed the workflow's actual Python report validator against generated
+  fixtures: it accepted a valid library/CLI report and rejected empty reports,
+  missing CLI source, zero CLI hits, and malformed hit counts. Also ran that exact
+  validator successfully against the real Linux report in a read-only container.
+
+### Rust tests and coverage
+
+- macOS, Homebrew Rust 1.96.0: `cargo fmt --check` and
+  `cargo clippy --all-targets -- -D warnings` passed.
+- The first `cargo test --locked` run failed
+  `losing_terminal_input_reports_failure_without_creating_a_layer_manifest`.
+  That same existing test passed when rerun in isolation, and the entire suite
+  then passed on a second full run: **186 tests**, plus zero doctests. No Rust
+  source or test was changed, skipped, or ignored. Retain this observation as a
+  potential timing-sensitive terminal-test issue rather than hide the first run.
+- Instrumented Linux run: Rust 1.99.1, LLVM 23.1.1, cargo-llvm-cov 0.9.1, native
+  `aarch64-unknown-linux-gnu` in a disposable Debian Bookworm Rust container. The
+  image digest was
+  `sha256:a24e292b4af7bdee351a31d3a6379972a5652f0ea22a1b6d6883324ac4f5097c`.
+  The container had a 30-minute outer timeout, init-based child reaping, and
+  automatic removal; source was mounted read-only and artifacts stayed under
+  the ignored `target/coverage-linux/` directory.
+- Installed matching LLVM tools. Verified the downloaded cargo-llvm-cov release
+  archive against SHA-256
+  `abf5f13c1520f8756d2192bfaaeadb0208f5b7eaa8cadc15bf847befa42b7360`.
+  An initial container setup attempt stopped before tests because the slim image
+  lacked curl; downloaded and verified the archive on the host for the subsequent
+  successful run. This did not change the GitHub-hosted workflow.
+- Ran `cargo llvm-cov --locked --workspace --all-targets --lcov --output-path
+  /artifacts/lcov.info` with only the target/report paths relocated into the
+  container's artifact mount. **All 186 tests passed**, including all 25 terminal
+  tests; no production exclusion or coverage threshold was added.
+- The generated report contains all nine Rust source files, with **2,348 of 2,443
+  executable lines covered (96.11%)**. This is a local feature-branch measurement,
+  not a published `main` result or a promised Codecov percentage after service
+  processing. Inline unit-test code follows stable tooling defaults.
+- CLI subprocess data is present: the executable's `main` function has a nonzero
+  execution counter (508), rather than only a zero-count unit-test variant.
+  Deliberately killed processes can still miss their final counter flush; no
+  tests were omitted to avoid that limitation.
+
+### README and documentation
+
+- Checked the actual linked image URL, explicit `main` branch, `flat-square`
+  style, `Code coverage on main` alternative text, unchanged existing badge
+  destinations, and absence of badge-token query parameters.
+- Rendered the actual revised README in a local preview, checking desktop
+  (1440px) and mobile (390px) layouts. The header fits/wraps without sideways badge
+  scrolling; the live coverage shield currently displays `unknown`, as expected
+  without a processed publicly accessible main report.
+- Reviewed README, coverage instructions, and the going-public checklist from a
+  first-time reader's perspective. No product, glossary, or foundations change is
+  warranted: the change is optional development infrastructure, not CLI behaviour.
+- No runtime or Cargo dependency changed; implementation does not load or embed
+  assets from `openspec/`. Generated reports, fixtures, and previews stay under
+  ignored `target/` paths rather than become project implementation assets.
+
+## Pending live verification
+
+**Progress: 14/18 tasks complete.** Tasks 1.1, 5.1, 5.2, and 5.3 remain unchecked.
+
+- The checks above are local verification only. GitHub OIDC exchange, the hosted
+  Ubuntu run, and actual report processing must be observed during PR rollout;
+  local Linux verification is not a substitute for them. The maintainer has now
+  authorised committing, pushing, and opening the implementation PR, not merging.
+- Once an authorised implementation PR is available, verify tests, OIDC upload,
+  processing, account limits/features, and actual PR feedback. Record its links.
+- After merge, verify the first main report and comparisons on a subsequent PR.
+  Numerical badge verification remains pending public Codecov report access;
+  private `unknown` is accepted by the maintainer's token-free decision.
+- Do not archive this change or mark those tasks complete on the strength of
+  configuration validation or local coverage alone.
