@@ -129,16 +129,37 @@
   assets from `openspec/`. Generated reports, fixtures, and previews stay under
   ignored `target/` paths rather than become project implementation assets.
 
-## Pending live verification
+## First hosted PR run — 2026-10-18
 
-**Progress: 14/18 tasks complete.** Tasks 1.1, 5.1, 5.2, and 5.3 remain unchecked.
+- Opened [implementation PR #8](https://github.com/hydratic-applications/hydragen/pull/8)
+  after the maintainer authorised committing, pushing, and opening it. The first
+  [Coverage run](https://github.com/hydratic-applications/hydragen/actions/runs/39122559635)
+  passed in 1 minute 44 seconds on hosted Ubuntu 24.04 at commit
+  `e7c0a3484ff33e8b80460f11abb52e2c7b17a016`.
+- All 186 tests passed on the hosted runner, including all 25 terminal tests.
+  The workflow's library/CLI report validation passed, GitHub issued the OIDC
+  token, and Codecov accepted the upload for processing. Uploader integrity
+  verification remained enabled.
+- Authenticated inspection of the
+  [processed commit report](https://app.codecov.io/gh/hydratic-applications/hydragen/commit/e7c0a3484ff33e8b80460f11abb52e2c7b17a016/tree)
+  showed one merged upload, browsable source coverage, and **2,348/2,443 lines
+  covered (96.11%)**. This confirms private report processing and aggregate
+  coverage viewing work on the current account without a billing or membership
+  change; it is not an inference about every paid feature.
+- The comparison view reports **Missing Base Commit**, because the default
+  branch has no coverage report yet. A Codecov patch check was observed pending;
+  no successful project/patch comparison is claimed. This is the expected
+  first-report bootstrap condition, not an upload failure.
+- The runner emitted an informational notice that `ubuntu-latest` will begin
+  migrating to Ubuntu 26 on 2026-10-19. The workflow deliberately tracks the hosted
+  Ubuntu label; this notice did not fail the job.
 
-- The checks above are local verification only. GitHub OIDC exchange, the hosted
-  Ubuntu run, and actual report processing must be observed during PR rollout;
-  local Linux verification is not a substitute for them. The maintainer has now
-  authorised committing, pushing, and opening the implementation PR, not merging.
-- Once an authorised implementation PR is available, verify tests, OIDC upload,
-  processing, account limits/features, and actual PR feedback. Record its links.
+## Pending post-merge verification
+
+**Progress: 16/18 tasks complete.** Tasks 5.2 and 5.3 remain unchecked.
+
+- No merge was authorised or performed. Hosted verification above covers a
+  same-repository human-authored PR, not fork or Dependabot runtime behaviour.
 - After merge, verify the first main report and comparisons on a subsequent PR.
   Numerical badge verification remains pending public Codecov report access;
   private `unknown` is accepted by the maintainer's token-free decision.

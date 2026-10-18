@@ -1,6 +1,6 @@
 ## 1. Confirm service prerequisites and tooling
 
-- [ ] 1.1 Confirm Codecov recognises `hydratic-applications/hydragen`, the installed app has access, and the account supports this private repository; record any setup blocker without changing visibility or billing.
+- [x] 1.1 Confirm Codecov recognises `hydratic-applications/hydragen`, the installed app has access, and the account supports this private repository; record any setup blocker without changing visibility or billing.
 - [x] 1.2 Confirm whether the maintainer approves including the dedicated private badge-access token in the README URL, explaining exposure to readers, Shields.io, and image proxies; never substitute upload or GitHub credentials.
 - [x] 1.3 Recheck Codecov's official `example-rust` workflow alongside current Rust, Codecov action, `cargo-llvm-cov`, and installation documentation. Use the design's dated stable-release snapshot as a starting point, not stale example `@v5` references. Resolve reviewed release SHA pins, use stable Rust with matching `llvm-tools-preview`, and install explicit-version prebuilt `cargo-llvm-cov` through a pinned normal install-action release with checksum verification and no fallback.
 
@@ -27,6 +27,6 @@
 
 ## 5. Verify live rollout when authorised
 
-- [ ] 5.1 On an authorised implementation PR, observe successful coverage generation, GitHub OIDC upload, and Codecov processing; record links and distinguish missing-base bootstrap from an upload failure. Leave live verification pending if no push/PR is authorised.
+- [x] 5.1 On an authorised implementation PR, observe successful coverage generation, GitHub OIDC upload, and Codecov processing; record links and distinguish missing-base bootstrap from an upload failure. Leave live verification pending if no push/PR is authorised.
 - [ ] 5.2 After an authorised merge, confirm the main push produces a processed main report and the README shield shows its measured coverage after cache refresh; leave numeric badge acceptance pending if private access is unresolved.
 - [ ] 5.3 Observe project/patch comparison statuses on a subsequent same-repository PR with a processed base report, and record evidence without changing required-check settings or claiming unobserved success.
