@@ -112,11 +112,56 @@ specification synchronisation or archival was performed.
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, Actionlint,
   `git diff --check`, and strict OpenSpec validation passed after the repair.
 
+## First hosted split-job run and Unicode correction repair
+
+- Committed and pushed the split-job implementation as `6626103` on
+  `swift-otter`, updating PR #8. Hosted run
+  [39177774792](https://github.com/hydratic-applications/hydragen/actions/runs/39177774792)
+  displayed the expected Actions names: `Tests` passed, but `Coverage report`
+  failed in `unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_normalizing`
+  at the then-current `tests/interactive_init.rs:1152`. The name retained U+0085
+  before U+FEFF instead of containing U+FEFF alone. The input-loss test passed.
+- GitHub's job-step data confirmed report validation and Codecov uploading were
+  skipped after that instrumented failure. The commit's check-runs contained
+  only the two Actions jobs and its status list was empty: no new Codecov
+  assessment was published for that commit. This was not an 80% threshold failure.
+- Codecov's PR page displayed its onboarding message: comparisons become
+  available after merging coverage to the default branch. That is separate from
+  the failed upload pipeline. The page's older `CI Passed` label is not evidence
+  that the latest GitHub run passed. No settings or account changes were made.
+- Inspected the installed prompt dependencies: `console` restores the previous
+  terminal mode after each key read, before cliclack draws/validates the next
+  prompt frame. A scripted Backspace during a canonical-input gap can be
+  consumed by the terminal, leaving the application's prior input intact.
+- A controlled pseudo-terminal experiment reproduced byte loss: after reading
+  U+0085 in raw mode, restoring the default canonical mode and sending
+  Backspace/U+FEFF/Enter delivered only U+FEFF/newline. With a noncanonical
+  baseline the Backspace was preserved. The original full test also passed 200
+  isolated Linux retries; repetition alone did not reproduce the hosted timing.
+- Set `stty -icanon -echo -isig min 1 time 0` in the test session's existing
+  bounded shell child before executing the CLI. Setup failure exits nonzero.
+  Output newline handling and all Unicode expectations remain unchanged. There
+  are no added sleeps, retries, skips, production changes, or Cargo dependencies.
+- With that setup, the unchanged Unicode correction test passed 200 consecutive
+  normal Linux runs, 200 instrumented Linux runs, and 100 macOS runs. Normal
+  Linux/macOS and instrumented Linux full suites each passed all 186 tests,
+  with none ignored or filtered out. Normal documentation-test phases completed
+  with zero doctests. Linux used the same pinned aarch64 image and matching tools
+  as above, with read-only source and a 30-minute container/cleanup bound.
+- Fresh `target/separate-checks-linux/unicode-fixed-lcov.info` retained executed
+  library/CLI source records and 2,413/2,527 measured lines hit (95.49%), without
+  new exclusions. Formatting, Clippy, diff checks, and strict OpenSpec validation
+  passed. Updated `docs/coverage.md` to explain why the two service assessments
+  may be absent when report production/uploading fails; reviewed that explanation
+  for a first-time reader.
+- The maintainer authorised committing/pushing this focused repair and observing
+  hosted CI and Codecov feedback. The repair's hosted outcome is not yet claimed
+  by these local results. Configuration and trust boundaries remain unchanged.
+
 ## Pending
 
-At the local-verification checkpoint, progress is **10/12 tasks complete**. Tasks
-4.2–4.3 retain separate live-verification requirements. The maintainer has now
-authorised committing and pushing this follow-up to `swift-otter` and PR #8.
-Live check names must be observed after that push; independent Codecov pass/fail
-outcomes need eligible reports and a processed base report. No merge, publication,
-billing, membership, or required-check changes are authorised by this rollout.
+Progress remains **10/12 tasks complete**. The Actions display names have been
+observed, but task 4.2 still needs Codecov's actual rendered names after an
+eligible upload. Task 4.3 needs independent Codecov pass/fail outcomes with
+eligible reports and a processed base report. No merge, publication, billing,
+membership, or required-check changes are authorised by this rollout.

@@ -160,6 +160,35 @@ assertion for useful failure diagnostics. This is a focused test-harness repair,
 not a CLI behaviour change, test skip, or coverage-driven source refactor. No
 Cargo dependency or foundation/glossary change is needed.
 
+### Preserve scripted terminal keystrokes between prompt reads
+
+The first hosted run after the split passed normal tests but failed the Unicode
+correction test under instrumentation. The expected name was a BOM (U+FEFF);
+the actual name also retained the previously rejected next-line whitespace
+(U+0085). The input-loss repair passed in that run.
+
+The `console` dependency switches to raw input for each key, then restores the
+previous mode before returning to the prompt library. In the test's default
+canonical (line-buffered) terminal mode, a scripted Backspace arriving between
+reads can be consumed by the terminal rather than delivered to the prompt.
+A separate terminal experiment confirmed that the correction's Backspace byte
+was lost with that baseline and preserved with noncanonical input.
+
+Set `stty -icanon -echo -isig min 1 time 0` in the test session's existing bounded
+shell child before it launches the CLI. This makes scripted input byte-oriented,
+disables terminal echo and signal interpretation, and keeps output newline
+handling unchanged. Fail setup if `stty` fails. The CLI still uses cliclack's
+normal input handling; tests retain their Unicode values, exact expected layer
+manifest content, error assertions, and cleanup. Do not mask the issue with
+delays, retries, filtering input, or weaker assertions. This test-only setup does
+not establish a new production input policy.
+
+GitHub confirmed that report validation and uploading were skipped after the
+instrumented failure. The Codecov assessments are service-generated after an
+eligible upload, not extra Actions jobs. Check their absence separately from
+configuration validity and missing-base comparisons; do not create placeholder
+success statuses to make four checks appear.
+
 ## Risks / Trade-offs
 
 - **Two builds consume more runner work** → Keep one platform and run jobs in

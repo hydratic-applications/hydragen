@@ -119,9 +119,13 @@ impl Session {
         let terminal = system.openpty(size).unwrap();
         let stdout_terminal = system.openpty(size).unwrap();
         let mut command = CommandBuilder::new("/bin/sh");
+        // console restores the previous input mode between key reads. Keep
+        // scripted Backspace/Ctrl-C bytes from being consumed by the terminal
+        // during those gaps, without changing output newline handling.
         command.args([
             "-c",
-            "case \"$REDIRECT\" in
+            "stty -icanon -echo -isig min 1 time 0 || exit
+case \"$REDIRECT\" in
 stdin) exec \"$@\" </dev/null >\"$RESULT_TTY\";;
 stdin-eof) exec \"$@\" <\"$CAPTURE\" >\"$RESULT_TTY\";;
 stdout) exec \"$@\" >\"$CAPTURE\";;

@@ -114,6 +114,12 @@ results remain unverified; the report job does not replace them with a pass. A P
 with no added or modified executable lines has no applicable patch target; a
 neutral/skipped result is not a numerical 0% failure or a fabricated 100%.
 
+Only **Tests** and **Coverage report** are Actions jobs. Codecov publishes the
+other two assessments after an eligible upload; they are not four checks created
+upfront by Actions. If instrumented tests or report validation fail, uploading
+is skipped and the new commit may show only the two Actions checks. Restore the
+report pipeline first, then check Codecov processing and baseline availability.
+
 ### Trust boundaries
 
 - Fork PRs run normal tests, instrumented tests, and report validation but **skip
