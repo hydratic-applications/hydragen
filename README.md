@@ -1,4 +1,4 @@
-<h1 align="center"><a name="hydragen"></a>Hydragen</h1>
+<h1 align="center"><a name="hydragen"></a><img src="docs/assets/hydragen-wordmark.png" alt="Hydragen" width="400"></h1>
 
 <p align="center">
   <a href="#hydragen"><img src="https://img.shields.io/badge/status-prototype-orange?style=for-the-badge" alt="Status: prototype" height="20"></a>
