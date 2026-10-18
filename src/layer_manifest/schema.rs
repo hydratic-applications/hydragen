@@ -9,6 +9,8 @@ use jsonschema::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::diagnostic_text::display;
+
 const SCHEMA: &str = include_str!("../../schemas/layer-manifest.schema.json");
 // An in-memory resource identifier, not a published URL or a layer manifest property.
 const SCHEMA_URI: &str = "urn:hydragen:layer-manifest";
@@ -133,7 +135,13 @@ impl fmt::Display for Violation {
         } else {
             &self.instance_path
         };
-        write!(formatter, "{path} ({}): {}", self.keyword, self.message)
+        write!(
+            formatter,
+            "{} ({}): {}",
+            display(path),
+            display(&self.keyword),
+            display(&self.message)
+        )
     }
 }
 
@@ -143,7 +151,11 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Setup { message, detail } => {
-                write!(formatter, "Internal layer manifest schema error: {message}")?;
+                write!(
+                    formatter,
+                    "Internal layer manifest schema error: {}",
+                    display(message)
+                )?;
                 if let Some(detail) = detail {
                     write!(formatter, ": {detail}")?;
                 }

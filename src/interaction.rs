@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use hydragen::diagnostic_text::display;
 use hydragen::layer_manifest::schema;
 use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
 
@@ -330,7 +331,7 @@ fn directory_name_validating(
             io::ErrorKind::InvalidInput,
             format!(
                 "Could not derive a valid UTF-8 layer name from directory '{}'. Supply --name explicitly.",
-                directory.display()
+                display(directory.display())
             ),
         )
     };
@@ -345,14 +346,14 @@ fn directory_name_validating(
             io::ErrorKind::InvalidInput,
             format!(
                 "Could not use directory '{}' as the layer name: {error} Supply --name explicitly.",
-                directory.display()
+                display(directory.display())
             ),
         )),
         Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
                 "Could not use directory '{}' as the layer name: {error}. Supply --name explicitly.",
-                directory.display()
+                display(directory.display())
             ),
         )),
         Err(error) => Err(io::Error::other(error)),
@@ -471,8 +472,9 @@ pub fn finish(mode: Mode, layer_manifest: &Path, presentation: Presentation) -> 
             io::Error::new(
                 error.kind(),
                 format!(
-                    "Layer manifest '{}' was created, but reporting its completion failed: {error}",
-                    layer_manifest.display()
+                    "Layer manifest '{}' was created, but reporting its completion failed: {}",
+                    display(layer_manifest.display()),
+                    display(error)
                 ),
             )
         })
@@ -488,8 +490,9 @@ fn finish_guided(
         io::Error::new(
             error.kind(),
             format!(
-                "Layer manifest '{}' was created, but terminal feedback failed: {error}",
-                layer_manifest.display()
+                "Layer manifest '{}' was created, but terminal feedback failed: {}",
+                display(layer_manifest.display()),
+                display(error)
             ),
         )
     })
@@ -528,6 +531,23 @@ mod tests {
             assert!(!error.to_string().contains("No files were changed"));
             assert!(!is_reported_cancellation(&error));
         }
+    }
+
+    #[test]
+    fn guided_completion_failure_escapes_its_path_and_io_detail_only() {
+        let raw = "bad\u{1b}[H\r\n\t";
+        let escaped = r"bad\x1b[H\r\n\t";
+        let path = Path::new(raw).join("layer.json");
+        let error = finish_guided(&path, "Completed", |_| {
+            Err(io::Error::other(raw.to_owned()))
+        })
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(!message.chars().any(char::is_control), "{message:?}");
+        assert_eq!(message.matches(escaped).count(), 2, "{message:?}");
+        assert!(message.contains("was created, but terminal feedback failed"));
+        assert!(!message.contains("No files were changed"));
+        assert!(!is_reported_cancellation(&error));
     }
 
     #[test]

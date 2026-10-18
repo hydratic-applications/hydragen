@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::{
     LayerManifestError, LayerManifestFormat, LoadedLayerManifest, parse_source, validate_document,
 };
+use crate::diagnostic_text::display;
 
 mod json;
 mod toml;
@@ -45,8 +46,9 @@ impl fmt::Display for EditError {
                 reason,
             } => write!(
                 formatter,
-                "Could not safely edit {format} layer manifest '{}': {reason}",
-                path.display()
+                "Could not safely edit {format} layer manifest '{}': {}",
+                display(path.display()),
+                display(reason)
             ),
             Self::InvalidCandidate {
                 path,
@@ -55,7 +57,7 @@ impl fmt::Display for EditError {
             } => write!(
                 formatter,
                 "Prepared {format} layer manifest '{}' is invalid: {source}",
-                path.display()
+                display(path.display())
             ),
             Self::UnintendedChange {
                 path,
@@ -63,8 +65,9 @@ impl fmt::Display for EditError {
                 reason,
             } => write!(
                 formatter,
-                "Refused unsafe edit to {format} layer manifest '{}': {reason}",
-                path.display()
+                "Refused unsafe edit to {format} layer manifest '{}': {}",
+                display(path.display()),
+                display(reason)
             ),
         }
     }

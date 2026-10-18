@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 pub mod dependencies;
+pub mod diagnostic_text;
 pub mod layer_manifest;
 pub mod replacement;
 pub use layer_manifest::{
@@ -102,16 +103,20 @@ impl fmt::Display for InitError {
                 "--{field} must contain at least one non-whitespace character."
             ),
             Self::Schema(source) => source.fmt(formatter),
-            Self::InvalidName { guidance } => write!(formatter, "--name is invalid. {guidance}"),
+            Self::InvalidName { guidance } => write!(
+                formatter,
+                "--name is invalid. {}",
+                diagnostic_text::display(guidance)
+            ),
             Self::NestedRepository { root } => write!(
                 formatter,
                 "Run 'hydragen init' from the repository root '{}', not a subdirectory. No files were changed.",
-                root.display()
+                diagnostic_text::display(root.display())
             ),
             Self::ExistingLayerManifest { path } => write!(
                 formatter,
                 "'{}' already exists.\n'hydragen init' does not overwrite existing entries.\nInspect the entry or run 'hydragen init' in a different directory.\nThis command did not change any files.",
-                path.display()
+                diagnostic_text::display(path.display())
             ),
             Self::Io {
                 action,
@@ -119,11 +124,16 @@ impl fmt::Display for InitError {
                 source,
             } => write!(
                 formatter,
-                "Could not {action} '{}': {source}",
-                path.display()
+                "Could not {action} '{}': {}",
+                diagnostic_text::display(path.display()),
+                diagnostic_text::display(source)
             ),
             Self::Serialization(source) => {
-                write!(formatter, "Could not serialise layer metadata: {source}")
+                write!(
+                    formatter,
+                    "Could not serialise layer metadata: {}",
+                    diagnostic_text::display(source)
+                )
             }
             Self::Encoding(source) => source.fmt(formatter),
             Self::Discovery(source) => source.fmt(formatter),

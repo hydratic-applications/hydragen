@@ -11,6 +11,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::diagnostic_text::display;
 use crate::layer_manifest::schema::{self, Reference};
 use crate::layer_manifest::{
     self, LayerManifestDiscovery, LayerManifestError, LoadedLayerManifest,
@@ -31,12 +32,18 @@ impl fmt::Display for SourceOrigin {
             Self::Existing { index, reference } => {
                 write!(
                     formatter,
-                    "existing dependency {} ('{reference}')",
-                    index + 1
+                    "existing dependency {} ('{}')",
+                    index + 1,
+                    display(reference)
                 )
             }
             Self::Argument { index, reference } => {
-                write!(formatter, "source argument {} ('{reference}')", index + 1)
+                write!(
+                    formatter,
+                    "source argument {} ('{}')",
+                    index + 1,
+                    display(reference)
+                )
             }
         }
     }
@@ -181,31 +188,35 @@ impl fmt::Display for DependencyError {
                 source,
             } => write!(
                 formatter,
-                "Could not {action} '{}': {source}",
-                path.display()
+                "Could not {action} '{}': {}",
+                display(path.display()),
+                display(source)
             ),
             Self::NotDirectory { path } => write!(
                 formatter,
                 "Local source '{}' must be a directory containing a layer manifest.",
-                path.display()
+                display(path.display())
             ),
             Self::MissingCurrent { invocation } => write!(
                 formatter,
                 "No layer manifest found in '{}' or its parents through the filesystem root. Run 'hydragen init' in the intended layer directory first.",
-                invocation.display()
+                display(invocation.display())
             ),
             Self::CurrentSymlink { path } => write!(
                 formatter,
                 "Cannot edit symlinked current layer manifest '{}'. Use a regular layer manifest file instead; the link and its target have not been changed.",
-                path.display()
+                display(path.display())
             ),
             Self::UnsupportedPath { reference, reason } => write!(
                 formatter,
-                "Cannot resolve local path '{reference}' on this host: {reason}. Supply an explicit native path without translating the stored reference."
+                "Cannot resolve local path '{}' on this host: {reason}. Supply an explicit native path without translating the stored reference.",
+                display(reference)
             ),
             Self::PublishedAdditionUnsupported { name, version } => write!(
                 formatter,
-                "Adding published layers is not supported yet ('{name}@{version}'). Supply an explicit local path instead."
+                "Adding published layers is not supported yet ('{}@{}'). Supply an explicit local path instead.",
+                display(name),
+                display(version)
             ),
             Self::NameConflict {
                 name,
@@ -213,12 +224,20 @@ impl fmt::Display for DependencyError {
                 previous_directory,
                 directory,
             } => {
-                write!(formatter, "Layer name '{name}' conflicts with {previous}")?;
+                write!(
+                    formatter,
+                    "Layer name '{}' conflicts with {previous}",
+                    display(name)
+                )?;
                 if let Some(path) = previous_directory {
-                    write!(formatter, " in '{}'", path.display())?;
+                    write!(formatter, " in '{}'", display(path.display()))?;
                 }
                 if let Some(path) = directory {
-                    write!(formatter, "; the incoming layer is in '{}'", path.display())?;
+                    write!(
+                        formatter,
+                        "; the incoming layer is in '{}'",
+                        display(path.display())
+                    )?;
                 }
                 formatter.write_str(". Each direct dependency must have a unique name, different from the current layer; existing declarations are not replaced.")
             }

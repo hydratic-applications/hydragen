@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 
 use tempfile::{Builder, TempPath};
 
+use crate::diagnostic_text::display;
+
 /// The primary operation that failed before replacement completed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplaceLayerManifestOperation {
@@ -101,15 +103,16 @@ impl fmt::Display for ReplaceLayerManifestError {
             formatter,
             "Could not {} at '{}': {}. The selected layer manifest '{}' was not replaced.",
             self.operation,
-            self.path().display(),
-            self.source,
-            self.layer_manifest_path.display(),
+            display(self.path().display()),
+            display(&self.source),
+            display(self.layer_manifest_path.display()),
         )?;
         if let (Some(path), Some(error)) = (self.staging_path(), self.cleanup_error()) {
             write!(
                 formatter,
-                " Could not remove staging file '{}': {error}. A staging file may remain; inspect this path before removing it.",
-                path.display(),
+                " Could not remove staging file '{}': {}. A staging file may remain; inspect this path before removing it.",
+                display(path.display()),
+                display(error),
             )?;
         }
         Ok(())
@@ -250,6 +253,49 @@ mod tests {
 
     const ORIGINAL: &[u8] = b"name: original\n# retain on failure\n";
     const REPLACEMENT: &[u8] = b"name: original\ndependencies: [../shared]\n";
+
+    #[test]
+    fn every_operation_and_cleanup_display_escapes_raw_paths_and_io_causes() {
+        let raw = "bad\u{1b}[2J\r\n\t\u{7f}\u{9b}\u{202e}";
+        let escaped = r"bad\x1b[2J\r\n\t\x7f\u{9b}\u{202e}";
+        for operation in [
+            Operation::InspectTarget,
+            Operation::CreateStaging,
+            Operation::WriteStaging,
+            Operation::PreservePermissions,
+            Operation::SyncStaging,
+            Operation::Rename,
+        ] {
+            for cleanup_failed in [false, true] {
+                let error = ReplaceLayerManifestError {
+                    layer_manifest_path: Path::new(raw).join("layer.json"),
+                    operation,
+                    source: io::Error::other(raw.to_owned()),
+                    staging_path: Some(Path::new(raw).join(".staging")),
+                    cleanup_error: cleanup_failed.then(|| io::Error::other(raw.to_owned())),
+                };
+                let message = error.to_string();
+                assert!(!message.chars().any(char::is_control), "{message:?}");
+                assert!(!message.contains('\u{202e}'), "{message:?}");
+                assert!(message.contains(escaped), "{message:?}");
+                assert!(!message.contains("\\\\x1b"), "{message:?}");
+                assert!(message.contains("was not replaced."));
+                assert_eq!(
+                    message.contains("A staging file may remain"),
+                    cleanup_failed
+                );
+                assert_eq!(error.cleanup_failed(), cleanup_failed);
+                assert_eq!(error.io_error().to_string(), raw);
+                if cleanup_failed {
+                    assert!(
+                        message
+                            .contains(&format!("{escaped}{}.staging", std::path::MAIN_SEPARATOR)),
+                        "{message:?}"
+                    );
+                }
+            }
+        }
+    }
 
     fn fixture() -> (tempfile::TempDir, PathBuf) {
         let directory = tempfile::tempdir().unwrap();

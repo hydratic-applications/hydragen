@@ -139,7 +139,10 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
     let directory = std::env::current_dir().map_err(|error| {
         io::Error::new(
             error.kind(),
-            format!("Could not determine the current directory: {error}"),
+            format!(
+                "Could not determine the current directory: {}",
+                hydragen::diagnostic_text::display(error)
+            ),
         )
     })?;
     match cli.command {

@@ -2,6 +2,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use hydragen::diagnostic_text::display;
 use hydragen::{
     CreatedLayerManifest, InitCreationError, InitError, LayerManifestDiscovery, LayerManifestFormat,
 };
@@ -35,7 +36,8 @@ impl fmt::Display for AddCommandError {
         match self {
             Self::CurrentDirectory(source) => write!(
                 formatter,
-                "Could not add dependencies.\nCould not determine the current directory: {source}\nCheck that the working directory still exists and is accessible."
+                "Could not add dependencies.\nCould not determine the current directory: {}\nCheck that the working directory still exists and is accessible.",
+                display(source)
             ),
             Self::Verification(failure) => {
                 let count = failure.errors.len();
@@ -45,7 +47,7 @@ impl fmt::Display for AddCommandError {
                     writeln!(
                         formatter,
                         "Local paths resolve from the declaring layer directory: {}",
-                        directory.display()
+                        display(directory.display())
                     )?;
                 }
                 for (index, failure) in failure.errors.iter().enumerate() {
@@ -92,7 +94,7 @@ impl fmt::Display for AddCommandError {
                     AddCompletionState::Updated => write!(
                         formatter,
                         "Could not report completion for {layer}.\nThe layer manifest '{}' was already updated; do not assume the addition failed.",
-                        path.display()
+                        display(path.display())
                     )?,
                     AddCompletionState::Unchanged => write!(
                         formatter,
@@ -101,7 +103,8 @@ impl fmt::Display for AddCommandError {
                 }
                 write!(
                     formatter,
-                    "\nCompletion output failed: {source}\nCheck the output destination before running the command again."
+                    "\nCompletion output failed: {}\nCheck the output destination before running the command again.",
+                    display(source)
                 )
             }
         }
@@ -126,7 +129,7 @@ fn dependency_error_message(
     use hydragen::dependencies::{DependencyError, SourceOrigin};
     use hydragen::layer_manifest::{LayerManifestError, MetadataError, schema};
     // This is diagnostic wiring for a known schema rule, not another reference
-    // validator. Other rules, instance paths, and origins keep their raw detail.
+    // validator. Other rules, instance paths, and origins keep their diagnostic detail.
     if let DependencyError::Schema(schema::Error::Content(violation)) = error
         && violation.schema_path == "/$defs/reference/oneOf"
         && violation.keyword == "oneOf"
@@ -150,22 +153,24 @@ fn dependency_error_message(
         directory,
     } = error
     {
-        let mut message =
-            format!("Layer name '{name}' is already in use.\nConflicting source: {previous}");
+        let mut message = format!(
+            "Layer name '{}' is already in use.\nConflicting source: {previous}",
+            display(name)
+        );
         if let Some(path) = previous_directory {
             let label = match previous {
                 SourceOrigin::Current => "Current layer path",
                 SourceOrigin::Existing { .. } => "Existing source path",
                 SourceOrigin::Argument { .. } => "Earlier source path",
             };
-            message.push_str(&format!("\n{label}: {}", path.display()));
+            message.push_str(&format!("\n{label}: {}", display(path.display())));
         }
         if let Some(path) = directory {
             let label = match origin {
                 SourceOrigin::Existing { .. } => "Declared source path",
                 _ => "Requested source path",
             };
-            message.push_str(&format!("\n{label}: {}", path.display()));
+            message.push_str(&format!("\n{label}: {}", display(path.display())));
         }
         message.push_str("\nEach direct dependency must have a unique name, different from the current layer.\nChoose a source with a different layer name; existing declarations are not replaced.");
         return message;
@@ -208,7 +213,7 @@ pub fn init_error_message(error: &(dyn std::error::Error + 'static)) -> String {
     {
         return format!(
             "This directory already has a layer manifest ({}).\nInitialisation creates a new layer manifest; it won’t overwrite an existing one.",
-            std::path::Path::new(filename).display()
+            display(std::path::Path::new(filename).display())
         );
     }
     error.to_string()
@@ -231,7 +236,7 @@ fn duplicate_warning(discovery: &LayerManifestDiscovery) -> Option<String> {
         .join(" > ");
     Some(format!(
         "Warning: Multiple layer manifests found in '{}': {names}.\n{selected} takes priority (priority: {priority}).\nLayer manifests are not merged; keep only the intended layer manifest.",
-        discovery.directory.display()
+        display(discovery.directory.display())
     ))
 }
 
@@ -247,7 +252,7 @@ fn observation_warning(created: &CreatedLayerManifest) -> Option<String> {
         Ok(discovery) => duplicate_warning(discovery),
         Err(error) => Some(format!(
             "Warning: Layer manifest '{}' was created, but duplicate checking failed:\n{error}",
-            created.path.display()
+            display(created.path.display())
         )),
     }
 }
@@ -271,6 +276,79 @@ fn report_warning(warning: &str, presentation: Presentation) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn completion_and_current_directory_errors_escape_data_but_preserve_state_and_style() {
+        let raw = "bad\u{1b}[2J\r\n\t\u{9b}\u{202e}";
+        let escaped = r"bad\x1b[2J\r\n\t\u{9b}\u{202e}";
+        for state in [AddCompletionState::Updated, AddCompletionState::Unchanged] {
+            let error = AddCommandError::Completion {
+                state,
+                layer: "app".into(),
+                path: std::path::Path::new(raw).join("layer.json"),
+                source: io::Error::other(raw.to_owned()),
+            };
+            let message = error.to_string();
+            assert!(
+                message.contains(&format!("\nCompletion output failed: {escaped}\n")),
+                "{message:?}"
+            );
+            assert!(
+                !message.chars().any(|ch| ch.is_control() && ch != '\n'),
+                "{message:?}"
+            );
+            assert!(!message.contains('\u{202e}'));
+            assert!(!message.contains("No files were changed"));
+            match state {
+                AddCompletionState::Updated => {
+                    assert!(message.contains(&format!(
+                        "{escaped}{}layer.json' was already updated",
+                        std::path::MAIN_SEPARATOR
+                    )))
+                }
+                AddCompletionState::Unchanged => assert!(message.contains("was not updated")),
+            }
+            let presentation = Presentation {
+                decorated: true,
+                basic: false,
+            };
+            let styled = presentation.diagnostic(Severity::Error, &message);
+            assert!(styled.contains("\u{1b}[31m"), "{styled:?}");
+            assert!(!styled.contains("\u{1b}[2J"), "{styled:?}");
+            let plain = console::strip_ansi_codes(&styled);
+            assert!(plain.starts_with("✕ Error: Could not report"));
+            assert!(
+                plain.contains(&format!("\n  Completion output failed: {escaped}\n")),
+                "{plain:?}"
+            );
+        }
+        let error = AddCommandError::CurrentDirectory(io::Error::other(raw.to_owned()));
+        let message = error.to_string();
+        assert!(
+            message.contains(&format!("current directory: {escaped}\n")),
+            "{message:?}"
+        );
+    }
+
+    #[test]
+    fn observation_warning_escapes_raw_data_without_escaping_structured_layout() {
+        let raw = "bad\u{1b}[2J\n\t";
+        let escaped = r"bad\x1b[2J\n\t";
+        let path = std::path::Path::new(raw).join("layer.json");
+        let created = CreatedLayerManifest {
+            path: path.clone(),
+            observation: Err(hydragen::LayerManifestError::Io {
+                action: "inspect layer manifest path",
+                path,
+                source: io::Error::other(raw.to_owned()),
+            }),
+        };
+        let warning = observation_warning(&created).unwrap();
+        assert_eq!(warning.matches(escaped).count(), 3, "{warning:?}");
+        assert_eq!(warning.matches('\n').count(), 1, "{warning:?}");
+        assert!(!warning.contains('\u{1b}'), "{warning:?}");
+        assert!(!warning.contains("No files were changed"));
+    }
 
     #[test]
     fn add_setup_failures_do_not_blame_valid_input_or_use_init_flags() {

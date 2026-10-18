@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::Metadata;
+use crate::diagnostic_text::display;
 
 mod decode;
 pub mod edit;
@@ -238,7 +239,11 @@ impl fmt::Display for MetadataError {
             ),
             Self::Schema(source) => source.fmt(formatter),
             Self::InvalidName { guidance } => {
-                write!(formatter, "Metadata field 'name' is invalid. {guidance}")
+                write!(
+                    formatter,
+                    "Metadata field 'name' is invalid. {}",
+                    display(guidance)
+                )
             }
         }
     }
@@ -310,7 +315,7 @@ impl fmt::Display for LayerManifestError {
             Self::Missing { directory } => write!(
                 formatter,
                 "No layer manifest found in '{}'; expected one of: {}.",
-                directory.display(),
+                display(directory.display()),
                 LayerManifestFormat::ALL
                     .map(LayerManifestFormat::filename)
                     .join(", ")
@@ -321,13 +326,14 @@ impl fmt::Display for LayerManifestError {
                 source,
             } => write!(
                 formatter,
-                "Could not {action} '{}': {source}",
-                path.display()
+                "Could not {action} '{}': {}",
+                display(path.display()),
+                display(source)
             ),
             Self::NotRegular { path } => write!(
                 formatter,
                 "Could not read layer manifest '{}': target must be a regular file (or a symlink to one).",
-                path.display()
+                display(path.display())
             ),
             Self::Decode {
                 path,
@@ -335,14 +341,15 @@ impl fmt::Display for LayerManifestError {
                 message,
             } => write!(
                 formatter,
-                "Could not decode {format} layer manifest '{}': {message}",
-                path.display()
+                "Could not decode {format} layer manifest '{}': {}",
+                display(path.display()),
+                display(message)
             ),
             Self::Metadata { path, source } => {
                 write!(
                     formatter,
                     "Invalid layer manifest '{}': {source}",
-                    path.display()
+                    display(path.display())
                 )
             }
         }
@@ -374,7 +381,8 @@ impl fmt::Display for EncodeError {
             Self::Metadata(source) => source.fmt(formatter),
             Self::Serialization { format, message } => write!(
                 formatter,
-                "Could not serialise {format} layer metadata: {message}"
+                "Could not serialise {format} layer metadata: {}",
+                display(message)
             ),
         }
     }
