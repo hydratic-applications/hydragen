@@ -1,5 +1,12 @@
 # Hydragen
 
+[![Status Badge]][Status]
+[![Rust Badge]][Rust]
+[![Deps Badge]][Deps]
+[![Repo Badge]][Repo]
+[![Stars Badge]][Stars]
+[![Sponsors Badge]][Sponsors]
+
 Hydragen is a development system for building distinct projects from shared code,
 configuration, and project files. Its building block is a **layer**: a project or
 reusable set of files that other layers can depend on. The goal is to keep shared
@@ -157,3 +164,16 @@ Tests cover flag-based and guided input, layer manifest formats and validation,
 repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
+
+[Status Badge]: https://img.shields.io/badge/status-prototype-orange?style=flat-square
+[Status]: #hydragen
+[Rust Badge]: https://img.shields.io/badge/language-Rust-DEA584?style=flat-square&logo=rust&logoColor=white
+[Rust]: #build-and-run-locally
+[Deps Badge]: https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=flat-square
+[Deps]: https://deps.rs/repo/github/hydratic-applications/hydragen
+[Repo Badge]: https://img.shields.io/badge/repo-GitHub-181717?style=flat-square&logo=github&logoColor=white
+[Repo]: https://github.com/hydratic-applications/hydragen
+[Stars Badge]: https://img.shields.io/github/stars/hydratic-applications/hydragen?style=flat-square&label=stars
+[Stars]: https://github.com/hydratic-applications/hydragen/stargazers
+[Sponsors Badge]: https://img.shields.io/github/sponsors/hydratic-applications?style=flat-square&label=sponsors
+[Sponsors]: https://github.com/sponsors/hydratic-applications
