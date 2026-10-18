@@ -176,8 +176,11 @@ repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
 
-CI measures Rust line coverage on PRs and pushes to `main`, then uploads eligible
-reports to [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main).
+CI reports normal test results as **Tests** and generates and uploads Rust line
+coverage through **Coverage report**. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
+separately requires at least **80% overall coverage** and **80% coverage of added
+or modified executable lines**. A successful report upload does not mean these
+percentage targets passed; Codecov checks them separately, without a local gate.
 The coverage shield tracks `main`; it may be unavailable while the repository is
 private because its URL deliberately contains no badge-access token.
 

@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::BorrowedFd;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Mutex, MutexGuard};
@@ -1626,7 +1627,13 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             })
             .unwrap();
         let input_path = input.master.tty_name().unwrap();
-        let mut input_writer = input.master.take_writer().unwrap();
+        // portable-pty's writer sends a newline and EOT on drop. That can submit
+        // the current prompt instead of testing input loss. A plain duplicate
+        // closes silently, leaving the pending read to observe disconnection.
+        // SAFETY: input.master owns this descriptor and outlives the borrow;
+        // try_clone_to_owned creates an independently owned descriptor.
+        let input_fd = unsafe { BorrowedFd::borrow_raw(input.master.as_raw_fd().unwrap()) };
+        let mut input_writer = fs::File::from(input_fd.try_clone_to_owned().unwrap());
         let mut session = Session::spawn_with_lock(
             directory.path(),
             &["init"],
@@ -1653,7 +1660,13 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
         // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
         drop(input_writer);
         drop(input);
-        assert!(!session.finish().success());
+        let status = session.finish();
+        assert!(
+            !status.success(),
+            "Input loss at selector={at_selector} returned {status:?}; stderr: {}; stdout: {}",
+            String::from_utf8_lossy(&session.stderr),
+            String::from_utf8_lossy(&session.stdout)
+        );
         assert!(
             String::from_utf8_lossy(&session.stderr)
                 .contains("Could not collect initialisation input")

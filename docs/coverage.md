@@ -70,10 +70,11 @@ run on another platform can therefore differ from CI.
    repository read access and job-scoped OIDC token issuance. No `CODECOV_TOKEN`
    secret is required for the configured OIDC route. Authentication or upload
    errors fail the job rather than hide missing reports.
-4. Confirm Codecov processed the report. A successful upload is not evidence that
-   every dashboard feature or PR assessment is available on the account. Both
-   project and patch statuses are configured; verify their actual results without
-   starting a trial or changing billing merely to complete setup.
+4. Confirm Codecov processed the report and published its named total-coverage
+   and changed-lines assessments. A successful upload does not mean those targets
+   passed or that every dashboard feature is available on the account. Verify
+   actual results without starting a trial or changing billing merely to complete
+   setup.
 
 The first implementation PR can upload without having a baseline to compare
 against. After merge, a push run on `main` establishes that baseline. If needed,
@@ -81,23 +82,51 @@ manually run Coverage on `main` once the workflow exists there. Then inspect the
 next same-repository PR's comparisons. Do not treat missing base data as 100%
 coverage or a completed comparison.
 
-### PR checks and trust boundaries
+### What the PR checks mean
 
-- The Actions **coverage** job checks tests, report generation, library/CLI hit
-  data, and eligible uploading. Any failure makes the job fail.
-- Codecov's **project** status compares overall coverage with the base commit.
-  Its **patch** status assesses changed executable lines. Both use automatic
-  targets and zero allowed drop, not a fixed 80% or 100% project target. These
-  assessments arrive asynchronously after report processing.
-- Fork PRs run instrumented tests and report validation but **skip uploads**. A
-  job summary explains that no Codecov assessment was requested. No secrets are
-  sent to forks and contributed code is never run through `pull_request_target`.
-  Codecov supports tokenless public-fork uploads, but adopting that route is a
-  separate decision; publication does not silently enable it.
-- Same-repository bot PRs use the OIDC route. Dependabot events have special
-  GitHub permission rules, so confirm those runs can obtain the identity token.
-  If not, investigate the event permissions; do not use privileged PR execution
-  or ignore upload errors as a workaround.
+- **Tests** runs `cargo test --locked`, including normal unit, integration,
+  terminal, and documentation tests. Any test failure fails this check. It needs
+  only repository read access, not coverage tools or Codecov authentication.
+- **Coverage report** runs the tests with coverage instrumentation, validates
+  library/CLI coverage data, and uploads eligible reports. It fails for
+  instrumented-test, report-generation, validation, or upload errors, **not** for
+  a low coverage percentage. A valid low-coverage report is still uploaded so it
+  can be inspected.
+- **`codecov/project/total-coverage`** assesses all measured executable lines
+  against a minimum of **80%** coverage.
+- **`codecov/patch/changed-lines`** independently assesses executable lines
+  added or modified by the PR against a minimum of **80%** coverage. High overall
+  coverage cannot compensate for poorly tested new code, or vice versa.
+
+The two Actions jobs run independently, so a coverage-tool or service failure
+does not change the normal test result. The report job also runs instrumented
+tests; splitting jobs does not suppress failures in that run.
+
+Codecov alone enforces the two percentage targets, with zero configured
+tolerance: 80% meets either target, below 80% does not. There is no duplicate
+local percentage gate or extra default Codecov assessment. Named Codecov contexts
+retain the provider's `codecov/project/` and `codecov/patch/` prefixes.
+
+Codecov's assessments arrive asynchronously after processing. A green **Coverage
+report** means the reporting pipeline worked, not that coverage meets 80%. If
+processing, account access, or a required baseline is unavailable, the percentage
+results remain unverified; the report job does not replace them with a pass. A PR
+with no added or modified executable lines has no applicable patch target; a
+neutral/skipped result is not a numerical 0% failure or a fabricated 100%.
+
+### Trust boundaries
+
+- Fork PRs run normal tests, instrumented tests, and report validation but **skip
+  uploads**. Neither Codecov percentage assessment is claimed to run for them;
+  there is no local fallback. A job summary explains the skipped upload. No
+  secrets are sent to forks and contributed code is never run through
+  `pull_request_target`. Codecov supports tokenless public-fork uploads, but
+  adopting that route is a separate decision; publication does not silently
+  enable it.
+- Same-repository bot PRs use the OIDC route for report uploading. Dependabot
+  events have special GitHub permission rules, so confirm those runs can obtain
+  the identity token. If not, investigate the event permissions; do not use
+  privileged PR execution or ignore upload errors as a workaround.
 
 The Codecov app publishes its own feedback; the workflow needs no PR or status
 write permission. Configuration does not make any check required for merging or
