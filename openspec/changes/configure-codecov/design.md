@@ -10,7 +10,11 @@ The maintainer intends to make the repository public later, but not as part of
 this change. Private operation is the current requirement, not a reason to delay
 CI until publication; no publication date is assumed.
 
-The README already has a centred HTML badge header with `flat-square` styling.
+The README has a centred HTML badge header. While this change was prepared,
+`main` adopted `for-the-badge` styling at 20px height. The maintainer explicitly
+chose to match that newer style for coverage when resolving the README merge,
+superseding this proposal's initial `flat-square` choice without reverting any
+of the other badge updates.
 The existing badge specification still describes an older Markdown layout and
 forbids coverage badges because there was no coverage infrastructure. This change
 updates those affected requirements without redesigning the header.
@@ -185,7 +189,7 @@ does not make them required for merging; branch protection is a separate decisio
 Insert coverage after dependencies and before license in the current header,
 keeping the second row's repo, stars, and sponsors badges unchanged. Use:
 
-- Image: `https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=flat-square`
+- Image: `https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge`, with `height="20"` to match the header.
 - Link: `https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main`
 - Alternative text: `Code coverage on main`
 

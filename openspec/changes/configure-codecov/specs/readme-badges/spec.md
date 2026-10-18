@@ -9,7 +9,7 @@ order, adding coverage between dependencies and license. A line break SHALL
 retain repo, stars, and sponsors as the second group. Status, language, coverage,
 repo, stars, sponsors, and license images SHALL use HTTPS Shields.io URLs; the
 dependencies image SHALL use the existing HTTPS deps.rs URL. All eight SHALL
-use `flat-square` styling with square corners and no gradients. Images SHALL NOT
+use `for-the-badge` styling and `height="20"` to match the header. Images SHALL NOT
 use fixed widths that prevent wrapping on narrow displays.
 
 #### Scenario: Read the README introduction
@@ -17,7 +17,7 @@ use fixed widths that prevent wrapping on narrow displays.
 - **WHEN** a reader opens the rendered README with badge images available
 - **THEN** status, language, dependencies, coverage, and license appear in that
   order in the first group, with repo, stars, and sponsors in the second group
-- **AND** all eight use `flat-square` styling without replacing introductory text
+- **AND** all eight use `for-the-badge` styling at 20px height without replacing introductory text
 
 #### Scenario: Read on a narrow display
 
@@ -92,7 +92,7 @@ for order, wrapping, and accessible text; escape HTML query separators correctly
 ### Requirement: Live main-branch coverage shield
 
 The coverage image SHALL use
-`https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=flat-square`,
+`https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge`,
 optionally with an approved dedicated Codecov badge-access token. The branch
 SHALL be explicit regardless of which branch contains the displayed README.
 The image SHALL remain service-backed, not a hardcoded percentage or checked-in

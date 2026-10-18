@@ -111,13 +111,17 @@
 
 ### README and documentation
 
-- Checked the actual linked image URL, explicit `main` branch, `flat-square`
-  style, `Code coverage on main` alternative text, unchanged existing badge
+- Initially checked the actual linked image URL, explicit `main` branch,
+  `flat-square` style, `Code coverage on main` alternative text, unchanged existing badge
   destinations, and absence of badge-token query parameters.
 - Rendered the actual revised README in a local preview, checking desktop
   (1440px) and mobile (390px) layouts. The header fits/wraps without sideways badge
   scrolling; the live coverage shield currently displays `unknown`, as expected
   without a processed publicly accessible main report.
+- During PR preparation, `main` contained newer badge styling commits. The
+  maintainer approved matching their `for-the-badge` style and 20px height for the
+  coverage shield. Preserved all of main's existing badge changes and aligned
+  the proposal, design, and delta specification with that decision.
 - Reviewed README, coverage instructions, and the going-public checklist from a
   first-time reader's perspective. No product, glossary, or foundations change is
   warranted: the change is optional development infrastructure, not CLI behaviour.
