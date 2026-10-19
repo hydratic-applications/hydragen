@@ -1,6 +1,7 @@
 //! Cached, offline validation of parsed layer manifest content using the bundled schema.
 
 use std::fmt;
+use std::fmt::Write;
 use std::sync::OnceLock;
 
 use jsonschema::{
@@ -225,7 +226,11 @@ impl Validators {
             })?;
         // This annotation approves diagnostics, not input validity. Missing, malformed,
         // or stale approval must never prevent compilation or weaken the schema rule.
-        let fingerprint = format!("{:x}", Sha256::digest(nonblank_pattern.as_bytes()));
+        let digest = Sha256::digest(nonblank_pattern.as_bytes());
+        let mut fingerprint = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            write!(fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
+        }
         let approved_nonblank_pattern = schema
             .pointer(NONBLANK_APPROVAL_PATH)
             .and_then(Value::as_str)
@@ -235,7 +240,11 @@ impl Validators {
             schema["$defs"]["layerName"],
             schema["$defs"]["layerNameSyntax"]
         ]);
-        let name_fingerprint = format!("{:x}", Sha256::digest(name_rules.to_string().as_bytes()));
+        let digest = Sha256::digest(name_rules.to_string().as_bytes());
+        let mut name_fingerprint = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            write!(name_fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
+        }
         let approved_name_guidance = schema["x-hydragen-name-policy-sha256"]
             .as_str()
             .filter(|approval| *approval == name_fingerprint)
@@ -417,6 +426,35 @@ mod tests {
     fn schema_is_valid_draft_2020_12() {
         jsonschema::draft202012::meta::validate(&schema()).unwrap();
         ensure_ready().unwrap();
+    }
+
+    #[test]
+    fn shipped_diagnostic_fingerprints_match_independent_sha256_vectors() {
+        // Independently computed with Python hashlib over the pattern's UTF-8
+        // bytes and the compact, key-sorted JSON name-rule array respectively.
+        // These fixed vectors also check lower-case hex and per-byte zero padding.
+        let schema = schema();
+        assert_eq!(
+            schema
+                .pointer(NONBLANK_APPROVAL_PATH)
+                .and_then(Value::as_str),
+            Some("f308e30ae4a261113af20ed108cd840829a39d26af2024f66ab1b4e08ffc3514")
+        );
+        assert_eq!(
+            schema["x-hydragen-name-policy-sha256"].as_str(),
+            Some("225f6b51735509610a0236ccd835ca20f7a00934da13e48254d59ddfb4a7f6a8")
+        );
+        let validators = compile(&schema);
+        assert!(validators.approved_nonblank_pattern.is_some());
+        assert!(validators.approved_name_guidance.is_some());
+        assert_eq!(
+            violation(validators.validate_field("author", " \t").unwrap_err()).kind,
+            ViolationKind::NonBlank
+        );
+        assert!(matches!(
+            violation(validators.validate_field("name", "Uppercase").unwrap_err()).kind,
+            ViolationKind::Name { .. }
+        ));
     }
 
     #[test]

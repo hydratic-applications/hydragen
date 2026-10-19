@@ -196,6 +196,15 @@ report file, automatic search disabled, integrity checks enabled, and
 Valid below-target main reports still upload because neither gate is its
 dependency. Fork and other PR checks need no upload or credential expansion.
 
+Preserve the validated repository-relative LCOV source paths during Codecov
+processing with `codecov.disable_default_path_fixes: true`. The uploader's
+temporary-directory file inventory contains upload files, not the production
+sources: it must not be used to predictively rewrite or discard valid `src/`
+paths. This setting records the already implemented processing fix in
+[PR #10](https://github.com/hydratic-applications/hydragen/pull/10),
+not a new workflow change. It retains the no-checkout boundary and strict
+artifact/source validation; unrelated upload files do not redefine report scope.
+
 ### Synchronise the input-loss test after dedicated stdin selection
 
 The terminal input-loss test redirects standard input to a separate

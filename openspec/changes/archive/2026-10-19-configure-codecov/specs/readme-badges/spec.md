@@ -75,6 +75,60 @@ for ordinary local building, testing, or running Hydragen.
 - **THEN** ordinary builds, tests, and CLI use remain unaffected because those
   processes do not fetch badge images
 
+### Requirement: Stable deps.rs URLs with an accepted unknown state
+
+The dependencies image SHALL use
+`https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=for-the-badge`.
+The image and report URLs SHALL omit `path` because Hydragen's `Cargo.toml` is at
+the repository root. The badge SHALL be included even if deps.rs cannot analyze
+the private repository and returns `unknown`. Adding it SHALL NOT require a
+repository visibility change, credentials, or a successful analysis. Neither its
+alternative text nor accompanying prose SHALL claim that dependencies are healthy
+or that the badge guarantees security.
+
+#### Scenario: Repository remains private
+
+- **WHEN** deps.rs cannot analyze the private repository and returns an `unknown` badge
+- **THEN** the README still includes the live badge and report link
+- **AND** this temporary service result does not block adding the badge
+
+#### Scenario: Repository later becomes publicly analyzable
+
+- **WHEN** the repository becomes public and deps.rs successfully analyzes it
+- **THEN** the existing badge and report URLs remain appropriate without a README edit
+- **AND** the badge displays the service result when service and image caches refresh,
+  without a promise of immediate updates
+
+### Requirement: Live stars and account-wide sponsor counts
+
+The stars image SHALL use
+`https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&label=stars`.
+The sponsors image SHALL use
+`https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&label=sponsors`.
+These SHALL remain service-backed dynamic images, not hardcoded counts, snapshots,
+or locally generated assets. The sponsor count SHALL refer to the owner
+`hydratic-applications`, not be described as a repository-specific count.
+
+Unavailable results SHALL NOT be replaced with zero. The badges SHALL be included
+even if the private repository is not found by Shields.io or the organization has
+no Sponsors listing. This change SHALL NOT require public repository access,
+credentials, enabling sponsorship, or a working sponsorship destination.
+
+#### Scenario: Public counts change
+
+- **WHEN** GitHub exposes updated star or sponsor counts to Shields.io
+- **THEN** the existing badge URLs can display the updated counts after cache
+  refreshes without a README edit
+- **AND** zero is displayed only when it is the service's result
+
+#### Scenario: Public data or sponsorship is not available
+
+- **WHEN** the stars integration reports `repo not found` for the private repository
+  or the owner's GitHub Sponsors page is unavailable
+- **THEN** the README still includes the dynamic badges and their intended links
+- **AND** implementation does not substitute a zero, add credentials, change
+  visibility, or enable sponsorship to conceal those limitations
+
 ## REMOVED Requirements
 
 ### Requirement: Shortcut badge references with definitions at the bottom
@@ -93,8 +147,10 @@ for order, wrapping, and accessible text; escape HTML query separators correctly
 
 The coverage image SHALL use
 `https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge`,
-optionally with an approved dedicated Codecov badge-access token. The branch
-SHALL be explicit regardless of which branch contains the displayed README.
+with `logo=codecov` for the service's native-colour icon and optionally with an
+approved dedicated Codecov badge-access token. HTML query separators SHALL be
+escaped as `&amp;`; no hardcoded replacement icon SHALL replace the native logo.
+The branch SHALL be explicit regardless of which branch contains the displayed README.
 The image SHALL remain service-backed, not a hardcoded percentage or checked-in
 snapshot. Unavailable or uninitialised service data SHALL NOT be replaced with
 zero or a fabricated success. Documentation SHALL explain first-main-report and

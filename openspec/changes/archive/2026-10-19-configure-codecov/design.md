@@ -216,7 +216,7 @@ URL and report link can then work without a badge token. Document removing any
 previously approved badge token from the README and revoking it in Codecov if no
 longer needed; removing it from the current file does not remove it from Git
 history. Track these publication-time actions in the maintained
-[going-public checklist](../../../docs/going-public-checklist.md), rather than
+[going-public checklist](../../../../docs/going-public-checklist.md), rather than
 relying on this change's eventual archive as a reminder.
 Keep OIDC uploads unchanged. Public visibility alone does not establish
 successful reporting, and it does not change this increment's fork-upload policy.
