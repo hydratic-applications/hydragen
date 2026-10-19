@@ -9,7 +9,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use hydragen::LayerManifestFormat;
-use portable_pty::{Child, CommandBuilder, ExitStatus, PtyPair, PtySize, native_pty_system};
+use portable_pty::{
+    Child, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, native_pty_system,
+};
 use serde_json::{Value, json};
 mod diagnostic_body_support;
 mod support;
@@ -25,6 +27,193 @@ enum Event {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputMode {
+    Canonical,
+    Noncanonical,
+}
+
+fn input_mode(input: &dyn MasterPty) -> Option<InputMode> {
+    input.get_termios().map(|settings| {
+        // Use the flag's supported name instead of platform-specific bit values
+        // or a direct dependency on portable-pty's termios implementation.
+        if settings
+            .local_flags
+            .iter_names()
+            .any(|(name, _)| name == "ICANON")
+        {
+            InputMode::Canonical
+        } else {
+            InputMode::Noncanonical
+        }
+    })
+}
+
+fn noncanonical_input_ready(
+    mode: Option<InputMode>,
+    child_status: Option<&ExitStatus>,
+    before_deadline: bool,
+) -> Result<bool, String> {
+    let mode = mode.ok_or_else(|| {
+        "Could not observe dedicated input PTY termios: get_termios returned None".to_owned()
+    })?;
+    if let Some(status) = child_status {
+        return Err(format!(
+            "Terminal child exited before dedicated input PTY readiness: {status:?}"
+        ));
+    }
+    if !before_deadline {
+        return Err(format!(
+            "Timed out waiting for dedicated input PTY to become noncanonical; last mode: {mode:?}"
+        ));
+    }
+    Ok(mode == InputMode::Noncanonical)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SharedInputMode {
+    Protected,
+    ConsoleRaw,
+}
+
+fn shared_input_mode_from_flags(
+    supports_iexten: bool,
+    active_flags: &[&str],
+) -> Result<SharedInputMode, String> {
+    if !supports_iexten {
+        return Err("Shared input PTY does not expose the required named IEXTEN flag".into());
+    }
+    if active_flags
+        .iter()
+        .any(|name| matches!(*name, "ICANON" | "ECHO" | "ISIG"))
+    {
+        return Err(format!(
+            "Shared input PTY protected baseline was not established: {active_flags:?}"
+        ));
+    }
+    Ok(if active_flags.contains(&"IEXTEN") {
+        SharedInputMode::Protected
+    } else {
+        SharedInputMode::ConsoleRaw
+    })
+}
+
+fn shared_input_mode(input: &dyn MasterPty) -> Result<SharedInputMode, String> {
+    let settings = input.get_termios().ok_or_else(|| {
+        "Could not observe shared input PTY termios: get_termios returned None".to_owned()
+    })?;
+    let known = settings.local_flags | settings.local_flags.complement();
+    let supports_iexten = known.iter_names().any(|(name, _)| name == "IEXTEN");
+    let active = settings
+        .local_flags
+        .iter_names()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    shared_input_mode_from_flags(supports_iexten, &active)
+}
+
+fn shared_input_ready(
+    mode: Result<SharedInputMode, String>,
+    child_status: Option<&ExitStatus>,
+    before_deadline: bool,
+) -> Result<bool, String> {
+    let mode = mode?;
+    if let Some(status) = child_status {
+        return Err(format!(
+            "Terminal child exited before shared input PTY readiness: {status:?}"
+        ));
+    }
+    if !before_deadline {
+        return Err(format!(
+            "Timed out waiting for console raw input on shared PTY; last mode: {mode:?}"
+        ));
+    }
+    Ok(mode == SharedInputMode::ConsoleRaw)
+}
+
+#[test]
+fn shared_input_readiness_distinguishes_protected_baseline_from_console_raw() {
+    let protected = shared_input_mode_from_flags(true, &["IEXTEN"]).unwrap();
+    let raw = shared_input_mode_from_flags(true, &[]).unwrap();
+    assert_eq!(protected, SharedInputMode::Protected);
+    assert_eq!(raw, SharedInputMode::ConsoleRaw);
+    assert_eq!(shared_input_ready(Ok(protected), None, true), Ok(false));
+    assert_eq!(shared_input_ready(Ok(raw), None, true), Ok(true));
+    assert!(
+        shared_input_mode_from_flags(false, &[])
+            .unwrap_err()
+            .contains("IEXTEN")
+    );
+    for flag in ["ICANON", "ECHO", "ISIG"] {
+        assert!(
+            shared_input_mode_from_flags(true, &["IEXTEN", flag])
+                .unwrap_err()
+                .contains("baseline")
+        );
+    }
+}
+
+#[test]
+fn shared_input_readiness_rejects_missing_state_exit_and_expiry_before_ready() {
+    assert_eq!(
+        shared_input_ready(Err("missing termios".into()), None, true),
+        Err("missing termios".into())
+    );
+    let status = ExitStatus::with_exit_code(0);
+    for mode in [SharedInputMode::Protected, SharedInputMode::ConsoleRaw] {
+        assert!(
+            shared_input_ready(Ok(mode), Some(&status), true)
+                .unwrap_err()
+                .contains("child exited")
+        );
+        assert!(
+            shared_input_ready(Ok(mode), None, false)
+                .unwrap_err()
+                .contains("Timed out")
+        );
+    }
+}
+
+#[test]
+fn noncanonical_input_readiness_distinguishes_pending_ready_and_expired_states() {
+    assert_eq!(
+        noncanonical_input_ready(Some(InputMode::Canonical), None, true),
+        Ok(false)
+    );
+    assert_eq!(
+        noncanonical_input_ready(Some(InputMode::Noncanonical), None, true),
+        Ok(true)
+    );
+    for mode in [InputMode::Canonical, InputMode::Noncanonical] {
+        let error = noncanonical_input_ready(Some(mode), None, false).unwrap_err();
+        assert!(
+            error.contains("Timed out waiting for dedicated input PTY"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("last mode: {mode:?}")), "{error}");
+    }
+}
+
+#[test]
+fn noncanonical_input_readiness_rejects_missing_termios_and_exited_children() {
+    let error = noncanonical_input_ready(None, None, true).unwrap_err();
+    assert!(
+        error.contains("Could not observe dedicated input PTY termios"),
+        "{error}"
+    );
+    assert!(error.contains("get_termios returned None"), "{error}");
+
+    let status = ExitStatus::with_exit_code(1);
+    for mode in [InputMode::Canonical, InputMode::Noncanonical] {
+        let error = noncanonical_input_ready(Some(mode), Some(&status), true).unwrap_err();
+        assert!(
+            error.contains("Terminal child exited before dedicated input PTY readiness"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("{status:?}")), "{error}");
+    }
+}
+
 struct TerminalSettings {
     cols: u16,
     rows: u16,
@@ -32,6 +221,7 @@ struct TerminalSettings {
     term: &'static str,
     no_color: Option<&'static str>,
     clicolor: Option<&'static str>,
+    baseline_probe: bool,
 }
 
 impl Default for TerminalSettings {
@@ -43,6 +233,7 @@ impl Default for TerminalSettings {
             term: "xterm-256color",
             no_color: None,
             clicolor: None,
+            baseline_probe: false,
         }
     }
 }
@@ -121,9 +312,18 @@ impl Session {
         let terminal = system.openpty(size).unwrap();
         let stdout_terminal = system.openpty(size).unwrap();
         let mut command = CommandBuilder::new("/bin/sh");
+        // console restores the previous input mode between key reads. Keep
+        // scripted Backspace/Ctrl-C bytes from being consumed by the terminal
+        // during those gaps, without changing output newline handling. IEXTEN
+        // stays enabled in this baseline and console clears it for each raw read.
         command.args([
             "-c",
-            "case \"$REDIRECT\" in
+            "stty -icanon -echo -isig iexten min 1 time 0 || exit
+if [ \"$BASELINE_PROBE\" = 1 ]; then
+  printf 'PTY protected baseline established\\n' >&2
+  IFS= read -r baseline_ack || exit
+fi
+case \"$REDIRECT\" in
 stdin) exec \"$@\" </dev/null >\"$RESULT_TTY\";;
 stdin-eof) exec \"$@\" <\"$CAPTURE\" >\"$RESULT_TTY\";;
 stdout) exec \"$@\" >\"$CAPTURE\";;
@@ -139,6 +339,10 @@ esac",
         command.env("RESULT_TTY", stdout_terminal.master.tty_name().unwrap());
         command.env_remove("CI");
         command.env_remove("REDIRECT");
+        command.env(
+            "BASELINE_PROBE",
+            if settings.baseline_probe { "1" } else { "0" },
+        );
         command.env_remove("COLUMNS");
         command.env_remove("CLICOLOR_FORCE");
         command.env_remove("NO_COLOR");
@@ -238,43 +442,30 @@ esac",
     }
 
     /// A complete frame is observable before console enters its next raw read.
-    /// Observe the actual terminal mode rather than guessing a delay. With no
-    /// key queued, raw mode remains stable until this test sends the next key.
+    /// IEXTEN distinguishes console's raw setup from our protected between-read
+    /// baseline. This does not claim that a read syscall is already blocked.
     /// Used only with the normal shared stdin/stderr PTY, not redirected input.
     fn send_key_when_reading(&mut self, input: &[u8]) -> usize {
         assert_eq!(std::str::from_utf8(input).unwrap().chars().count(), 1);
-        self.wait_for_input_reader(|session| {
-            Self::raw_input_active(session.prompt_terminal.as_ref().unwrap().as_ref())
-        });
+        self.wait_for_shared_input();
         let checkpoint = self.stderr.len();
         self.send(input);
         checkpoint
     }
 
-    fn raw_input_active(terminal: &dyn portable_pty::MasterPty) -> bool {
-        let mode = terminal.get_termios().expect("Unix PTY termios");
-        !mode
-            .local_flags
-            .iter_names()
-            .any(|(name, _)| matches!(name, "ICANON" | "ECHO"))
-    }
-
-    fn wait_for_input_reader(&mut self, reading: impl Fn(&Self) -> bool) {
+    fn wait_for_shared_input(&mut self) {
         let deadline = Instant::now() + TIMEOUT;
         loop {
-            if reading(self) {
-                return;
+            let mode = shared_input_mode(self.prompt_terminal.as_ref().unwrap().as_ref());
+            let status = self
+                .child
+                .try_wait()
+                .expect("Could not observe terminal child status");
+            match shared_input_ready(mode, status.as_ref(), Instant::now() < deadline) {
+                Ok(true) => return,
+                Ok(false) => self.receive(Duration::from_millis(1)),
+                Err(error) => panic!("{error}; stderr: {}", visible_text(&self.stderr)),
             }
-            assert!(
-                Instant::now() < deadline,
-                "Prompt never entered raw input mode: {}",
-                visible_text(&self.stderr)
-            );
-            assert!(
-                self.child.try_wait().unwrap().is_none(),
-                "Child exited before reading the next key"
-            );
-            self.receive(Duration::from_millis(1));
         }
     }
 
@@ -287,7 +478,7 @@ esac",
         input: &[u8],
     ) -> usize {
         assert_eq!(std::str::from_utf8(input).unwrap().chars().count(), 1);
-        self.wait_for_input_reader(|_| Self::raw_input_active(terminal));
+        self.wait_for_noncanonical_input(terminal);
         let checkpoint = self.stderr.len();
         writer.write_all(input).unwrap();
         writer.flush().unwrap();
@@ -361,6 +552,30 @@ esac",
         }
     }
 
+    fn wait_for_noncanonical_input(&mut self, input: &dyn MasterPty) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let mode = input_mode(input);
+            let status = self.child.try_wait().expect(
+                "Could not observe terminal child status while waiting for dedicated input PTY readiness",
+            );
+            match noncanonical_input_ready(mode, status.as_ref(), Instant::now() < deadline) {
+                Ok(true) => return,
+                Ok(false) => self.receive(
+                    Duration::from_millis(10)
+                        .min(deadline.saturating_duration_since(Instant::now())),
+                ),
+                Err(error) => panic!(
+                    "{error}; closed readers: {}/{}; stderr: {}; stdout: {}",
+                    self.closed,
+                    self.readers.len(),
+                    String::from_utf8_lossy(&self.stderr),
+                    String::from_utf8_lossy(&self.stdout)
+                ),
+            }
+        }
+    }
+
     fn choose_format(&mut self, directory: &Path, format: LayerManifestFormat) {
         self.wait_for("Layer manifest format");
         self.wait_for("jsonc");
@@ -393,7 +608,9 @@ esac",
             }
             assert!(
                 Instant::now() < deadline,
-                "Terminal child did not finish: {}",
+                "Terminal child did not finish (child status: {status:?}, closed readers: {}/{}): {}",
+                self.closed,
+                self.readers.len(),
                 String::from_utf8_lossy(&self.stderr)
             );
             self.receive(Duration::from_millis(10));
@@ -716,12 +933,12 @@ fn assert_occupied_feedback(stderr: &[u8]) {
 // asset. These are character-cell assertions, not a promise about font pixels.
 const MOTIF: [&str; 8] = [
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⣰⣾⣿⣿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⣿⣿⡁⠈⠻⡿⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠙⠿⣿⡦⢠⣶⣄⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠙⠿⠃⠺⣿⣶⣄⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⣾⣦⡀⢈⣿⣿⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠘⢿⣿⣿⡿⠏⠀⠀",
+    "⠀⠀⢠⣶⣿⣿⣶⡄⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⣿⣿⡁⠈⠻⣿⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠘⠿⣿⣦⢀⣴⣄⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠙⠟⠁⠻⣿⣶⡄⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⣿⣦⡀⢈⣿⣿⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠘⠿⣿⣿⠿⠃⠀⠀",
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
 ];
 
@@ -1067,6 +1284,7 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
 fn terminal_version_stays_plain_and_argument_errors_use_shared_style_without_writes() {
     for (arguments, success) in [
         (vec!["--version"], true),
+        (vec!["-V"], true),
         (vec![], false),
         (vec!["init", "--bogus"], false),
         (vec!["init", "--name"], false),
@@ -1091,7 +1309,7 @@ fn terminal_version_stays_plain_and_argument_errors_use_shared_style_without_wri
             assert!(session.stderr.is_empty());
             assert_eq!(
                 visible_text(&session.stdout),
-                format!("hydragen {}\r\n", env!("CARGO_PKG_VERSION"))
+                format!("{}\r\n", env!("CARGO_PKG_VERSION"))
             );
         } else {
             assert_eq!(status.exit_code(), 2);
@@ -1903,6 +2121,11 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
                 pixel_height: 0,
             })
             .unwrap();
+        assert_eq!(
+            input_mode(input.master.as_ref()),
+            Some(InputMode::Canonical),
+            "Dedicated input PTY must have a canonical baseline before child spawn"
+        );
         let input_path = input.master.tty_name().unwrap();
         let mut input_writer = close_only_pty_writer(input.master.as_ref());
         let mut session = Session::spawn_with_lock(
@@ -1924,7 +2147,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             session.prompt_terminal.as_ref().unwrap().tty_name(),
             session.prompt_terminal.as_ref().unwrap().as_raw_fd()
         ));
-        session.wait_for("Name");
+        session.wait_for_frame_since(0, "◆", "Name", "");
         input_trace.push(format!(
             "Name observed: stdin={:?}; prompt={:?}",
             input.master.get_termios().map(|mode| mode.local_flags),
@@ -1939,6 +2162,10 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             session.prepare_selector_on_input(input.master.as_ref(), &mut input_writer);
         }
         assert_no_layer_manifests(directory.path());
+        // Frames are flushed before console selects its input. With no answer
+        // bytes left queued, this PTY's canonical-to-noncanonical transition
+        // proves stdin has been selected, not that a read syscall is blocked.
+        session.wait_for_noncanonical_input(input.master.as_ref());
         input_trace.push(format!(
             "Before hangup: stdin={:?}; prompt={:?}",
             input.master.get_termios().map(|mode| mode.local_flags),
@@ -1950,8 +2177,8 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
                 .map(|mode| mode.local_flags)
         ));
         // Closing every master handle disconnects stdin while stderr remains usable.
-        // Do not wait for a raw read here: loss before the next SDK read is also
-        // valid. This close-only writer sends neither Enter nor Ctrl-D.
+        // This after-selection loss does not test /dev/tty fallback before input
+        // selection. The close-only writer sends neither Enter nor Ctrl-D.
         drop(input_writer);
         drop(input);
         let status = session.finish();
@@ -2018,6 +2245,44 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             if colour { "styled" } else { "plain" }
         ));
     }
+}
+
+#[test]
+fn shared_input_baseline_is_nonvacuous_before_console_enters_raw_mode() {
+    let directory = tempdir().unwrap();
+    let mut session = Session::with_settings(
+        directory.path(),
+        &["init"],
+        None,
+        None,
+        TerminalSettings {
+            baseline_probe: true,
+            ..Default::default()
+        },
+    );
+    // The shell pauses before exec: no console call can have established this
+    // state. Its explicit line acknowledgement releases the real CLI afterward.
+    session.wait_for("PTY protected baseline established");
+    assert_eq!(
+        shared_input_mode(session.prompt_terminal.as_ref().unwrap().as_ref()).unwrap(),
+        SharedInputMode::Protected
+    );
+    let checkpoint = session.stderr.len();
+    session.send(b"\n");
+    session.wait_for_frame_since(checkpoint, "◆", "Name", "");
+    session.wait_for_shared_input();
+    assert_eq!(
+        shared_input_mode(session.prompt_terminal.as_ref().unwrap().as_ref()).unwrap(),
+        SharedInputMode::ConsoleRaw
+    );
+    session.send_key_when_reading(b"\x03");
+    assert!(!session.finish().success());
+    assert!(
+        visible_text(&session.stderr)
+            .contains("Layer initialisation cancelled. No files were changed.")
+    );
+    assert!(session.stdout.is_empty());
+    assert_no_layer_manifests(directory.path());
 }
 
 #[test]

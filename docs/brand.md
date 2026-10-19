@@ -39,6 +39,14 @@ and what the current layer adds, modifies, or deletes.
 It also reflects **DRY — Don't Repeat Yourself**: shared content retains an
 authoritative source rather than becoming independently maintained copies.
 
+## Wordmark
+
+The [Hydragen wordmark](assets/hydragen-wordmark.png) uses
+[Allen Sans](https://www.1001fonts.com/allen-sans-font.html) by Ashani, a typeface
+licensed under the SIL Open Font License 1.1. This repository includes the PNG
+artwork, not font files. The font license applies to the font software; it does
+not require artwork created with the font to use that license.
+
 ## Name and visual use
 
 Use **Hydragen** for the product name in headings, branding, and prose, and

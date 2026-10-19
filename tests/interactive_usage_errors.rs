@@ -258,7 +258,7 @@ fn explicit_help_and_version_stay_plain_at_existing_widths_in_hostile_layer_stat
             assert!(!plain.contains("Error:"));
             assert_no_session(&plain);
             if label.contains("version") {
-                assert_eq!(plain, format!("hydragen {}\n", env!("CARGO_PKG_VERSION")));
+                assert_eq!(plain, format!("{}\n", env!("CARGO_PKG_VERSION")));
             } else {
                 assert!(plain.contains("Usage: hydragen"));
                 for line in plain.lines() {

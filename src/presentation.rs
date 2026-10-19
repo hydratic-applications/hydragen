@@ -6,12 +6,12 @@ use console::Style;
 // The blank braille cells, including the two-cell visible inset, are intentional.
 const MOTIF: [&str; 8] = [
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⣰⣾⣿⣿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⣿⣿⡁⠈⠻⡿⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠙⠿⣿⡦⢠⣶⣄⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠙⠿⠃⠺⣿⣶⣄⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⣾⣦⡀⢈⣿⣿⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠘⢿⣿⣿⡿⠏⠀⠀",
+    "⠀⠀⢠⣶⣿⣿⣶⡄⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⣿⣿⡁⠈⠻⣿⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠘⠿⣿⣦⢀⣴⣄⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠙⠟⠁⠻⣿⣶⡄⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⣿⣦⡀⢈⣿⣿⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠘⠿⣿⣿⠿⠃⠀⠀",
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
 ];
 
@@ -448,6 +448,38 @@ mod tests {
         assert_eq!(rows[2], format!("{} Hydragen  v12.34.56", MOTIF[2]));
         assert_eq!(rows[4], format!("{} INIT", MOTIF[4]));
         assert_eq!(rows[5], format!("{} Initialise a layer", MOTIF[5]));
+    }
+
+    #[test]
+    fn motif_preserves_visible_bounds_and_rotational_symmetry() {
+        let offsets = [
+            (0, 0),
+            (0, 1),
+            (0, 2),
+            (1, 0),
+            (1, 1),
+            (1, 2),
+            (0, 3),
+            (1, 3),
+        ];
+        let mut dots = Vec::new();
+        for (row, cells) in MOTIF.iter().enumerate() {
+            for (column, cell) in cells.chars().enumerate() {
+                let bits = cell as u32 - 0x2800;
+                for (bit, (x, y)) in offsets.iter().enumerate() {
+                    if bits & (1 << bit) != 0 {
+                        dots.push((column * 2 + x, row * 4 + y));
+                    }
+                }
+            }
+        }
+        assert_eq!(dots.iter().map(|(x, _)| *x).min(), Some(4));
+        assert_eq!(dots.iter().map(|(x, _)| *x).max(), Some(27));
+        assert_eq!(dots.iter().map(|(_, y)| *y).min(), Some(4));
+        assert_eq!(dots.iter().map(|(_, y)| *y).max(), Some(27));
+        for (x, y) in &dots {
+            assert!(dots.contains(&(31 - x, 31 - y)));
+        }
     }
 
     #[test]

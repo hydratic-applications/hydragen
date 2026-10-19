@@ -108,12 +108,12 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(output) => {
             // Every parsing outcome returns here, before even resolving current_dir.
-            if output.stderr {
-                let _ = io::stderr().lock().write_all(output.text.as_bytes());
+            let exit_code = if output.stderr {
+                output.write_to(&mut io::stderr().lock())
             } else {
-                let _ = io::stdout().lock().write_all(output.text.as_bytes());
-            }
-            return ExitCode::from(output.exit_code);
+                output.write_to(&mut io::stdout().lock())
+            };
+            return ExitCode::from(exit_code);
         }
     };
     match run(cli, presentation) {
@@ -139,6 +139,17 @@ struct ParseOutput {
     text: String,
     stderr: bool,
     exit_code: u8,
+    fail_on_write_error: bool,
+}
+
+impl ParseOutput {
+    fn write_to(&self, output: &mut impl Write) -> u8 {
+        if output.write_all(self.text.as_bytes()).is_err() && self.fail_on_write_error {
+            1
+        } else {
+            self.exit_code
+        }
+    }
 }
 
 fn parse_cli<I, T>(
@@ -160,9 +171,11 @@ where
             // input is not DisplayHelp: clap deliberately keeps it stderr/status 2.
             let stderr = error.use_stderr();
             let exit_code = u8::try_from(error.exit_code()).expect("clap exit code fits in u8");
+            let fail_on_write_error = error.kind() == clap::error::ErrorKind::DisplayVersion;
             let text = match error.kind() {
-                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
-                    error.render().to_string()
+                clap::error::ErrorKind::DisplayHelp => error.render().to_string(),
+                clap::error::ErrorKind::DisplayVersion => {
+                    format!("{}\n", env!("CARGO_PKG_VERSION"))
                 }
                 _ => usage_errors::render(error, &command, presentation),
             };
@@ -170,6 +183,7 @@ where
                 text,
                 stderr,
                 exit_code,
+                fail_on_write_error,
             }
         })
 }
@@ -357,7 +371,14 @@ mod tests {
                 assert!(!output.stderr, "{arguments:?}");
                 assert!(!output.text.contains("Error:"));
                 assert!(!output.text.contains('\x1b'));
-                assert!(output.text.contains("hydragen"));
+                if arguments
+                    .iter()
+                    .any(|argument| ["--version", "-V"].contains(argument))
+                {
+                    assert_eq!(output.text, format!("{}\n", env!("CARGO_PKG_VERSION")));
+                } else {
+                    assert!(output.text.contains("hydragen"));
+                }
                 assert!(output.text.ends_with('\n'));
             }
         }
@@ -375,11 +396,15 @@ mod tests {
             vec!["add", "--unknown"],
         ] {
             let mut arguments = vec!["untrusted\x1b[2J\nname"];
-            arguments.extend(tail);
+            arguments.extend(tail.iter().copied());
             let output = parse_output(&arguments, false);
             assert!(!output.text.contains("untrusted"), "{}", output.text);
             assert!(!output.text.contains('\x1b'));
-            assert!(output.text.contains("hydragen"));
+            if tail == ["--version"] {
+                assert_eq!(output.text, format!("{}\n", env!("CARGO_PKG_VERSION")));
+            } else {
+                assert!(output.text.contains("hydragen"));
+            }
         }
     }
 
@@ -429,6 +454,27 @@ mod tests {
     struct FailingOutput {
         remaining: usize,
         fail_flush: bool,
+    }
+
+    #[test]
+    fn version_output_write_failure_returns_failure_without_changing_other_parse_statuses() {
+        for (arguments, expected) in [
+            (vec!["hydragen", "--version"], 1),
+            (vec!["hydragen", "-V"], 1),
+            (vec!["hydragen", "--help"], 0),
+            (vec!["hydragen", "add"], 2),
+        ] {
+            let output = parse_output(&arguments, false);
+            assert_eq!(
+                output.write_to(&mut FailingOutput {
+                    remaining: 0,
+                    fail_flush: false
+                }),
+                expected,
+                "{arguments:?}"
+            );
+            assert_eq!(output.write_to(&mut Vec::new()), output.exit_code);
+        }
     }
 
     impl Write for FailingOutput {
