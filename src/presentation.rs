@@ -146,6 +146,30 @@ impl Presentation {
 
     pub fn add_success(self, plan: &hydragen::dependencies::AddPlan) -> String {
         let name = &plan.current().metadata.name;
+        let single = match (plan.added(), plan.already_present()) {
+            ([entry], []) => Some(("Added ", &entry.name, " to ")),
+            ([], [entry]) => Some((
+                "No changes needed: ",
+                &entry.name,
+                " is already a dependency of ",
+            )),
+            _ => None,
+        };
+        if let Some((prefix, dependency, relation)) = single {
+            let text = self.style().green();
+            let names = self.style().green().bold();
+            return format!(
+                "{}{}{}{}{}\n",
+                text.apply_to(format!(
+                    "{}{prefix}",
+                    if self.decorated { "✓ " } else { "" }
+                )),
+                names.apply_to(dependency),
+                text.apply_to(relation),
+                names.apply_to(name),
+                text.apply_to(".")
+            );
+        }
         let headline = if plan.is_noop() {
             format!("No changes needed for {name}.")
         } else {
@@ -218,6 +242,128 @@ mod tests {
         Presentation {
             decorated,
             basic: false,
+        }
+    }
+
+    fn add_plan(existing: &[&str], requested: &[&str]) -> hydragen::dependencies::AddPlan {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app-directory");
+        std::fs::create_dir(&app).unwrap();
+        std::fs::write(
+            app.join("layer.json"),
+            serde_json::json!({"name": "@example/app", "dependencies": existing}).to_string(),
+        )
+        .unwrap();
+        for directory in ["rules", "tooling", "other"] {
+            let path = root.path().join(directory);
+            std::fs::create_dir(&path).unwrap();
+            std::fs::write(
+                path.join("layer.yaml"),
+                format!("name: '@example/{directory}'\n"),
+            )
+            .unwrap();
+        }
+        hydragen::dependencies::prepare_add(
+            &app,
+            &requested
+                .iter()
+                .map(|value| (*value).into())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn single_add_results_use_verified_names_and_effective_outcome_cardinality() {
+        for existing in [&[][..], &["../other"][..]] {
+            for requested in [
+                vec!["../rules"],
+                vec!["../rules", "../rules"],
+                vec!["../rules/./", "../rules"],
+            ] {
+                for already_present in [false, true] {
+                    let mut existing = existing.to_vec();
+                    if already_present {
+                        existing.push("../rules");
+                    }
+                    let plan = add_plan(&existing, &requested);
+                    let expected = if already_present {
+                        "No changes needed: @example/rules is already a dependency of @example/app.\n"
+                    } else {
+                        "Added @example/rules to @example/app.\n"
+                    };
+                    assert_eq!(presentation(false).add_success(&plan), expected);
+                    let styled = presentation(true).add_success(&plan);
+                    assert_eq!(console::strip_ansi_codes(&styled), format!("✓ {expected}"));
+                    let names = presentation(true).style().green().bold();
+                    for name in ["@example/rules", "@example/app"] {
+                        assert!(
+                            styled.contains(&names.apply_to(name).to_string()),
+                            "{styled:?}"
+                        );
+                    }
+                    assert_eq!(styled.lines().count(), 1);
+                    assert!(styled.ends_with('\n'));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn multiple_mixed_and_internal_empty_add_results_keep_existing_output() {
+        let style = presentation(true).style();
+        for (existing, requested, headline, groups) in [
+            (
+                vec![],
+                vec!["../tooling", "../rules", "../tooling"],
+                "Dependencies updated for ",
+                vec![("Added", vec!["@example/tooling", "@example/rules"])],
+            ),
+            (
+                vec!["../rules", "../tooling", "../other"],
+                vec!["../tooling", "../rules", "../tooling"],
+                "No changes needed for ",
+                vec![(
+                    "Already present",
+                    vec!["@example/tooling", "@example/rules"],
+                )],
+            ),
+            (
+                vec!["../rules", "../other"],
+                vec!["../tooling", "../rules"],
+                "Dependencies updated for ",
+                vec![
+                    ("Added", vec!["@example/tooling"]),
+                    ("Already present", vec!["@example/rules"]),
+                ],
+            ),
+            (vec![], vec![], "No changes needed for ", vec![]),
+        ] {
+            let plan = add_plan(&existing, &requested);
+            let mut plain = format!("{headline}@example/app.");
+            let mut styled = format!(
+                "{}{}{}",
+                style.clone().green().apply_to(format!("✓ {headline}")),
+                style.clone().green().bold().apply_to("@example/app"),
+                style.clone().green().apply_to(".")
+            );
+            for (label, entries) in groups {
+                let count = format!("({})", entries.len());
+                plain.push_str(&format!("\n\n{label} {count}"));
+                styled.push_str(&format!(
+                    "\n\n{} {}",
+                    style.clone().bold().apply_to(label),
+                    style.clone().dim().apply_to(count)
+                ));
+                for name in entries {
+                    plain.push_str(&format!("\n  {name}"));
+                    styled.push_str(&format!("\n  {name}"));
+                }
+            }
+            plain.push('\n');
+            styled.push('\n');
+            assert_eq!(presentation(false).add_success(&plan), plain);
+            assert_eq!(presentation(true).add_success(&plan), styled);
         }
     }
 

@@ -227,6 +227,11 @@ design everything upfront.
       independent errors cleanly in source order with actionable details and a
       plain-output equivalent. Review both terminal and captured output. See the
       [feedback decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#report-actual-additions-and-pre-existing-dependencies-separately).
+      The [single-result refinement](changes/compact-single-add-results/design.md#select-the-layout-from-verified-outcomes)
+      uses one sentence for one effective requested dependency after deduplication,
+      naming both layers and explicitly identifying no changes when already present.
+      Multiple and mixed results retain the counted groups; operation and styling
+      rules are unchanged.
     - **Approved usage-error follow-up:** Root and subcommand parser failures use
       the shared compact red-cross error style in eligible terminals and meaningful
       plain output otherwise, under the existing colour controls. Explicit help

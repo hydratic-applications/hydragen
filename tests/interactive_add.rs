@@ -82,7 +82,7 @@ fn terminal_alias_noop_preserves_stored_reference_inode_mtime_and_symlink_target
                 },
             );
             assert!(output.status.success(), "{}", output.plain());
-            let expected = "No changes needed for app.\n\nAlready present (1)\n  rules\n";
+            let expected = "No changes needed: rules is already a dependency of app.\n";
             assert_eq!(
                 output.plain(),
                 if mode == "styled" {
@@ -147,6 +147,186 @@ impl Fixture {
         }
         assert!(!plain.contains("Hydragen"), "{plain}");
         output
+    }
+}
+
+#[test]
+fn single_results_at_review_widths_cover_names_repeats_aliases_and_unrequested_dependencies() {
+    use std::os::unix::fs::{MetadataExt, symlink};
+    for width in [40, 80, 100, 120] {
+        for (mode, environment) in [("styled", &[][..]), ("plain", &[("NO_COLOR", "1")][..])] {
+            for (label, name, destination, requests, unrelated) in [
+                ("single", "rules", "app", "single", false),
+                (
+                    "scoped",
+                    "@example/shared-rules",
+                    "@example/project",
+                    "single",
+                    false,
+                ),
+                ("repeated", "rules", "app", "repeated", false),
+                ("aliases", "rules", "app", "aliases", false),
+                (
+                    "unrequested",
+                    "@example/shared-rules",
+                    "@example/project",
+                    "aliases",
+                    true,
+                ),
+            ] {
+                let fixture = Fixture::new();
+                fixture.layer("Shared Rules @team", name);
+                fixture.layer("unrequested", "unrequested");
+                let rules = fixture.root.path().join("Shared Rules @team");
+                symlink(&rules, fixture.root.path().join("rules-link")).unwrap();
+                let path = fixture.app.join("layer.yaml");
+                fs::write(
+                    &path,
+                    format!(
+                        "name: {}\n{}",
+                        serde_json::to_string(destination).unwrap(),
+                        if unrelated {
+                            "dependencies: [../unrequested, unrequested-published@1.2.3]\n"
+                        } else {
+                            ""
+                        }
+                    ),
+                )
+                .unwrap();
+                let reference = "../Shared Rules @team/./";
+                let mut arguments = vec!["add", reference];
+                if requests == "repeated" {
+                    arguments.extend([reference, reference, "--non-interactive"]);
+                } else if requests == "aliases" {
+                    arguments.extend(["../rules-link", rules.to_str().unwrap(), reference]);
+                }
+                if label == "scoped" || unrelated {
+                    arguments.insert(0, "--non-interactive");
+                }
+                for already_present in [false, true] {
+                    let before = fs::metadata(&path).unwrap();
+                    let original = fs::read(&path).unwrap();
+                    let output = fixture.run(
+                        &arguments,
+                        Settings {
+                            width,
+                            environment,
+                            ..Settings::default()
+                        },
+                    );
+                    assert!(output.status.success(), "{label}: {}", output.plain());
+                    let (prefix, relation) = if already_present {
+                        ("No changes needed: ", " is already a dependency of ")
+                    } else {
+                        ("Added ", " to ")
+                    };
+                    let sentence = format!("{prefix}{name}{relation}{destination}.\n");
+                    if mode == "styled" {
+                        assert_eq!(output.plain(), format!("✓ {sentence}"));
+                        let text = console::Style::new().force_styling(true).green();
+                        let names = text.clone().bold();
+                        assert_eq!(
+                            output.raw.replace('\r', ""),
+                            format!(
+                                "{}{}{}{}{}\n",
+                                text.apply_to(format!("✓ {prefix}")),
+                                names.apply_to(name),
+                                text.apply_to(relation),
+                                names.apply_to(destination),
+                                text.apply_to(".")
+                            )
+                        );
+                    } else {
+                        assert_eq!(output.plain(), sentence);
+                        assert!(!output.raw.contains('\x1b'), "{}", output.raw);
+                    }
+                    if already_present {
+                        assert_eq!(fs::read(&path).unwrap(), original);
+                        assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
+                        assert_eq!(
+                            fs::metadata(&path).unwrap().modified().unwrap(),
+                            before.modified().unwrap()
+                        );
+                    }
+                    let expected = if unrelated {
+                        vec!["../unrequested", "unrequested-published@1.2.3", reference]
+                    } else {
+                        vec![reference]
+                    };
+                    assert_eq!(
+                        hydragen::discover(&fixture.app)
+                            .unwrap()
+                            .load()
+                            .unwrap()
+                            .document["dependencies"],
+                        serde_json::json!(expected)
+                    );
+                    assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 1);
+                    assert_eq!(
+                        fs::read_to_string(rules.join("layer.yaml")).unwrap(),
+                        format!("name: {}\n", serde_json::to_string(name).unwrap())
+                    );
+                    output.evidence(&format!(
+                        "single-{label}-{}-{mode}-{width}",
+                        if already_present { "present" } else { "added" }
+                    ));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn two_effective_results_at_review_widths_keep_grouping_including_one_added_one_present() {
+    for width in [40, 80, 100, 120] {
+        for (mode, environment) in [("styled", &[][..]), ("plain", &[("NO_COLOR", "1")][..])] {
+            for (label, existing, expected) in [
+                (
+                    "added",
+                    "[]",
+                    "Dependencies updated for app.\n\nAdded (2)\n  tooling\n  rules\n",
+                ),
+                (
+                    "present",
+                    "[../rules, ../tooling, ../unrequested]",
+                    "No changes needed for app.\n\nAlready present (2)\n  tooling\n  rules\n",
+                ),
+                (
+                    "mixed",
+                    "[../rules, ../unrequested]",
+                    "Dependencies updated for app.\n\nAdded (1)\n  tooling\n\nAlready present (1)\n  rules\n",
+                ),
+            ] {
+                let fixture = Fixture::new();
+                for name in ["rules", "tooling", "unrequested"] {
+                    fixture.layer(name, name);
+                }
+                fs::write(
+                    fixture.app.join("layer.yaml"),
+                    format!("name: app\ndependencies: {existing}\n"),
+                )
+                .unwrap();
+                let output = fixture.run(
+                    &["add", "../tooling", "../rules", "../tooling"],
+                    Settings {
+                        width,
+                        environment,
+                        ..Settings::default()
+                    },
+                );
+                assert!(output.status.success(), "{}", output.plain());
+                assert_eq!(
+                    output.plain(),
+                    if mode == "styled" {
+                        format!("✓ {expected}")
+                    } else {
+                        expected.into()
+                    }
+                );
+                assert_eq!(output.raw.contains('\x1b'), mode == "styled");
+                output.evidence(&format!("batch-{label}-{mode}-{width}"));
+            }
+        }
     }
 }
 
@@ -338,63 +518,100 @@ fn all_terminal_errors_are_grouped_in_order_and_only_the_headline_is_red() {
 
 #[test]
 fn explicit_disables_ci_and_dumb_term_win_over_forced_colour_on_real_terminals() {
-    for (label, environment) in [
-        ("no-color-force", vec![("NO_COLOR", "1")]),
-        ("clicolor-zero-force", vec![("CLICOLOR", "0")]),
-        ("ci-force", vec![("CI", "true")]),
-        ("dumb-force", vec![("TERM", "dumb")]),
-    ] {
-        let fixture = Fixture::new();
-        fixture.layer("rules", "rules");
-        let output = fixture.run(
-            &["add", "../rules"],
-            Settings {
-                environment: &environment,
-                ..Settings::default()
-            },
-        );
-        assert!(output.status.success());
-        assert!(!output.raw.contains('\x1b'), "{label}: {}", output.raw);
-        assert!(!output.plain().contains('✓'));
-        assert!(output.plain().starts_with("Dependencies updated for app."));
-        output.evidence(label);
-        let output = fixture.run(
-            &["add", "../missing"],
-            Settings {
-                environment: &environment,
-                ..Settings::default()
-            },
-        );
-        assert!(!output.status.success());
-        assert!(!output.raw.contains('\x1b'));
-        assert!(output.plain().starts_with("Error:"));
+    for width in [40, 80, 100, 120] {
+        for (label, environment) in [
+            (
+                "no-color-force",
+                vec![("NO_COLOR", "1"), ("FORCE_COLOR", "1")],
+            ),
+            ("clicolor-zero-force", vec![("CLICOLOR", "0")]),
+            ("ci-force", vec![("CI", "true")]),
+            ("dumb-force", vec![("TERM", "dumb")]),
+        ] {
+            let fixture = Fixture::new();
+            fixture.layer("rules", "rules");
+            let output = fixture.run(
+                &["add", "../rules"],
+                Settings {
+                    width,
+                    environment: &environment,
+                    ..Settings::default()
+                },
+            );
+            assert!(output.status.success());
+            assert!(!output.raw.contains('\x1b'), "{label}: {}", output.raw);
+            assert!(!output.plain().contains('✓'));
+            assert_eq!(output.plain(), "Added rules to app.\n");
+            output.evidence(&format!("single-{label}-added-{width}"));
+            let output = fixture.run(
+                &["--non-interactive", "add", "../rules", "../rules"],
+                Settings {
+                    width,
+                    environment: &environment,
+                    ..Settings::default()
+                },
+            );
+            assert!(output.status.success(), "{}", output.plain());
+            assert_eq!(
+                output.plain(),
+                "No changes needed: rules is already a dependency of app.\n"
+            );
+            assert!(!output.raw.contains('\x1b'));
+            output.evidence(&format!("single-{label}-present-{width}"));
+            let output = fixture.run(
+                &["add", "../missing"],
+                Settings {
+                    width,
+                    environment: &environment,
+                    ..Settings::default()
+                },
+            );
+            assert!(!output.status.success());
+            assert!(!output.raw.contains('\x1b'));
+            assert!(output.plain().starts_with("Error:"));
+        }
     }
 }
 
 #[test]
 fn mixed_stream_redirection_stays_plain_despite_force_and_does_not_prompt() {
-    for stream in ["stdin", "stdout", "stderr"] {
-        let fixture = Fixture::new();
-        fixture.layer("rules", "rules");
-        let capture = fixture.root.path().join("capture.txt");
-        let settings = || Settings {
-            redirect: Some((stream, capture.as_path())),
-            ..Settings::default()
-        };
-        let output = fixture.run(&["add", "../rules", "--non-interactive"], settings());
-        assert!(output.status.success(), "{}", output.plain());
-        let file = fs::read_to_string(&capture).unwrap_or_default();
-        let combined = format!("{}{file}", output.raw);
-        assert!(!combined.contains('\x1b'), "{stream}: {combined}");
-        assert!(combined.contains("Dependencies updated for app."));
-        assert!(!combined.contains('✓'));
-        output.evidence(&format!("redirect-{stream}-success"));
-        let output = fixture.run(&["add", "../missing"], settings());
-        assert!(!output.status.success());
-        let file = fs::read_to_string(&capture).unwrap_or_default();
-        let combined = format!("{}{file}", output.raw);
-        assert!(!combined.contains('\x1b'));
-        assert!(combined.contains("Error: Could not resolve local directory '../missing'."));
+    for width in [40, 80, 100, 120] {
+        for stream in ["stdin", "stdout", "stderr"] {
+            let fixture = Fixture::new();
+            fixture.layer("rules", "rules");
+            let capture = fixture.root.path().join("capture.txt");
+            let settings = || Settings {
+                width,
+                redirect: Some((stream, capture.as_path())),
+                ..Settings::default()
+            };
+            let output = fixture.run(&["add", "../rules", "--non-interactive"], settings());
+            assert!(output.status.success(), "{}", output.plain());
+            let file = fs::read_to_string(&capture).unwrap_or_default();
+            let combined = format!("{}{file}", output.raw);
+            assert!(!combined.contains('\x1b'), "{stream}: {combined}");
+            assert_eq!(combined.replace('\r', ""), "Added rules to app.\n");
+            assert!(!combined.contains('✓'));
+            output.evidence(&format!("single-redirect-{stream}-added-{width}"));
+            let output = fixture.run(
+                &["add", "../rules", "../rules", "--non-interactive"],
+                settings(),
+            );
+            assert!(output.status.success(), "{}", output.plain());
+            let file = fs::read_to_string(&capture).unwrap_or_default();
+            let combined = format!("{}{file}", output.raw);
+            assert_eq!(
+                combined.replace('\r', ""),
+                "No changes needed: rules is already a dependency of app.\n"
+            );
+            output.evidence(&format!("single-redirect-{stream}-present-{width}"));
+            let output = fixture.run(&["add", "../missing"], settings());
+            assert!(!output.status.success());
+            let file = fs::read_to_string(&capture).unwrap_or_default();
+            let combined = format!("{}{file}", output.raw);
+            assert!(!combined.contains('\x1b'));
+            assert!(combined.contains("Error: Could not resolve local directory '../missing'."));
+        }
     }
 }
 
@@ -443,7 +660,7 @@ fn terminal_help_stays_plain_and_usage_failures_are_styled_without_discovery() {
 }
 
 #[test]
-fn narrow_terminals_and_long_scoped_names_keep_counts_and_full_names() {
+fn narrow_terminals_and_long_scoped_names_keep_compact_results_and_full_names() {
     let fixture = Fixture::new();
     let name = format!("@example/{}", "shared-config-".repeat(10));
     fixture.layer("rules", &name);
@@ -455,7 +672,7 @@ fn narrow_terminals_and_long_scoped_names_keep_counts_and_full_names() {
         },
     );
     assert!(output.status.success());
-    assert!(output.plain().contains(&format!("Added (1)\n  {name}\n")));
+    assert_eq!(output.plain(), format!("✓ Added {name} to app.\n"));
     assert_eq!(output.plain().matches(&name).count(), 1);
     output.evidence("long-scoped-name-32");
     fixture.layer("conflict", &name);

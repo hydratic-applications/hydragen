@@ -111,7 +111,7 @@ fn control_containing_native_target_resolves_and_is_stored_unchanged() {
         "{:?}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(safe_text(&output.stdout).contains("Added"));
+    assert_eq!(safe_text(&output.stdout), "Added rules to app.\n");
     assert!(safe_text(&output.stderr).is_empty());
     let stored = fs::read_to_string(app.join("layer.json")).unwrap();
     let document: serde_json::Value = serde_json::from_str(&stored).unwrap();
@@ -125,7 +125,10 @@ fn control_containing_native_target_resolves_and_is_stored_unchanged() {
         "{:?}",
         String::from_utf8_lossy(&repeat.stderr)
     );
-    assert!(safe_text(&repeat.stdout).contains("Already present"));
+    assert_eq!(
+        safe_text(&repeat.stdout),
+        "No changes needed: rules is already a dependency of app.\n"
+    );
     assert!(safe_text(&repeat.stderr).is_empty());
     assert_eq!(fs::read_to_string(app.join("layer.json")).unwrap(), stored);
     layer(&root.path().join("second"), "second");

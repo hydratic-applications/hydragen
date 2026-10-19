@@ -358,7 +358,13 @@ document possible abrupt-termination leftovers and concurrent lost updates witho
 promising unconditional power-loss durability or preservation of all metadata.
 
 Report one compact stdout result naming the destination layer, not its layer
-manifest path by default. Use separate counted `Added` and `Already present` name
+manifest path by default. One effective requested dependency uses `Added <dependency>
+to <destination>.` or `No changes needed: <dependency> is already a dependency of
+<destination>.`, ending with one newline and no list or count. Choose from verified
+outcomes after deduplication, not argument count or unrequested declarations.
+Eligible terminals use the green check and consistent bold green emphasis for both
+validated names; plain output has no decoration. Multiple or mixed results retain
+the destination headline and separate counted `Added` and `Already present` name
 lists, omitting empty groups and unrequested dependencies. `Already present` means
 present before invocation; repeated new sources belong only under `Added`.
 All-repeat success reports no changes needed. Keep per-group first-appearance

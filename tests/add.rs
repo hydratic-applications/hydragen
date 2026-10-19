@@ -175,6 +175,128 @@ fn actual_batch_edits_preserve_every_format_and_report_mixed_outcomes_once() {
 }
 
 #[test]
+fn single_results_cover_scoped_names_repeats_aliases_and_unrequested_declarations() {
+    for (label, name, destination, requests, unrelated) in [
+        ("single", "rules", "app", "single", false),
+        (
+            "scoped",
+            "@example/shared-rules",
+            "@example/project",
+            "single",
+            false,
+        ),
+        ("repeated", "rules", "app", "repeated", false),
+        ("aliases", "rules", "app", "aliases", false),
+        (
+            "unrequested",
+            "@example/shared-rules",
+            "@example/project",
+            "aliases",
+            true,
+        ),
+    ] {
+        let fixture = Fixture::new();
+        let rules = fixture.layer("Shared Rules @team", name);
+        fixture.layer("unrequested", "unrequested");
+        let mut document = json!({"name": destination});
+        if unrelated {
+            document["dependencies"] = json!(["../unrequested", "unrequested-published@1.2.3"]);
+        }
+        let path = fixture.current(LayerManifestFormat::Json, &document.to_string());
+        let reference = "../Shared Rules @team/./";
+        let mut arguments = vec!["add", reference];
+        if requests == "repeated" {
+            arguments.extend([reference, reference]);
+        } else if requests == "aliases" {
+            arguments.extend(["../Shared Rules @team", rules.to_str().unwrap(), reference]);
+        }
+        let output = fixture.run(&arguments);
+        assert!(output.status.success(), "{label}: {}", text(&output.stderr));
+        assert_eq!(
+            text(&output.stdout),
+            format!("Added {name} to {destination}.\n"),
+            "{label}"
+        );
+        assert!(output.stderr.is_empty());
+        assert_plain(&output);
+        let mut expected = if unrelated {
+            vec!["../unrequested", "unrequested-published@1.2.3"]
+        } else {
+            vec![]
+        };
+        expected.push(reference);
+        document["dependencies"] = json!(expected);
+        assert_eq!(
+            hydragen::discover(&fixture.app)
+                .unwrap()
+                .load()
+                .unwrap()
+                .document,
+            document
+        );
+        let original = fs::read(&path).unwrap();
+        let before = fs::metadata(&path).unwrap();
+        let output = fixture.run(&arguments);
+        assert!(output.status.success(), "{label}: {}", text(&output.stderr));
+        assert_eq!(
+            text(&output.stdout),
+            format!("No changes needed: {name} is already a dependency of {destination}.\n"),
+            "{label}"
+        );
+        assert!(output.stderr.is_empty());
+        assert_plain(&output);
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(
+            fs::metadata(&path).unwrap().modified().unwrap(),
+            before.modified().unwrap()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
+        }
+        assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_to_string(rules.join("layer.yaml")).unwrap(),
+            format!("name: {}\n", serde_json::to_string(name).unwrap())
+        );
+    }
+}
+
+#[test]
+fn two_effective_results_keep_grouped_output_even_with_one_name_in_each_group() {
+    for (existing, expected) in [
+        (
+            "[]",
+            "Dependencies updated for app.\n\nAdded (2)\n  tooling\n  rules\n",
+        ),
+        (
+            "[../rules, ../tooling, ../unrequested]",
+            "No changes needed for app.\n\nAlready present (2)\n  tooling\n  rules\n",
+        ),
+        (
+            "[../rules, ../unrequested]",
+            "Dependencies updated for app.\n\nAdded (1)\n  tooling\n\nAlready present (1)\n  rules\n",
+        ),
+    ] {
+        let fixture = Fixture::new();
+        for name in ["rules", "tooling", "unrequested"] {
+            fixture.layer(name, name);
+        }
+        fixture.current(
+            LayerManifestFormat::Yaml,
+            &format!("name: app\ndependencies: {existing}\n"),
+        );
+        let output = fixture.run(&["add", "../tooling", "../rules", "../tooling"]);
+        assert!(output.status.success(), "{}", text(&output.stderr));
+        assert_eq!(text(&output.stdout), expected);
+        assert!(output.stderr.is_empty());
+        assert_plain(&output);
+        assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 1);
+    }
+}
+
+#[test]
 fn absent_and_empty_arrays_are_editable_in_every_format() {
     for format in LayerManifestFormat::ALL {
         for empty in [false, true] {
@@ -201,6 +323,7 @@ fn absent_and_empty_arrays_are_editable_in_every_format() {
             let output = fixture.run(&["add", "../rules", "../rules"]);
             assert!(output.status.success(), "{}", text(&output.stderr));
             assert!(!text(&output.stdout).contains("Already present"));
+            assert_eq!(text(&output.stdout), "Added rules to app.\n");
             document["dependencies"] = json!(["../rules"]);
             assert_eq!(
                 hydragen::discover(&fixture.app)
@@ -228,7 +351,7 @@ fn noop_keeps_source_inode_and_uneditable_aliases_and_lists_only_requested_names
     assert!(output.status.success(), "{}", text(&output.stderr));
     assert_eq!(
         text(&output.stdout),
-        "No changes needed for app.\n\nAlready present (1)\n  rules\n"
+        "No changes needed: rules is already a dependency of app.\n"
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), source);
     assert_eq!(
@@ -473,6 +596,20 @@ fn captured_output_stays_plain_even_with_force_and_interaction_controls() {
         );
         assert!(output.status.success());
         assert_plain(&output);
+        assert_eq!(text(&output.stdout), "Added rules to app.\n");
+        assert!(output.stderr.is_empty());
+        let output = run(
+            &fixture.app,
+            &["--non-interactive", "add", "../rules", "../rules"],
+            &environment,
+        );
+        assert!(output.status.success());
+        assert_plain(&output);
+        assert_eq!(
+            text(&output.stdout),
+            "No changes needed: rules is already a dependency of app.\n"
+        );
+        assert!(output.stderr.is_empty());
         let output = run(&fixture.app, &["add", "../missing"], &environment);
         assert!(!output.status.success());
         assert_plain(&output);
@@ -547,7 +684,7 @@ fn warning_delivery_is_best_effort_and_cannot_turn_completed_add_into_failure() 
     assert!(
         fs::read_to_string(stdout.path())
             .unwrap()
-            .starts_with("Dependencies updated for app.")
+            .starts_with("Added rules to app.")
     );
     assert_eq!(
         hydragen::discover(&fixture.app)
@@ -587,6 +724,7 @@ fn symlinked_current_is_refused_but_dependency_links_and_directory_aliases_are_r
     symlink(&rules, fixture._root.path().join("rules-link")).unwrap();
     let output = fixture.run(&["add", "../rules-link", "../rules"]);
     assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stdout), "Added rules to app.\n");
     assert_eq!(text(&output.stderr).matches("Warning:").count(), 1);
     assert_eq!(
         hydragen::discover(&fixture.app)
@@ -603,7 +741,7 @@ fn symlinked_current_is_refused_but_dependency_links_and_directory_aliases_are_r
     assert!(repeated.status.success(), "{}", text(&repeated.stderr));
     assert_eq!(
         text(&repeated.stdout),
-        "No changes needed for app.\n\nAlready present (1)\n  rules\n"
+        "No changes needed: rules is already a dependency of app.\n"
     );
     assert_eq!(fs::read(&path).unwrap(), original);
     assert_eq!(

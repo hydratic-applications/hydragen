@@ -162,11 +162,14 @@ spelling: the existing reference stays unchanged. A name claimed by a different
 directory or an existing published dependency is a conflict, not an implicit
 replacement. Repeated new sources are added only once.
 
-Success names the destination layer and lists requested dependency names under
-separate counted `Added` and `Already present` groups, omitting empty groups and
-the layer manifest path. `Already present` means declared before this invocation;
-an all-repeat batch reports no changes and does not rewrite the file. Add always
-requires arguments and never prompts, uses the network, or changes Git.
+Success names the destination layer and requested dependencies. One dependency
+gets a single sentence: `Added shared-config to my-project.` or
+`No changes needed: shared-config is already a dependency of my-project.` Multiple
+dependencies use separate counted `Added` and `Already present` groups, omitting
+empty groups and the layer manifest path. `Already present` means declared before
+this invocation; an all-repeat batch reports no changes and does not rewrite the
+file. Add always requires arguments and never prompts, uses the network, or
+changes Git.
 
 ## Output and automation
 
