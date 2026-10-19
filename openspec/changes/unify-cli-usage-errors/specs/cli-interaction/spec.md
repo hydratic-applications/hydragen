@@ -13,7 +13,8 @@ CI is disabled, TERM is not dumb, and no nonempty NO_COLOR or CLICOLOR=0 disable
 is present. Explicit disables and CI/redirect gates MUST win over forced colour.
 Global `--non-interactive` MUST affect questions, not otherwise eligible styling.
 Usage errors MUST use stderr and retain clap's nonzero usage status, ordinarily 2.
-Operational errors MUST retain their existing status, presentation, and meaning.
+Operational errors MUST retain their existing status and meaning; their existing
+presentation remains unchanged except for the missing-current-layer refinement below.
 
 #### Scenario: Parser errors share terminal presentation
 
@@ -169,3 +170,35 @@ irrelevant parser usage/examples merely to fill a template.
 - **WHEN** another command or parser failure is added
 - **THEN** it uses the same shared layout and family-level style checks
 - **AND** content-specific choices, suggestions, or examples do not introduce another rendering template
+
+### Requirement: Explain a missing current layer directly
+
+When add's ancestor search finds no current layer manifest, CLI output MUST use
+`No layer manifest found in this directory or its parents.` as the problem, followed
+by the tip `Run this command from an existing layer directory, or run 'hydragen init'
+in the directory you want to use as a layer.` and `No files were changed.` in
+separate blocks. The tip MUST use the `Tip:` label and two supporting lines, with
+the second beginning `'hydragen init'`. Supporting text MUST retain the shared
+two-space indent and normal foreground.
+
+This single prerequisite diagnostic MUST omit the absolute invocation path,
+counted generic add headline, numbered current-layer group, and separate search
+paragraph. It MUST remain a nonzero operational stderr failure, without prompts,
+writes, or irrelevant usage/examples. Match structured error facts, not prose.
+
+Search behaviour, parser-first priority, shared plain/styled controls, and other
+failures' source groups, actionable paths, warning order, and write-state meaning
+MUST remain unchanged. The underlying structured missing-current error MUST retain
+its invocation path even though this CLI diagnostic omits it.
+
+#### Scenario: Source supplied outside any layer
+
+- **WHEN** add receives a source but no supported layer manifest exists in the invocation directory or any parent
+- **THEN** it reports the concise missing-layer headline, the two recovery options, and one no-files-changed statement
+- **AND** neither a path paragraph nor a numbered failure wrapper is printed
+- **AND** it exits with the existing operational failure status on stderr without creating files
+
+#### Scenario: Other operational failures still identify the affected source
+
+- **WHEN** a selected layer manifest is invalid or supplied dependencies fail verification
+- **THEN** their existing source groups, useful diagnostic paths, warning order, and no-change information remain available

@@ -6,7 +6,7 @@ different errors need different information. Parser failures reject command
 syntax before an operation runs. Operational failures occur after syntax is
 accepted, such as a layer manifest write failing. Root and subcommand parser
 failures use the shared body below; operational failures share the visual
-principles but keep their existing grouping and safety information.
+principles while retaining useful source grouping and safety information.
 
 ## Shared body structure
 
@@ -72,6 +72,21 @@ For `hydragen init --format yam`, choices and a suggestion help correct the valu
 
   For more information, try 'hydragen init --help'.
 ```
+
+## Operational prerequisites and paths
+
+Lead with the concrete prerequisite that prevents an operation from running.
+For add's missing current layer, use `No layer manifest found in this directory
+or its parents.`, then the tip `Run this command from an existing layer directory,
+or run 'hydragen init' in the directory you want to use as a layer.` and the
+no-files-changed result in separate blocks. Split the tip before `'hydragen init'`
+so the command and its explanation stay together. Do not wrap this failure in a
+generic counted headline or numbered current-layer group.
+
+Omit the absolute invocation path and a separate search paragraph here: the
+headline explains the search scope without identifying a particular file to fix.
+Keep paths when they identify invalid, unreadable, or conflicting files or sources.
+This exception does not remove other dependency failure groups or their details.
 
 ## Command context and shared rendering
 

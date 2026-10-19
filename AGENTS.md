@@ -242,6 +242,9 @@ Follow the [CLI diagnostic reference](docs/cli-diagnostics.md) for the shared
 problem, optional context/correction, usage/optional example, and help structure.
 Populate one presentation model from structured clap facts; do not add per-command
 body templates. Review error families together, not only individual snapshots.
+For add's missing current layer, describe the directory/parent search without the
+invocation path or a numbered batch wrapper; retain the recovery tip and accurate
+no-files-changed result. Keep actionable paths and source groups for other failures.
 
 Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
 where styled; keep supporting details and recovery guidance in the normal

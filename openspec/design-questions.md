@@ -236,6 +236,10 @@ design everything upfront.
       usage with an optional example, then command-specific help; review errors as
       a family rather than approving different templates through isolated
       snapshots. See the [shared body decision](changes/unify-cli-usage-errors/design.md#render-one-familiar-optional-block-grammar).
+      The [missing-current-layer refinement](changes/unify-cli-usage-errors/design.md#explain-a-missing-current-layer-without-a-batch-wrapper)
+      reports that prerequisite directly with recovery and no-change information,
+      omitting the invocation path and batch wrapper while preserving useful
+      paths and source groups for other operational failures.
       All parsing outcomes precede layer discovery, schema preparation, prompts,
       or writes. This supersedes only the earlier plain-usage-error exception,
       not the input, session-header, help/version, or stream policies. See the

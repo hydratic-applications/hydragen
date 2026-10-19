@@ -22,3 +22,9 @@
 - [x] 4.3 Add family-level layout assertions and representative captured/PTY regressions for missing arguments, invalid values, unknown options/commands, conflicts, command context, plain/styled equivalence, and preserved security/operational behaviour.
 - [x] 4.4 Document the shared diagnostic contract in a focused maintained reference and agent guidance, align the active design-question resolution, and review wording from a first-time developer's perspective.
 - [x] 4.5 Run full locked tests, formatting, warning-denied clippy, strict change validation, package/build checks, actual terminal experience review, and independent final review before committing/pushing the refinement.
+
+## 5. Concise missing-current-layer diagnostic
+
+- [x] 5.1 Add captured, structured-error, and real-terminal regressions for the approved concise message, preserved tip and no-change state, omitted invocation path/batch wrapper, and unchanged other failure details.
+- [x] 5.2 Adapt only the structured missing-current prerequisite in CLI presentation, document the agreed path-omission rule and rationale, and review the revised guidance for first-time readers.
+- [x] 5.3 Run formatting, locked tests, warning-denied clippy, strict change validation, and actual plain/styled terminal review before updating PR #7.

@@ -118,8 +118,9 @@ need not acquire filler examples. Keep argument spelling/values accurate while
 normalizing generated prose and labels, not user data.
 
 The common visual rules also guide operational diagnostics, but this increment
-does not reshape dependency failure groups, write-state messages, or cancellation
-flows. Do not force usage/example blocks onto failures where they are irrelevant.
+preserves dependency failure groups except for the missing-current-layer
+prerequisite described below. Write-state messages and cancellation flows remain
+unchanged. Do not force usage/example blocks onto failures where they are irrelevant.
 
 The structured adapter must retain the exact erroring command context even when
 clap omits a Usage context (as for invalid format values). Confirm a supported
@@ -190,6 +191,35 @@ then discovers the current layer and reports a missing layer manifest if absent.
 This is a deliberate Hydragen policy, not a claim that every CLI uses the same
 priority. Directory-dependent missing-input special cases were considered and
 rejected because they obscure syntax errors and perform unrelated work.
+
+### Explain a missing current layer without a batch wrapper
+
+The user found the operational missing-layer diagnostic confusing after the parser
+refinement: a generic counted headline and `1. the current layer` hid a simple
+prerequisite failure. Its absolute invocation path added bulk without identifying
+a particular file to repair. Present this failure directly:
+
+```text
+Error: No layer manifest found in this directory or its parents.
+
+  Tip: Run this command from an existing layer directory, or run
+  'hydragen init' in the directory you want to use as a layer.
+
+  No files were changed.
+```
+
+Match the structured single `Current` / `MissingCurrent` failure in CLI diagnostic
+wiring, not its English display text. Keep read-only ancestor discovery, its full
+root traversal, and parser-first priority unchanged. Retain the invocation path
+in the underlying error for other callers; only the CLI presentation omits it.
+Do not show a count, source group, separate search paragraph, usage, or help filler.
+Both recovery options matter: the developer may be in the wrong directory rather
+than need a new layer. Use the existing shared plain/styled error presentation.
+
+This is not a rule to strip paths or flatten every single dependency error. Keep
+paths where they identify invalid, unreadable, or conflicting files and sources;
+preserve other dependency groups, source order, warnings, and write-state safety.
+No new product term or foundational principle is needed.
 
 ### Record the policy without rewriting historical decisions
 

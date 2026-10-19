@@ -40,6 +40,23 @@ impl fmt::Display for AddCommandError {
                 display(source)
             ),
             Self::Verification(failure) => {
+                // Missing destination discovery is a prerequisite, not a source
+                // batch. Keep its invocation path in the underlying error, but
+                // the CLI needs only the search scope and the two recovery options.
+                if matches!(
+                    failure.errors.as_slice(),
+                    [hydragen::dependencies::DependencyFailure {
+                        origin: hydragen::dependencies::SourceOrigin::Current,
+                        error: hydragen::dependencies::DependencyError::MissingCurrent { .. },
+                    }]
+                ) {
+                    return formatter.write_str(concat!(
+                        "No layer manifest found in this directory or its parents.\n\n",
+                        "Tip: Run this command from an existing layer directory, or run\n",
+                        "'hydragen init' in the directory you want to use as a layer.\n\n",
+                        "No files were changed."
+                    ));
+                }
                 let count = failure.errors.len();
                 let noun = if count == 1 { "error" } else { "errors" };
                 writeln!(formatter, "Could not add dependencies ({count} {noun}).")?;
@@ -276,6 +293,72 @@ fn report_warning(warning: &str, presentation: Presentation) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn missing_current_layer_is_a_direct_prerequisite_without_path_or_batch_wrapper() {
+        use hydragen::dependencies::{
+            AddFailure, DependencyError, DependencyFailure, SourceOrigin,
+        };
+        let invocation = PathBuf::from("/work/private\u{1b}[2J\n/project");
+        let failure = AddFailure {
+            directory: None,
+            discoveries: Vec::new(),
+            errors: vec![DependencyFailure {
+                origin: SourceOrigin::Current,
+                error: DependencyError::MissingCurrent {
+                    invocation: invocation.clone(),
+                },
+            }],
+        };
+        let expected = concat!(
+            "No layer manifest found in this directory or its parents.\n\n",
+            "Tip: Run this command from an existing layer directory, or run\n",
+            "'hydragen init' in the directory you want to use as a layer.\n\n",
+            "No files were changed."
+        );
+        assert_eq!(AddCommandError::Verification(failure).to_string(), expected);
+
+        // Do not discard path/source details from other origins or a batch.
+        for (origin, extra_failure) in [
+            (
+                SourceOrigin::Argument {
+                    index: 0,
+                    reference: "../source".into(),
+                },
+                false,
+            ),
+            (SourceOrigin::Current, true),
+        ] {
+            let mut errors = vec![DependencyFailure {
+                origin,
+                error: DependencyError::MissingCurrent {
+                    invocation: invocation.clone(),
+                },
+            }];
+            if extra_failure {
+                errors.push(DependencyFailure {
+                    origin: SourceOrigin::Argument {
+                        index: 1,
+                        reference: "../missing".into(),
+                    },
+                    error: DependencyError::NotDirectory {
+                        path: "/work/missing".into(),
+                    },
+                });
+            }
+            let message = AddCommandError::Verification(AddFailure {
+                directory: None,
+                discoveries: Vec::new(),
+                errors,
+            })
+            .to_string();
+            assert!(message.starts_with("Could not add dependencies"));
+            assert!(message.contains(&display(invocation.display()).to_string()));
+            assert!(message.contains("source argument"));
+            assert!(!message.contains('\u{1b}'));
+            assert_eq!(message.matches("No files were changed.").count(), 1);
+        }
+    }
 
     #[test]
     fn completion_and_current_directory_errors_escape_data_but_preserve_state_and_style() {

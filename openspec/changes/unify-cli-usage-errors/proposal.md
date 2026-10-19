@@ -20,6 +20,10 @@ depend on the current directory's layer manifests.
 - Keep argument validation ahead of layer discovery. Explicit help and version
   remain successful plain output, available from any directory without layer
   discovery, schema setup, prompts, or writes.
+- Present add's missing-current-layer prerequisite directly: a concise headline
+  describing the unsuccessful directory/parent search, the approved recovery tip,
+  and the no-files-changed result. Omit the absolute invocation path and the
+  counted, numbered batch wrapper for this failure.
 - Preserve clap's usage-error exit status and stderr channel, shared colour
   controls, and display-only escaping of untrusted diagnostic values.
 - Replace the existing policy exception that keeps clap usage errors plain even

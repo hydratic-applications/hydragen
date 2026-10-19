@@ -122,6 +122,60 @@ fn all_terminal_mixed_success_and_noop_are_compact_with_normal_foreground_detail
 }
 
 #[test]
+fn missing_current_layer_is_concise_in_styled_and_plain_terminals() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("not-a-layer");
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("keep.txt"), "unchanged").unwrap();
+    let expected = concat!(
+        "Error: No layer manifest found in this directory or its parents.\n  \n",
+        "  Tip: Run this command from an existing layer directory, or run\n",
+        "  'hydragen init' in the directory you want to use as a layer.\n  \n",
+        "  No files were changed.\n"
+    );
+    for width in [40, 80, 120] {
+        for (mode, environment) in [
+            ("styled", vec![]),
+            ("plain", vec![("NO_COLOR", "1")]),
+            ("ci", vec![("CI", "true")]),
+        ] {
+            let output = run(
+                &directory,
+                &["add", "test", "--non-interactive"],
+                Settings {
+                    width,
+                    environment: &environment,
+                    ..Settings::default()
+                },
+            );
+            assert_eq!(output.status.exit_code(), 1);
+            let plain = output.plain();
+            if mode == "styled" {
+                assert_eq!(plain, format!("✕ {expected}"));
+                assert!(output.raw.lines().next().unwrap().contains("\x1b[31m"));
+                for line in output.raw.lines().skip(1) {
+                    assert!(
+                        !line.contains('\x1b'),
+                        "details must stay neutral: {line:?}"
+                    );
+                }
+            } else {
+                assert_eq!(plain, expected);
+                assert!(!output.raw.contains('\x1b'));
+            }
+            assert!(!plain.contains(&directory.display().to_string()));
+            assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+            assert_eq!(
+                fs::read_to_string(directory.join("keep.txt")).unwrap(),
+                "unchanged"
+            );
+            assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+            output.evidence(&format!("missing-current-layer-{mode}-{width}"));
+        }
+    }
+}
+
+#[test]
 fn all_terminal_errors_are_grouped_in_order_and_only_the_headline_is_red() {
     let fixture = Fixture::new();
     fixture.layer("bad", "bad");

@@ -481,15 +481,28 @@ fn valid_add_syntax_alone_reaches_missing_current_layer_discovery() {
     let before = snapshot(directory.path());
     let invalid = usage_failure(&run(directory.path(), &["add"]));
     assert!(!invalid.contains("layer manifest"));
-    let output = run(directory.path(), &["add", "../shared-config"]);
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let stderr = safe_text(&output.stderr);
-    assert!(stderr.starts_with("Error:"));
-    assert!(stderr.contains("layer manifest"), "{stderr}");
-    assert!(!stderr.contains("Usage:"));
-    assert!(!stderr.contains("requires at least one source"));
-    assert!(output.stdout.is_empty());
-    assert_eq!(snapshot(directory.path()), before);
+    for arguments in [
+        vec!["add", "../shared-config"],
+        vec!["add", "test"],
+        vec!["--non-interactive", "add", "test"],
+        vec!["add", "test", "--non-interactive"],
+    ] {
+        let output = run(directory.path(), &arguments);
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let stderr = safe_text(&output.stderr);
+        assert_eq!(
+            stderr,
+            concat!(
+                "Error: No layer manifest found in this directory or its parents.\n  \n",
+                "  Tip: Run this command from an existing layer directory, or run\n",
+                "  'hydragen init' in the directory you want to use as a layer.\n  \n",
+                "  No files were changed.\n"
+            )
+        );
+        assert!(!stderr.contains(&directory.path().display().to_string()));
+        assert!(output.stdout.is_empty());
+        assert_eq!(snapshot(directory.path()), before);
+    }
 }
 
 #[test]
