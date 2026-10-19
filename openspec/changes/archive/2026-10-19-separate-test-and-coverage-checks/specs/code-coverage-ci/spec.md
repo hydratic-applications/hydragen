@@ -75,6 +75,13 @@ reject unexpected files, symlinks, stale context or altered contents. The offici
 pinned uploader SHALL use OIDC, explicit file/commit/branch/slug, disabled report
 search, enabled integrity checks, and `plugins: noop`.
 
+Root Codecov configuration SHALL set `codecov.disable_default_path_fixes: true`
+to preserve the validated repository-relative LCOV source paths during processing.
+An uploader-side file inventory from the temporary upload directory SHALL NOT
+rewrite or discard those paths merely because that directory has no production
+source checkout. This SHALL retain the isolated data-only upload and strict
+artifact validation boundaries.
+
 Authentication/upload failures SHALL fail only the upload job, not rewrite the
 test or coverage gate results. A valid below-target report SHALL remain eligible
 because neither gate is an upload dependency.
@@ -85,6 +92,13 @@ because neither gate is an upload dependency.
 - **THEN** the isolated uploader validates that run's named data artifact and uses OIDC
 - **AND** it uploads only the explicit report for the expected commit, main branch and repository
 - **AND** it neither checks out nor executes repository or artifact code
+
+#### Scenario: Uploader inventory contains unrelated upload files
+
+- **WHEN** validated LCOV contains repository-relative `src/` paths but the isolated
+  uploader's file inventory contains only upload files rather than production sources
+- **THEN** Codecov's default path rewriting is disabled and the validated source paths are preserved
+- **AND** no source is discarded or remapped to that unrelated inventory, and no checkout is added
 
 #### Scenario: Authentication or uploading fails
 

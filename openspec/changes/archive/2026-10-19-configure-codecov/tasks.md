@@ -28,5 +28,10 @@
 ## 5. Verify live rollout when authorised
 
 - [x] 5.1 On an authorised implementation PR, observe successful coverage generation, GitHub OIDC upload, and Codecov processing; record links and distinguish missing-base bootstrap from an upload failure. Leave live verification pending if no push/PR is authorised.
-- [ ] 5.2 After an authorised merge, confirm the main push produces a processed main report and the README shield shows its measured coverage after cache refresh; leave numeric badge acceptance pending if private access is unresolved.
-- [ ] 5.3 Observe project/patch comparison statuses on a subsequent same-repository PR with a processed base report, and record evidence without changing required-check settings or claiming unobserved success.
+- [x] 5.2 After an authorised merge, confirm the main push produces a processed main report and the README shield shows its measured coverage after cache refresh; leave numeric badge acceptance pending if private access is unresolved.
+- [x] 5.3 **Superseded, not executed:** Observe project/patch comparison statuses on a subsequent same-repository PR with a processed base report, and record evidence without changing required-check settings or claiming unobserved success. The follow-up replaces Codecov assessments with Actions-owned gates and disables project/patch statuses; this checkbox records closure of the obsolete task, not successful Codecov comparisons.
+
+**Closure — 2026-10-19:** 17 tasks verified and 1 superseded, not 18 executed.
+Task 5.2 is supported by the [final main/public evidence](verification.md#current-closure--2026-10-19).
+The replacement policy and its verification are recorded in
+[separate-test-and-coverage-checks](../2026-10-19-separate-test-and-coverage-checks/design.md).

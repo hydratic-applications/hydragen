@@ -7,13 +7,20 @@ This record covers the revised Actions-owned `Tests`, `Total coverage` and
 describes the superseded Codecov-only policy and does not establish the new
 gates' outcomes.
 
+As of **2026-10-19**, all **23 active tasks are complete**. PR #8 and the focused
+path-preservation PR #10 are merged, and the repository is public. Actual main
+revision `6ccf96b635f99c3ef62d91961b8d9d6218fbf382` passed all five workflow jobs;
+isolated OIDC uploading, successful Codecov processing, anonymous report access
+and the unchanged token-free main shield are verified in the
+[final main/public evidence](#final-main-and-public-rollout--2026-10-19).
+
 The coverage implementation has local and hosted PR policy evidence. Diagnosis
 of the retained initial terminal-test timeout confirmed a matching Linux input
 selection race. The test-only synchronisation increment has completed local
 validation, independent review and fresh hosted verification of the reviewed commit.
 Production fallback before input selection remains a separate unfixed runtime
-gap. Main OIDC uploading, processed main reports and anonymous access remain
-unverified; PR #8 remains open and the repository private at this review.
+gap. Earlier pending, private-repository and open-PR statements below describe
+their historical checkpoints, not current status.
 
 The documentation/specification work revises the active proposal, design and
 requirements, including the original authenticated-upload requirement. README
@@ -392,20 +399,65 @@ not proof of every future timing interleaving. The initial failure remains
 recorded, and the production pre-selection `/dev/tty` fallback is still unfixed.
 Changed-line N/A is not a numerical threshold demonstration. No actual main OIDC
 upload, processed main report or anonymous-access/shield proof follows from this
-PR run; PR #8 remains unmerged and the repository private at this review.
+PR run; PR #8 was still unmerged and the repository private at that checkpoint.
 
-## Active progress and pending evidence
+## Historical progress before main/public verification
 
 The coverage-policy rollout reached **19/20 tasks complete** before adding the
 three focused harness tasks. Tasks 5.1 and 5.2 retain their actual hosted check,
 artifact and local-fixture reconciliation evidence; that earlier green revision
 does not prove this later harness change works.
 
-Active progress is now **22/23 tasks complete**. Task **6.3** is complete on the
-fresh hosted run and retained-artifact checks above. Only **5.3** remains pending:
+At that checkpoint, active progress was **22/23 tasks complete**. Task **6.3** was
+complete on the fresh hosted run and retained-artifact checks above. Only **5.3**
+remained pending:
 eligible main OIDC uploading, processed report, anonymous access and token-free
 main shield verification after separate publication-readiness and merge
-prerequisites. PR #8 has not been merged into main, the repository remains
-private, and publication readiness is not established.
+prerequisites. PR #8 had not been merged into main, the repository was still
+private, and publication readiness had not been established by that evidence.
 The production pre-selection fallback remains a separate open runtime issue,
 not an implicitly completed task or an exception to the interaction policy.
+
+## Final main and public rollout — 2026-10-19
+
+- After separate publication clearance, [PR #8](https://github.com/hydratic-applications/hydragen/pull/8)
+  merged as `b05313e`, preserving concurrent main revision `d724911`. The main
+  workflow passed, but upload acceptance did not yet establish service processing.
+  After owner-approved repository activation in Codecov, a fresh manual-main run
+  still produced a processing error: its otherwise valid report lost all nine
+  source paths during Codecov's default path rewriting. The intermediate empty
+  report and 0% shield were not valid measured coverage or successful acceptance.
+- The isolated uploader has no source checkout. Its temporary-directory file
+  inventory contains upload files, not production sources. [PR #10](https://github.com/hydratic-applications/hydragen/pull/10)
+  fixed the processing path with the single setting
+  `codecov.disable_default_path_fixes: true`, preserving the already validated
+  repository-relative LCOV paths. It did not add checkout, widen permissions,
+  change coverage gates or exclude sources. The YAML validator, all 39 existing
+  policy tests and a focused upstream-derived path regression passed; that local
+  regression alone was not proof of cloud processing.
+- After PR #10 merged, actual main revision
+  `6ccf96b635f99c3ef62d91961b8d9d6218fbf382` passed
+  [run 39208602693](https://github.com/hydratic-applications/hydragen/actions/runs/39208602693),
+  with all five jobs successful: `Tests`, `Coverage report`, `Total coverage`,
+  `Changed-line coverage` and `Codecov main report`. The isolated upload used
+  OIDC for that main revision. Main changed-line coverage was explicit **N/A**
+  under the non-PR policy, not a positive-denominator threshold demonstration.
+- At **06:14:06 UTC**, anonymous Codecov commit and main-branch API access showed
+  successful processing and the exact main identity. The [processed report](https://app.codecov.io/gh/hydratic-applications/hydragen/commit/6ccf96b635f99c3ef62d91961b8d9d6218fbf382)
+  contained all **nine sources**, **2,379/2,475 covered lines (96.12%)**.
+  Independent reconciliation matched the retained current-run artifact's
+  repository/run/attempt/event/revisions, report digest, all nine immutable source
+  hashes and every per-file covered/measured count. Earlier PR totals are not
+  substituted for this actual main measurement.
+- At **06:14:29 UTC**, the literal unchanged [token-free main shield](https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge&logo=codecov)
+  returned HTTP 200 and **96%**, normal presentation rounding of the measured
+  result, with the native pink Codecov icon. Its explicit main scope, report
+  destination, `for-the-badge` style and 22px README height remained unchanged;
+  no percentage, snapshot, credential or icon replacement was substituted.
+
+Independent final review accepted the rollout. The
+[public completion receipt](https://github.com/hydratic-applications/hydragen/pull/10#issuecomment-6260969474)
+records this evidence for task **5.3**. Active progress is **23/23 complete**.
+Codecov project/patch statuses remain disabled; Actions own the exact inclusive
+80% policies. This does not claim live below-target upload testing, required-check
+setting changes or a fix for the separate production pre-selection fallback.

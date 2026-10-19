@@ -1,5 +1,26 @@
 # Codecov implementation verification
 
+## Current closure — 2026-10-19
+
+The rollout is verified on public `main` revision
+`6ccf96b635f99c3ef62d91961b8d9d6218fbf382`. [Run 39208602693](https://github.com/hydratic-applications/hydragen/actions/runs/39208602693)
+passed all five jobs, including isolated OIDC uploading. Codecov processed all
+nine source files at **2,379/2,475 covered lines (96.12%)**. Anonymous access,
+run/revision identity, report digest, immutable source hashes and per-file counts
+were independently checked against the retained current-run artifact. The
+unchanged token-free main shield returned **96%**, with its native Codecov icon,
+`for-the-badge` style and 22px README height. See the
+[public completion evidence](https://github.com/hydratic-applications/hydragen/pull/10#issuecomment-6260969474)
+and the [follow-up's final rollout record](../2026-10-19-separate-test-and-coverage-checks/actions-gates-verification.md#final-main-and-public-rollout--2026-10-19).
+
+Task 5.2 is now verified. Task 5.3 is **superseded, not executed**: the
+[follow-up design](../2026-10-19-separate-test-and-coverage-checks/design.md) replaces
+Codecov project/patch assessments with independent Actions gates and disables
+those service statuses. Closure is **17 verified tasks plus 1 superseded task**,
+not 18 executed tasks or proof of successful Codecov comparisons. The dated
+observations below preserve earlier private-access and pre-merge checkpoints;
+they do not describe the current repository or rollout status.
+
 ## Prerequisite check — 2026-10-18
 
 - Opened `https://app.codecov.io/gh/hydratic-applications/hydragen` in the browser.
@@ -146,7 +167,7 @@
   migrating to Ubuntu 26 on 2026-10-19. The workflow deliberately tracks the hosted
   Ubuntu label; this notice did not fail the job.
 
-## Pending post-merge verification
+## Historical pre-merge checkpoint — 2026-10-19
 
 ### README alignment — 2026-10-19
 
@@ -157,12 +178,13 @@
 - Aligned the change's current badge requirements with main while preserving the
   earlier 20px styling decision above as historical verification evidence.
 
-**Progress: 16/18 tasks complete.** Tasks 5.2 and 5.3 remain unchecked.
+**Progress at that checkpoint: 16/18 tasks complete.** Tasks 5.2 and 5.3 were unchecked.
 
-- No merge was authorised or performed. Hosted verification above covers a
+- No merge had yet been authorised or performed. Hosted verification above covered a
   same-repository human-authored PR, not fork or Dependabot runtime behaviour.
-- After merge, verify the first main report and comparisons on a subsequent PR.
-  Numerical badge verification remains pending public Codecov report access;
-  private `unknown` is accepted by the maintainer's token-free decision.
-- Do not archive this change or mark those tasks complete on the strength of
-  configuration validation or local coverage alone.
+- The remaining work was to verify a main report, numerical badge and subsequent
+  PR comparisons. Public Codecov report access was still pending; private
+  `unknown` was accepted by the maintainer's token-free decision.
+- Configuration validation and local coverage alone did not establish those live
+  outcomes. The current closure above uses later main/public evidence and explicitly
+  identifies the superseded comparison task.
