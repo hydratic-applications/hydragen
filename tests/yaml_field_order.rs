@@ -16,12 +16,16 @@ impl Drop for Running {
 }
 
 fn run_add(directory: &Path) -> Output {
+    run_add_source(directory, "./dep")
+}
+
+fn run_add_source(directory: &Path, source: &str) -> Output {
     let stdout = tempfile::NamedTempFile::new().unwrap();
     let stderr = tempfile::NamedTempFile::new().unwrap();
     let mut child = Running(
         Command::new(env!("CARGO_BIN_EXE_hydragen"))
             .current_dir(directory)
-            .args(["add", "./dep"])
+            .args(["add", source])
             .env("CI", "true")
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -208,7 +212,21 @@ fn empty_and_comment_only_block_strings_and_safe_eof_arrangements_are_editable()
             " # Header comment",
             " # Header comment\n",
         ] {
-            assert_tail(&format!("name: app\ncustom: {style}{body}"), "", "");
+            let source = format!("name: app\ncustom: {style}{body}");
+            let strip = style.ends_with('-');
+            let unsafe_content = matches!(
+                body,
+                "\n  text" | "\n  # Comment-looking content" | "\n  text\n    "
+            );
+            let unsafe_keep_blank =
+                style.ends_with('+') && matches!(body, "\n  " | "\n    " | "\n  text\n    ");
+            if (!strip && unsafe_content) || unsafe_keep_blank {
+                for eol in ["\n", "\r\n", "\r"] {
+                    assert_source_boundary_refused(&source.replace('\n', eol));
+                }
+            } else {
+                assert_tail(&source, "", "");
+            }
         }
         // Strip and clip safely ignore an additional blank trailing line;
         // keep is covered separately by the specific refusal test below.
@@ -218,11 +236,7 @@ fn empty_and_comment_only_block_strings_and_safe_eof_arrangements_are_editable()
             }
         }
     }
-    assert_tail(
-        "name: app\nearlier: |+\n  earlier\n\ncustom: >+\n  final",
-        "",
-        "",
-    );
+    assert_source_boundary_refused("name: app\nearlier: |+\n  earlier\n\ncustom: >+\n  final");
 }
 
 #[test]
@@ -288,6 +302,156 @@ fn unsafe_keep_chomping_eof_separator_is_refused_specifically_before_staging() {
                         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
                     }
                 }
+            }
+        }
+    }
+}
+
+fn assert_source_boundary_refused(source: &str) {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        let layer = parse_source(Path::new(format.filename()), format, source.into()).unwrap();
+        let error = append_dependencies(&layer, &["../new"]).unwrap_err();
+        assert!(
+            matches!(error, EditError::UnsupportedEdit { .. }),
+            "{error}"
+        );
+        assert!(
+            error.to_string().contains("final YAML block string"),
+            "{error}"
+        );
+        assert_eq!(layer.source, source);
+        assert_eq!(append_dependencies(&layer, &[]).unwrap(), source);
+    }
+}
+
+#[test]
+fn source_sensitive_unterminated_block_strings_are_refused() {
+    // Fixed outcomes come from YAML EOF semantics, not equality through the
+    // maintained decoder, which currently supplies a missing final newline.
+    for style in ["|", ">", "|+", ">+", "|2", "|+2", ">2+"] {
+        for (prefix, indent) in [
+            ("custom: ", "  "),
+            ("custom:\n  nested: ", "    "),
+            ("custom:\n  - ", "    "),
+            ("custom:\n- nested:\n    - ", "      "),
+            ("? ", "  "), // Terminal scalar key has an implicit null value.
+            ("custom:\n  ? ", "    "),
+            ("dependencies:\n  - ", "    "),
+        ] {
+            let source = format!("name: app\n{prefix}{style}\n{indent}../old");
+            for eol in ["\n", "\r\n"] {
+                assert_source_boundary_refused(&source.replace('\n', eol));
+            }
+        }
+    }
+}
+
+#[test]
+fn source_sensitive_blank_bodies_and_header_properties_are_classified() {
+    for source in [
+        "name: app\ncustom: |2\n    ", // Two spaces of content, no indent hint.
+        "name: app\ncustom: >+2\n    ",
+        "name: app\ncustom: |+\n  ", // Completing an empty body adds a newline.
+        "name: app\ncustom: >+\n\n  ",
+        "name: app\ncustom: |\n  text\n    ",
+        "name: app\ncustom: !!str &value\n  # properties - > |\n  |+2 # misleading -\n  text",
+        "name: app\ncustom: |2 # misleading -\n  # Content, not a comment",
+    ] {
+        for eol in ["\n", "\r\n"] {
+            assert_source_boundary_refused(&source.replace('\n', eol));
+        }
+    }
+    for prefix in [
+        "name: app\ncustom: |-2 # misleading +\n    ",
+        "name: app\ncustom: &value !!str\n  # properties + |\n  |-2 # header +\n  text",
+        "name: app\ncustom: |+ # Header-only - | >",
+        "name: app\ncustom: |2\n  ",
+        "name: app\ncustom: |\n  text\n  ",
+        "name: app\ncustom: |\n    text\n  ",
+        "name: app\n? |-2 # Key header +\n  text",
+        "name: app\ncustom:\n  ? >2-\n    text",
+    ] {
+        assert_tail(prefix, "", "");
+    }
+}
+
+#[test]
+fn existing_strip_tail_keeps_excess_spaces_as_scalar_content() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for eol in ["\n", "\r\n"] {
+            let source = "name: app\ndependencies:\n  - |-2\n    ../old\n      ".replace('\n', eol);
+            let expected = format!("{source}{eol}  - \"../new\"");
+            let layer = parse_source(Path::new(format.filename()), format, source).unwrap();
+            assert_eq!(layer.document["dependencies"], json!(["../old\n  "]));
+            let candidate = append_dependencies(&layer, &["../new"]).unwrap();
+            assert_eq!(candidate, expected);
+        }
+    }
+}
+
+#[test]
+fn source_sensitive_refusal_never_stages_for_missing_or_existing_dependencies() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for existing in [false, true] {
+            // Literal newline filenames are not available on Windows. Missing-
+            // field lifecycle coverage still runs there; the existing-tail case
+            // is also exercised through the pure API on every platform.
+            if existing && cfg!(windows) {
+                continue;
+            }
+            let directory = tempfile::tempdir().unwrap();
+            if existing {
+                let old = directory.path().join("old\n");
+                std::fs::create_dir(&old).unwrap();
+                std::fs::write(old.join("layer.yaml"), "name: old\n").unwrap();
+            }
+            let dep = directory.path().join("dep");
+            std::fs::create_dir(&dep).unwrap();
+            std::fs::write(dep.join("layer.yaml"), "name: dep\n").unwrap();
+            // The accepted decoder currently reads the existing reference with a
+            // newline. Give verification that literal target so preparation is
+            // exercised, without changing loading semantics in this regression.
+            let source = if existing {
+                "name: app\ndependencies:\n  - |\n    ./old"
+            } else {
+                "name: app\ncustom: |\n  text"
+            };
+            let path = directory.path().join(format.filename());
+            std::fs::write(&path, source).unwrap();
+            let before = std::fs::metadata(directory.path())
+                .unwrap()
+                .modified()
+                .unwrap();
+            let output = run_add(directory.path());
+            assert!(!output.status.success(), "{output:?}");
+            assert!(String::from_utf8_lossy(&output.stderr).contains("final YAML block string"));
+            assert_eq!(std::fs::read_to_string(path).unwrap(), source);
+            assert_eq!(
+                std::fs::read_dir(directory.path()).unwrap().count(),
+                if existing { 3 } else { 2 }
+            );
+            assert_eq!(
+                std::fs::metadata(directory.path())
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                before
+            );
+            if existing {
+                let output = run_add_source(directory.path(), "./old\n");
+                assert!(output.status.success(), "{output:?}");
+                assert!(String::from_utf8_lossy(&output.stdout).starts_with("No changes needed:"));
+                assert_eq!(
+                    std::fs::read_to_string(directory.path().join(format.filename())).unwrap(),
+                    source
+                );
+                assert_eq!(
+                    std::fs::metadata(directory.path())
+                        .unwrap()
+                        .modified()
+                        .unwrap(),
+                    before
+                );
             }
         }
     }

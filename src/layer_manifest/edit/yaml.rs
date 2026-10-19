@@ -26,7 +26,7 @@ pub(super) fn append(source: &str, references: &[&str]) -> Result<String, String
         .children
         .chunks_exact(2)
         .find_map(|pair| (document.scalar_key(pair[0]) == Some("dependencies")).then_some(pair[1]));
-    let (position, addition) = if let Some(index) = dependencies {
+    let mut insertions = if let Some(index) = dependencies {
         let node = &document.nodes[index];
         if matches!(node.kind, Kind::Alias(_)) {
             return Err("The YAML dependencies list is an alias; replace it with an explicit sequence before adding dependencies.".into());
@@ -43,27 +43,38 @@ pub(super) fn append(source: &str, references: &[&str]) -> Result<String, String
             return Err("The YAML dependencies sequence has an anchor used by an alias; adding entries would also change another value. Use an unshared explicit sequence first.".into());
         }
         match style {
-            StructureStyle::Flow => document.flow_insertion(node, &literals.join(", "))?,
-            StructureStyle::Block => document.block_insertion(source, node, &literals)?,
+            StructureStyle::Flow => document.flow_insertions(source, node, &literals)?,
+            StructureStyle::Block => vec![document.block_insertion(source, node, &literals)?],
         }
     } else {
         let declaration = format!("dependencies: [{}]", literals.join(", "));
         match style {
-            StructureStyle::Flow => document.flow_insertion(root, &declaration)?,
-            StructureStyle::Block => document.absent_block_insertion(source, root, &declaration)?,
+            StructureStyle::Flow => document.flow_insertions(source, root, &[declaration])?,
+            StructureStyle::Block => {
+                vec![document.absent_block_insertion(source, root, &declaration)?]
+            }
         }
     };
-    let mut candidate = String::with_capacity(source.len() + addition.len());
-    candidate.push_str(&source[..position]);
-    candidate.push_str(&addition);
-    candidate.push_str(&source[position..]);
-    if dependencies.is_none()
-        && style == StructureStyle::Block
-        && position == source.len()
-        && !source.ends_with(['\r', '\n'])
-    {
-        document.verify_final_block_string(&candidate, root)?;
+    // Stable ordering puts a needed comma before entry text at a shared offset.
+    // Replay untouched slices; no operation can replace or remove source bytes.
+    insertions.sort_by_key(|(position, _)| *position);
+    let mut candidate = String::new();
+    let mut previous = 0;
+    for (position, addition) in insertions {
+        document.verify_block_string_insertion(source, position, &addition)?;
+        candidate.push_str(
+            source
+                .get(previous..position)
+                .ok_or("The YAML editor supplied an invalid insertion boundary.")?,
+        );
+        candidate.push_str(&addition);
+        previous = position;
     }
+    candidate.push_str(
+        source
+            .get(previous..)
+            .ok_or("The YAML editor supplied an invalid final boundary.")?,
+    );
     Ok(candidate)
 }
 
@@ -87,6 +98,36 @@ struct Token {
     range: Range<usize>,
 }
 
+struct BlockString {
+    span: Span,
+    style: ScalarStyle,
+    header_floor: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Chomping {
+    Strip,
+    Clip,
+    Keep,
+}
+
+#[derive(Debug)]
+struct BlockStringFacts {
+    chomping: Chomping,
+    body_start: Option<usize>,
+    content_indent: Option<usize>,
+}
+
+impl BlockStringFacts {
+    fn unfinished_line_is_indentation(&self, source: &str) -> bool {
+        let line = &source[line_start(source, source.len())..];
+        line.bytes().all(|byte| byte == b' ')
+            && self
+                .content_indent
+                .is_none_or(|indent| line.len() <= indent)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Syntax {
     Open,
@@ -104,6 +145,7 @@ struct Document<'source> {
     tokens: Vec<Token>,
     comments: Vec<Range<usize>>,
     scalar_anchors: HashMap<usize, usize>,
+    block_strings: Vec<BlockString>,
 }
 
 impl<'source> Document<'source> {
@@ -197,6 +239,8 @@ impl<'source> Document<'source> {
         let root = root.ok_or("The YAML layer manifest has no root mapping.")?;
         let mut tokens = Vec::new();
         let mut comments = Vec::new();
+        let mut block_strings = Vec::new();
+        let mut header_floor = 0;
         // Scanner syntax includes property and key/value tokens in addition to
         // parser events. Bound this independent pass too, without alias expansion.
         let token_budget = budget.max_events.saturating_mul(6).saturating_add(16);
@@ -208,6 +252,36 @@ impl<'source> Document<'source> {
             }
             let token = token.map_err(|error| error.to_string())?;
             let range = byte_range(source, token.span())?;
+            if let TokenType::Scalar(style @ (ScalarStyle::Literal | ScalarStyle::Folded), _) =
+                token.token_type()
+            {
+                block_strings.push(BlockString {
+                    span: token.span(),
+                    style: *style,
+                    header_floor,
+                });
+            }
+            // Bound a later block header by the preceding real syntax/property.
+            // Synthetic collection/key markers and comments must not advance it:
+            // the scanner can emit a header comment *after* its scalar token.
+            match token.token_type() {
+                TokenType::Value => {
+                    header_floor = range.end.max(range.start + 1);
+                }
+                TokenType::BlockEntry => header_floor = range.end,
+                TokenType::Key if !range.is_empty() => header_floor = range.end,
+                TokenType::Scalar(..)
+                | TokenType::Alias(..)
+                | TokenType::Anchor(..)
+                | TokenType::Tag(..)
+                | TokenType::FlowSequenceStart
+                | TokenType::FlowSequenceEnd
+                | TokenType::FlowMappingStart
+                | TokenType::FlowMappingEnd
+                | TokenType::FlowEntry
+                | TokenType::DocumentStart => header_floor = range.end,
+                _ => {}
+            }
             let kind = match token.token_type() {
                 TokenType::FlowSequenceStart | TokenType::FlowMappingStart => Syntax::Open,
                 TokenType::FlowSequenceEnd | TokenType::FlowMappingEnd => Syntax::Close,
@@ -226,12 +300,14 @@ impl<'source> Document<'source> {
             };
             tokens.push(Token { kind, range });
         }
+        comments.sort_by_key(|range| range.start);
         Ok(Self {
             nodes,
             root,
             tokens,
             comments,
             scalar_anchors,
+            block_strings,
         })
     }
 
@@ -246,7 +322,7 @@ impl<'source> Document<'source> {
             Kind::Sequence(StructureStyle::Flow) | Kind::Mapping(StructureStyle::Flow) => {
                 // Collection-end events can point into following syntax. The
                 // scanner-backed flow path identifies the real closing byte.
-                self.flow_insertion(tail, "")?.0 + 1
+                self.tokens[self.flow_bounds(tail)?.1].range.end
             }
             Kind::Scalar(_, ScalarStyle::Plain) if byte_range(source, tail.start)?.is_empty() => {
                 // Implicit null has no scalar token; its event can point at a
@@ -315,76 +391,123 @@ impl<'source> Document<'source> {
         Ok(node)
     }
 
-    fn verify_final_block_string(
-        &self,
-        candidate: &str,
-        root: &Node<'source>,
-    ) -> Result<(), String> {
-        let tail = self.block_tail(root)?;
-        let Kind::Scalar(original, ScalarStyle::Literal | ScalarStyle::Folded) = &tail.kind else {
-            return Ok(());
-        };
-        // Some EOF arrangements acquire a meaningful newline when separated
-        // from a new root field. Compare parser-decoded block strings directly
-        // so this gets a specific preparation refusal, not only the caller's
-        // generic unintended-change error. No alias expansion is necessary.
-        let ordinal = self
-            .nodes
-            .iter()
-            .take_while(|node| !std::ptr::eq(*node, tail))
-            .filter(|node| {
-                matches!(
-                    node.kind,
-                    Kind::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded)
-                )
-            })
-            .count();
-        let budget = Budget::default();
-        let mut seen = 0;
-        let mut scalar_bytes = 0usize;
-        let mut depth = 0usize;
-        let options = parser::options! {
-            simple_key_max_lookahead: budget.simple_key_max_lookahead,
-            flow_nesting_limit: budget.flow_nesting_limit,
-        };
-        for (count, event) in
-            parser::Parser::new_from_str_with_options(candidate, options).enumerate()
-        {
-            if count >= budget.max_events {
-                return Err("YAML editing exceeded the parser event budget.".into());
-            }
-            let (event, _) = event.map_err(|error| error.to_string())?;
-            match event {
-                Event::SequenceStart(..) | Event::MappingStart(..) => {
-                    depth += 1;
-                    if depth > budget.max_depth {
-                        return Err("YAML editing exceeded the parser depth budget.".into());
-                    }
-                }
-                Event::SequenceEnd | Event::MappingEnd => depth = depth.saturating_sub(1),
-                _ => {}
-            }
-            if let Event::Scalar(value, style, ..) = event {
-                scalar_bytes = scalar_bytes.saturating_add(value.len());
-                if scalar_bytes > budget.max_total_scalar_bytes {
-                    return Err("YAML editing exceeded the parser scalar-byte budget.".into());
-                }
-                if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-                    if seen == ordinal {
-                        return if value == *original {
-                            Ok(())
-                        } else {
-                            Err("The final YAML block string cannot be separated from the new dependencies field without changing its trailing whitespace or newlines. End the block string explicitly with a root-level comment or document-end marker before adding dependencies.".into())
-                        };
-                    }
-                    seen += 1;
-                }
-            }
-        }
-        Err("Cannot locate the final YAML block string in the prepared source.".into())
+    fn eof_block_string(&self, source: &str) -> Option<&BlockString> {
+        self.block_strings.iter().rev().find(|scalar| {
+            scalar
+                .span
+                .byte_range()
+                .is_some_and(|range| range.end == source.len())
+        })
     }
 
-    fn flow_insertion(&self, node: &Node<'_>, addition: &str) -> Result<(usize, String), String> {
+    fn block_string_facts(
+        &self,
+        source: &str,
+        scalar: &BlockString,
+    ) -> Result<BlockStringFacts, String> {
+        let range = byte_range(source, scalar.span)?;
+        let mut marker = scalar.header_floor;
+        let mut comments = self
+            .comments
+            .iter()
+            .filter(|comment| comment.end > scalar.header_floor)
+            .peekable();
+        while marker <= range.start && marker < source.len() {
+            while comments.peek().is_some_and(|comment| comment.end <= marker) {
+                comments.next();
+            }
+            if let Some(comment) = comments.peek().filter(|comment| comment.start <= marker) {
+                marker = comment.end;
+            } else if matches!(source.as_bytes()[marker], b' ' | b'\t' | b'\r' | b'\n') {
+                marker += 1;
+            } else {
+                break;
+            }
+        }
+        let expected = if scalar.style == ScalarStyle::Literal {
+            b'|'
+        } else {
+            b'>'
+        };
+        if marker > range.start || source.as_bytes().get(marker) != Some(&expected) {
+            return Err("Cannot identify the YAML block-string header within its scanner-bounded source context.".into());
+        }
+        // Interpret only the adjacent indicators in an already parsed header,
+        // never +/- characters in properties, comments, or the body. This does
+        // not establish YAML acceptance; the maintained parser already did so.
+        let indicators = source.as_bytes()[marker + 1..]
+            .iter()
+            .take_while(|byte| matches!(byte, b'+' | b'-' | b'1'..=b'9'))
+            .copied()
+            .collect::<Vec<_>>();
+        let chomping = if indicators.contains(&b'-') {
+            Chomping::Strip
+        } else if indicators.contains(&b'+') {
+            Chomping::Keep
+        } else {
+            Chomping::Clip
+        };
+        let body_start = source[marker..]
+            .find(['\r', '\n'])
+            .map(|offset| next_line(source, marker + offset));
+        let content_indent = if body_start.is_some_and(|body| range.start >= body) {
+            let prefix = &source[line_start(source, range.start)..range.start];
+            if !prefix.bytes().all(|byte| byte == b' ')
+                || scalar
+                    .span
+                    .indent
+                    .is_some_and(|indent| indent != prefix.len())
+                || scalar.span.start.col() != prefix.len()
+            {
+                return Err("The YAML block-string content prefix disagrees with its scanner source metadata.".into());
+            }
+            Some(prefix.len())
+        } else {
+            if let Some(body) = body_start
+                && !source[body..range.end]
+                    .bytes()
+                    .all(|byte| matches!(byte, b' ' | b'\r' | b'\n'))
+            {
+                return Err("Cannot establish the empty YAML block-string body from its scanner source metadata.".into());
+            }
+            None
+        };
+        Ok(BlockStringFacts {
+            chomping,
+            body_start,
+            content_indent,
+        })
+    }
+
+    fn verify_block_string_insertion(
+        &self,
+        source: &str,
+        position: usize,
+        addition: &str,
+    ) -> Result<(), String> {
+        if source.ends_with(['\r', '\n'])
+            || position != source.len()
+            || !addition.starts_with(['\r', '\n'])
+        {
+            return Ok(());
+        }
+        // Use the terminal scanner scalar, including explicit mapping keys whose
+        // final AST value is implicit null. A following real comment ends the
+        // scalar before EOF and must not trigger this guard.
+        let Some(scalar) = self.eof_block_string(source) else {
+            return Ok(());
+        };
+        let facts = self.block_string_facts(source, scalar)?;
+        if facts.body_start.is_none()
+            || facts.chomping == Chomping::Strip
+            || (facts.chomping == Chomping::Clip && facts.unfinished_line_is_indentation(source))
+        {
+            return Ok(());
+        }
+        Err("The final YAML block string cannot be separated from the new dependency entries or field without changing its trailing whitespace or newlines. End the block string explicitly with a root-level comment or document-end marker before adding dependencies.".into())
+    }
+
+    fn flow_bounds(&self, node: &Node<'_>) -> Result<(usize, usize), String> {
         let start = node
             .start
             .byte_range()
@@ -402,23 +525,144 @@ impl<'source> Document<'source> {
                 Syntax::Close => {
                     depth -= 1;
                     if depth == 0 {
-                        // The scanner, unlike collection-end events, identifies
-                        // the actual closing delimiter. Comments are retained in
-                        // their original positions, including inline comments.
-                        let previous = &self.tokens[opening + offset - 1];
-                        let separator =
-                            if node.children.is_empty() || previous.kind == Syntax::Comma {
-                                ""
-                            } else {
-                                ", "
-                            };
-                        return Ok((token.range.start, format!("{separator}{addition}")));
+                        return Ok((opening, opening + offset));
                     }
                 }
                 _ => {}
             }
         }
         Err("Cannot locate the YAML flow collection's closing token.".into())
+    }
+
+    fn flow_insertions(
+        &self,
+        source: &str,
+        node: &Node<'_>,
+        additions: &[String],
+    ) -> Result<Vec<(usize, String)>, String> {
+        let (opening, closing) = self.flow_bounds(node)?;
+        let open = &self.tokens[opening];
+        let close = &self.tokens[closing];
+        let previous = &self.tokens[closing - 1];
+        let trailing_comma = previous.kind == Syntax::Comma;
+        let empty = node.children.is_empty();
+        let multiline = source[open.range.end..close.range.start].contains(['\r', '\n']);
+        if !multiline {
+            let separator = if empty || trailing_comma { "" } else { ", " };
+            return Ok(vec![(
+                close.range.start,
+                format!(
+                    "{separator}{}{}",
+                    additions.join(", "),
+                    if trailing_comma { "," } else { "" }
+                ),
+            )]);
+        }
+
+        // Locate real syntax, not a collection-end event (which can point at
+        // following syntax). The final value may be a nested flow collection,
+        // alias or implicit null after a value indicator.
+        let (end, separator) = if empty {
+            (open.range.end, ",")
+        } else {
+            let last = self.tokens[opening + 1..closing]
+                .iter()
+                .rev()
+                .find(|token| matches!(token.kind, Syntax::Content | Syntax::Close | Syntax::Value))
+                .ok_or("Cannot locate the YAML flow collection's final entry.")?;
+            if last.kind == Syntax::Value {
+                // A plain flow key's value indicator needs separation before
+                // its empty value and the comma. `custom:,` can instead be
+                // interpreted as plain-key text (or rejected by YAML readers).
+                // Insert the required space as well, retaining the original
+                // null value, following whitespace and any inline comment.
+                (last.range.end.max(last.range.start + 1), " ,")
+            } else {
+                (last.range.end, ",")
+            }
+        };
+        let step = if matches!(node.kind, Kind::Mapping(_)) {
+            2
+        } else {
+            1
+        };
+        let base_line = line_start(source, open.range.start);
+        let base_indent = source[base_line..open.range.start]
+            .chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .collect::<String>();
+        let indent = node
+            .children
+            .iter()
+            .step_by(step)
+            .find_map(|&index| {
+                let start = self.nodes[index].start.byte_range()?.start;
+                let prefix = &source[line_start(source, start)..start];
+                prefix
+                    .bytes()
+                    .all(|byte| matches!(byte, b' ' | b'\t'))
+                    .then(|| prefix.to_owned())
+            })
+            .unwrap_or_else(|| format!("{base_indent}  "));
+
+        // A later-line comma and everything before it already belong to the old
+        // entry. Extend through its inline comments, then through more-indented
+        // own-line comments. Equal/lower-indented comments remain list footers.
+        let mut minimum = if trailing_comma {
+            previous.range.end
+        } else {
+            end
+        };
+        let attachment_start = minimum;
+        for comment in self.comments.iter().filter(|comment| {
+            comment.start >= attachment_start && comment.start < close.range.start
+        }) {
+            if source[minimum..comment.start].contains(['\r', '\n']) {
+                break;
+            }
+            minimum = comment.end;
+        }
+        if !empty {
+            let next = next_line(source, minimum);
+            if next <= close.range.start {
+                let attached = self.trailing_item_comment_end(source, next, indent.len());
+                if attached > next {
+                    minimum = attached;
+                }
+            }
+        }
+        let next = self
+            .comments
+            .iter()
+            .find(|comment| comment.start >= minimum && comment.start < close.range.start)
+            .map_or(close.range.start, |comment| comment.start);
+        let next_line = line_start(source, next);
+        let own_line = next_line >= minimum
+            && source[next_line..next]
+                .bytes()
+                .all(|byte| matches!(byte, b' ' | b'\t'));
+        let eol = newline(source);
+        let mut text = String::new();
+        if !own_line {
+            text.push_str(eol);
+        }
+        for (index, addition) in additions.iter().enumerate() {
+            text.push_str(&indent);
+            text.push_str(addition);
+            if trailing_comma || index + 1 < additions.len() {
+                text.push(',');
+            }
+            text.push_str(eol);
+        }
+        if !own_line {
+            text.push_str(&base_indent);
+        }
+        let mut insertions = Vec::new();
+        if !empty && !trailing_comma {
+            insertions.push((end, separator.into()));
+        }
+        insertions.push((if own_line { next_line } else { minimum }, text));
+        Ok(insertions)
     }
 
     fn block_insertion(
@@ -469,10 +713,21 @@ impl<'source> Document<'source> {
             Kind::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded)
         );
         let line = line_start(source, end);
-        let line_boundary = block_scalar
+        let mut line_boundary = block_scalar
             && source[line..end]
                 .bytes()
                 .all(|byte| matches!(byte, b' ' | b'\t'));
+        if line_boundary
+            && end == source.len()
+            && end > line
+            && let Some(scalar) = self.eof_block_string(source)
+        {
+            // An unfinished line can contain spaces beyond the scalar's actual
+            // indentation. Retain those as content, not trailing list trivia.
+            line_boundary = self
+                .block_string_facts(source, scalar)?
+                .unfinished_line_is_indentation(source);
+        }
         // A block scalar's span can end at the next key's line, whereas a
         // quoted/plain scalar ends before its inline comment. Never insert at
         // the collection-end event: indentless ends may point *into* that key.
@@ -615,14 +870,9 @@ mod tests {
         let actual: Value =
             serde_saphyr::from_str(&output).unwrap_or_else(|error| panic!("{output:?}: {error}"));
         assert_eq!(actual, expected, "{output:?}");
-        // Independently require exactly one insertion: every existing source
-        // byte, including whitespace and comments, must remain in order.
-        let common = source
-            .bytes()
-            .zip(output.bytes())
-            .take_while(|(left, right)| left == right)
-            .count();
-        assert!(output[common..].ends_with(&source[common..]), "{output:?}");
+        // Flow edits can need a comma and entries at distinct sites. Independent
+        // fixture-owned insertion proofs live in tests/dependency_edit.rs; do
+        // not impose one contiguous insertion on every supported YAML layout.
         output
     }
 
@@ -987,10 +1237,43 @@ mod tests {
             "name: app\ndependencies:\n- |+\n  ../old",
             "name: app\ndependencies:\n- >\n  ../old",
             "name: app\ndependencies:\n- >+\n  ../old",
-            "name: app\ndependencies:\n- |+\n  ../old\n  ",
         ] {
-            check(source, &["../new"]);
+            assert!(
+                append(source, &["../new"])
+                    .unwrap_err()
+                    .contains("final YAML block string")
+            );
         }
+        check("name: app\ndependencies:\n- |+\n  ../old\n  ", &["../new"]);
+        check("name: app\ndependencies:\n- |-\n  ../old", &["../new"]);
+    }
+
+    #[test]
+    fn source_facts_check_content_prefix_without_requiring_an_indent_hint() {
+        let source = "name: app\ncustom: |2 # Not strip -\n    ";
+        let mut document = Document::parse(source, &Budget::default()).unwrap();
+        let scalar = document.eof_block_string(source).unwrap();
+        assert_eq!(scalar.span.indent, None);
+        let facts = document.block_string_facts(source, scalar).unwrap();
+        assert!(facts.chomping == Chomping::Clip);
+        assert_eq!(facts.content_indent, Some(2));
+        assert!(!facts.unfinished_line_is_indentation(source));
+
+        document.block_strings[0].span.indent = Some(4);
+        assert!(
+            document
+                .block_string_facts(source, &document.block_strings[0])
+                .unwrap_err()
+                .contains("disagrees")
+        );
+        document.block_strings[0].span.indent = None;
+        document.block_strings[0].header_floor = source.len();
+        assert!(
+            document
+                .block_string_facts(source, &document.block_strings[0])
+                .unwrap_err()
+                .contains("scanner-bounded")
+        );
     }
 
     #[test]

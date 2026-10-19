@@ -10,6 +10,9 @@ use hydragen::{
 };
 use serde_json::{Value, json};
 
+#[path = "support/insertion_oracle.rs"]
+mod insertion_oracle;
+
 const AUTHOR: &str = "  description: '配置 🦀' \\team  ";
 const DESCRIPTION: &str = "  author: \"name\" and dependencies: []  ";
 
@@ -317,12 +320,45 @@ fn flexible_order_does_not_relax_invalid_content_duplicate_keys_or_syntax() {
 }
 
 fn assert_original_bytes_in_order(source: &str, result: &str) {
+    // Coarse matrix check only. Missing-field fixtures additionally check exact
+    // permitted sites/text below; subsequence alone cannot preserve comments.
     let mut remaining = result.as_bytes().iter();
     for byte in source.as_bytes() {
         assert!(
             remaining.any(|candidate| candidate == byte),
             "source bytes removed or reordered:\n{source}\n=>\n{result}"
         );
+    }
+}
+
+fn assert_missing_field_insertions(
+    format: Format,
+    source: &str,
+    result: &str,
+    references: &[&str],
+) {
+    // These callers supply generated/ordered fixtures with known pretty JSON
+    // closing lines and plain reference strings, not arbitrary input layouts.
+    let values = references
+        .iter()
+        .map(|reference| format!("\"{reference}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match format {
+        Format::Yaml | Format::Yml | Format::Toml => {
+            let assignment = if format == Format::Toml { " =" } else { ":" };
+            let text = format!("dependencies{assignment} [{values}]\n");
+            insertion_oracle::assert_insertions(source, result, &[(source.len(), &text)]);
+        }
+        Format::Json | Format::Jsonc => {
+            assert!(source.ends_with("\n}\n"));
+            let text = format!("  \"dependencies\": [{values}]\n");
+            insertion_oracle::assert_insertions(
+                source,
+                result,
+                &[(source.len() - 3, ","), (source.len() - 2, &text)],
+            );
+        }
     }
 }
 
@@ -375,6 +411,7 @@ fn init_then_add(format: Format) {
             expected["dependencies"] = json!(["../shared"]);
             assert_eq!(loaded.document, expected);
             assert_original_bytes_in_order(&source, &result);
+            assert_missing_field_insertions(format, &source, &result, &["../shared"]);
             let mut keys = vec!["name"];
             if author {
                 keys.push("author");
@@ -415,6 +452,7 @@ fn missing_dependencies_follow_existing_root_entries(format: Format) {
     ];
     let source = ordered_source(format, &fields);
     let result = assert_append(format, &source, &["../z-new", "../a-new"]);
+    assert_missing_field_insertions(format, &source, &result, &["../z-new", "../a-new"]);
     // $schema has quoted TOML spelling; checking the final root assignment plus
     // exact prefix preservation covers it without pretending it is bare TOML.
     assert_root_order(

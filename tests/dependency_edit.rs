@@ -5,6 +5,9 @@ use hydragen::layer_manifest::edit::{EditError, append_dependencies};
 use hydragen::layer_manifest::{LayerManifestError, LayerManifestFormat, parse_source};
 use serde_json::Value;
 
+#[path = "support/insertion_oracle.rs"]
+mod insertion_oracle;
+
 fn loaded(
     format: LayerManifestFormat,
     source: &str,
@@ -45,8 +48,8 @@ fn assert_append(
     assert_eq!(prepared.document, expected, "{format}: {result}");
     assert_eq!(layer.source, source, "editing changed its input");
 
-    // Independent of decoded equality: insertion-only editing retains every original
-    // byte in order, including comments, quote styles, and multibyte source text.
+    // A coarse matrix check, not proof of comment/literal preservation: exact
+    // fixture-owned permitted insertion checks below supply that stronger oracle.
     let mut remaining = result.as_bytes().iter();
     for byte in source.as_bytes() {
         assert!(
@@ -836,4 +839,241 @@ fn schema_failure_is_not_hidden_by_an_unsupported_source_structure() {
         append_dependencies(&layer, &["bare-name"]),
         Err(EditError::InvalidCandidate { .. })
     ));
+}
+
+fn exact_permitted_append(
+    format: LayerManifestFormat,
+    pieces: &[&str],
+    additions: &[&str],
+    references: &[&str],
+) -> String {
+    assert_eq!(pieces.len(), additions.len() + 1);
+    let source = pieces.concat();
+    let mut expected = String::new();
+    let mut offset = 0;
+    let mut allowed = Vec::new();
+    for (piece, addition) in pieces.iter().zip(additions) {
+        expected.push_str(piece);
+        expected.push_str(addition);
+        offset += piece.len();
+        allowed.push((offset, *addition));
+    }
+    expected.push_str(pieces.last().unwrap());
+    let candidate = assert_append(format, &source, references, &[]);
+    assert_eq!(candidate, expected);
+    insertion_oracle::assert_insertions(&source, &candidate, &allowed);
+    candidate
+}
+
+#[test]
+fn multiline_flow_layout_uses_only_fixture_permitted_insertions() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for eol in ["\n", "\r\n"] {
+            for comma in [false, true] {
+                let first = "name: app\ndependencies: [\n  '../old'".replace('\n', eol);
+                let attached = format!(
+                    "{} # Old inline{eol}    # Attached detail{eol}",
+                    if comma { "," } else { "" }
+                );
+                let footer = format!("  # Sequence footer{eol}] # End{eol}custom: intact{eol}");
+                let new = format!(
+                    "  \"../new\",{eol}  \"../second\"{}{eol}",
+                    if comma { "," } else { "" }
+                );
+                exact_permitted_append(
+                    format,
+                    &[&first, &attached, &footer],
+                    &[if comma { "" } else { "," }, &new],
+                    &["../new", "../second"],
+                );
+            }
+            let old = format!(
+                "name: app{eol}dependencies: [{eol}  '../old'{eol}  , # Old comma comment{eol}    # Attached detail{eol}"
+            );
+            let footer = format!("  # Footer{eol}] # End");
+            let new = format!("  \"../new\",{eol}");
+            exact_permitted_append(format, &[&old, &footer], &[&new], &["../new"]);
+
+            let empty = format!("name: app{eol}dependencies: [ # Opening{eol}");
+            let footer = format!("  # Empty-list footer{eol}] # End");
+            let new = format!("  \"../new\"{eol}");
+            exact_permitted_append(format, &[&empty, &footer], &[&new], &["../new"]);
+
+            let root = format!("{{{eol}  name: app");
+            let attached = format!(" # Name inline{eol}    # Name detail{eol}");
+            let footer = format!("  # Root footer{eol}}} # End{eol}");
+            let new = format!("  dependencies: [\"../new\"]{eol}");
+            exact_permitted_append(
+                format,
+                &[&root, &attached, &footer],
+                &[",", &new],
+                &["../new"],
+            );
+        }
+    }
+}
+
+#[test]
+fn compact_flow_and_unrelated_final_flow_boundaries_remain_exact() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        exact_permitted_append(
+            format,
+            &["name: app\ndependencies: ['../old'", "] # End"],
+            &[", \"../new\""],
+            &["../new"],
+        );
+        exact_permitted_append(
+            format,
+            &["{name: app", "} # End"],
+            &[", dependencies: [\"../new\"]"],
+            &["../new"],
+        );
+        exact_permitted_append(
+            format,
+            &["name: app\ndependencies: ['../old', ", "] # End"],
+            &["\"../new\","],
+            &["../new"],
+        );
+        let prefix = "name: app\ncustom: {nested: [one,\n  two]} # Inline\n  # Attached\n";
+        exact_permitted_append(
+            format,
+            &[prefix, "# Footer\n...\n"],
+            &["dependencies: [\"../new\"]\n"],
+            &["../new"],
+        );
+    }
+}
+
+#[test]
+fn multiline_flow_boundaries_cover_inline_closes_aliases_and_nested_root_values() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for eol in ["\n", "\r\n"] {
+            for (pieces, additions) in [
+                (
+                    vec!["name: app\ndependencies: [\n  '../old'", "", " ] # End"],
+                    vec![",", "\n  \"../new\"\n"],
+                ),
+                (
+                    vec![
+                        "  name: app\n  dependencies: [\n    '../old'",
+                        " # Inline\n",
+                        "  ] # End\n",
+                    ],
+                    vec![",", "    \"../new\"\n"],
+                ),
+                (
+                    vec![
+                        "name: app\ncustom: &old ../old\ndependencies: [\n  *old",
+                        " # Old alias\n",
+                        "] # End\n",
+                    ],
+                    vec![",", "  \"../new\"\n"],
+                ),
+                (
+                    vec![
+                        "{\n  name: app,\n  custom: {nested: [one, two]}",
+                        " # Old value\n",
+                        "  # Footer\n}\n",
+                    ],
+                    vec![",", "  dependencies: [\"../new\"]\n"],
+                ),
+                (
+                    vec!["{\n  name: app,\n  custom:", " # Null value\n", "}\n"],
+                    vec![" ,", "  dependencies: [\"../new\"]\n"],
+                ),
+                (
+                    vec!["{\n  name: app, # Name inline\n", "  # Footer\n}\n"],
+                    vec!["  dependencies: [\"../new\"],\n"],
+                ),
+            ] {
+                let pieces = pieces
+                    .iter()
+                    .map(|piece| piece.replace('\n', eol))
+                    .collect::<Vec<_>>();
+                let additions = additions
+                    .iter()
+                    .map(|text| text.replace('\n', eol))
+                    .collect::<Vec<_>>();
+                exact_permitted_append(
+                    format,
+                    &pieces.iter().map(String::as_str).collect::<Vec<_>>(),
+                    &additions.iter().map(String::as_str).collect::<Vec<_>>(),
+                    &["../new"],
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn multiline_flow_implicit_null_members_retain_value_separation() {
+    for format in [LayerManifestFormat::Yaml, LayerManifestFormat::Yml] {
+        for eol in ["\n", "\r\n"] {
+            for comment in ["", " # Null value"] {
+                let prefix = format!("{{{eol}  name: app,{eol}  custom:");
+                let attachment = format!("{comment}{eol}");
+                let close = format!("}}{eol}");
+                let addition = format!("  dependencies: [\"../new\"]{eol}");
+                let candidate = exact_permitted_append(
+                    format,
+                    &[&prefix, &attachment, &close],
+                    &[" ,", &addition],
+                    &["../new"],
+                );
+                // The valid spelling is deliberately fixed independently of the
+                // maintained decoder: `custom:,` is not conforming flow YAML.
+                assert_eq!(
+                    loaded(format, &candidate).document,
+                    serde_json::json!({"name": "app", "custom": null, "dependencies": ["../new"]})
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn jsonc_and_toml_comments_allow_two_specific_insertion_sites() {
+    exact_permitted_append(
+        LayerManifestFormat::Jsonc,
+        &[
+            "{\n  \"name\": \"app\",\n  \"dependencies\": [\n    \"../old\"",
+            " // Old inline\n",
+            "    // Footer\n  ]\n}\n",
+        ],
+        &[",", "    \"../new\"\n"],
+        &["../new"],
+    );
+    exact_permitted_append(
+        LayerManifestFormat::Toml,
+        &[
+            "name = 'app'\ndependencies = [\n  '../old'",
+            " # Old inline\n",
+            "] # End\n",
+        ],
+        &[",", "  \"../new\"\n"],
+        &["../new"],
+    );
+}
+
+#[test]
+fn permitted_insertion_oracle_rejects_comment_literal_and_unrelated_corruption() {
+    let source = "# note\nname: \"app\"\ncustom: 1\n";
+    let insertion = "dependencies: [\"../new\"]\n";
+    let allowed = [(source.len(), insertion)];
+    let expected = format!("{source}{insertion}");
+    insertion_oracle::assert_insertions(source, &expected, &allowed);
+    for corrupted in [
+        expected.replace("# note", "# noCORRUPTEDte"),
+        // Escaped YAML continuation changes spelling, not the decoded name.
+        expected.replace("\"app\"", "\"a\\\n  pp\""),
+        expected.replace("custom: 1", "custom:  1"),
+    ] {
+        let mut bytes = corrupted.bytes();
+        assert!(source.bytes().all(|old| bytes.any(|new| old == new)));
+        assert!(!insertion_oracle::preserves(source, &corrupted, &allowed));
+        assert_eq!(
+            loaded(LayerManifestFormat::Yaml, &expected).document,
+            loaded(LayerManifestFormat::Yaml, &corrupted).document
+        );
+    }
 }
