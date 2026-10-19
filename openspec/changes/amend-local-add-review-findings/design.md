@@ -31,6 +31,17 @@ that pre-delivery acceptance, only task 6.5's delivery work remained. Linux,
 Windows, root, hosted CI and LLVM coverage execution are not claimed. Accepted
 evidence and remaining gates are recorded in [verification](verification.md).
 
+After the original amendment delivery, the owner separately authorised integration
+of current main and renewed commit/push delivery. Ordinary merge `7a10088` combines
+branch `8af225b` with inspected main `4a82827`; independent merged-source review
+accepted dependency API compatibility, preserved schema/presentation boundaries
+and renewed 572-test validation. The 544/571-test observations above remain
+historical, not current-tree counts. This increment changes no product requirement,
+term or output policy. Its evidence and delivery boundary are recorded under
+[current-main integration](verification.md#current-main-integration-after-delivery)
+and task section 7, without reopening the original amendment plan or authorising
+automatic archival.
+
 ## Goals / Non-Goals
 
 **Goals:**

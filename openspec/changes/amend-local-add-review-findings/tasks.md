@@ -41,3 +41,10 @@
 - [x] 6.3 Verify source packaging and fresh offline build/tests without OpenSpec or old build outputs; report only executed platform/runtime/coverage evidence.
 - [x] 6.4 Obtain independent final review, resolve confirmed findings and finish measured dispositions/remaining limitations without claiming the separate input-reader race is fixed.
 - [x] 6.5 Parent completes approved focused commits, ordinary push and concise PR #7 description refresh; do not merge the PR, autoarchive, publish a release or install globally.
+
+## 7. Authorised current-main integration after amendment delivery
+
+- [x] 7.1 Integrate inspected main 4a82827 by ordinary merge, retaining branch-required YAML comment support/runtime dependencies and incoming dependency/schema/coverage records; review the merge against both parents.
+- [x] 7.2 Renew schema fingerprint, validation/classification and offline-boundary checks, full locked Rust/Python validation, formatting/clippy/strict specs, packaging and fresh offline independence against the merged tree.
+- [x] 7.3 Obtain independent merged-result/final evidence review; update the current integration boundary and limitations without rewriting prior measured observations.
+- [ ] 7.4 Commit, ordinary-push and refresh PR #7, verify matching remote head and actual mergeability/check state; keep the PR open and amendment unarchived.

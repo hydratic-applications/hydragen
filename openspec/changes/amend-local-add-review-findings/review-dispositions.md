@@ -15,6 +15,16 @@ pre-delivery acceptance, only task 6.5's delivery work remained. See
 [verification](verification.md) for commands, source references and evidence
 boundaries; research reproductions alone are not a shipping claim.
 
+The original amendment delivery was followed by separately authorised current-main
+integration. Merge `7a10088` (`8af225b` + inspected `4a82827`) passed independent
+source review and renewed validation: 572 Rust tests in both checkout and fresh
+offline copy, 39 Python tests, 9 strict main specs, 252 package files and 58 matching
+source/asset hashes. These supersede the earlier validation boundary for this
+integration, not the historical measurements or qualified R7/R14/R15 dispositions.
+The earlier Cargo conflict is resolved; [current integration evidence](verification.md#current-main-integration-after-delivery)
+and section 7 track final documentation acceptance and delivery separately from
+source acceptance. This record does not assert that the new merge was pushed.
+
 No optional review sweep, new public error shape, registry/formatter work, stronger
 descriptor detection, blanket best-effort-write propagation or automatic archive
 is authorised here. The parent explicitly invoked the approved main-spec alignment;

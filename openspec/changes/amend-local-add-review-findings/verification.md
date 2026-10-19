@@ -339,9 +339,71 @@ ordinary-pushed to [PR #7](https://github.com/hydratic-applications/hydragen/pul
 Its description was replaced with the current scope, validation and limitations.
 The change remains active and unarchived, and the PR remains open.
 
-During delivery, main advanced to `4a82827`, including dependency/schema updates
-and coverage-change archival. Those changes are not part of the validated
-`6ccf96b` integration. GitHub reported a merge conflict; a checkout-free merge
-check identified `Cargo.toml`. Integrating that newer main requires a separately
-approved increment and renewed validation. Successful local amendment checks do
-not establish that the PR is mergeable or that hosted checks have passed.
+During that original delivery, main advanced to `4a82827`, including dependency/
+schema updates and coverage-change archival. Those changes were not part of the
+then-validated `6ccf96b` integration. GitHub reported a merge conflict and a
+checkout-free check identified `Cargo.toml`. This is a historical observation,
+not a current source blocker: the separately authorised integration and renewed
+validation below resolve it. Local validation does not establish the pushed PR's
+current mergeability or hosted check results.
+
+## Current-main integration after delivery
+
+On 2026-10-19, following the owner's separate approval to integrate current main
+and commit/push once complete, ordinary merge
+`7a1008852be1fc770a461b75c5c288fe3781cafe` combined branch `8af225b` with fixed
+inspected main `4a8282776c605df51be3040647da7243f1d4da59`. Independent merged-source
+review accepted this tree. Earlier 544/571-test and 250-file package observations
+above retain their original boundaries; the renewed measurements below describe
+this merge, not a global replacement of historical evidence.
+
+- **Dependency/schema compatibility:** The resolved `Cargo.toml` retains branch
+  `serde-saphyr` comment support and runtime `tempfile`/`toml_edit`, while taking
+  upstream `jsonschema` 0.59.0 and `sha2` 0.11.1. The lockfile is the exact combined
+  package delta, not an unexplained regeneration. Both SHA fingerprint sites use
+  explicit two-digit lowercase hex encoding; the branch-specific name-policy site
+  has a fixed Python-derived hash regression. Friendly diagnostic classification
+  remains fingerprint-gated and separate from schema validity. Schema bytes,
+  parser/offline boundaries and name/exact-reference acceptance policy are unchanged.
+- **Fixed digest checks:** Independently recomputed values match their annotations
+  and fixed vectors in `pr7-currentmain-schema-fingerprints.json`:
+  layer manifest schema SHA-256
+  `50390284666d10e63b7b7a63e2089bccd8ebdbb68a06ac105886f445754301c6`;
+  nonblank-pattern SHA-256
+  `f308e30ae4a261113af20ed108cd840829a39d26af2024f66ab1b4e08ffc3514`;
+  name-rules SHA-256
+  `225f6b51735509610a0236ccd835ca20f7a00934da13e48254d59ddfb4a7f6a8`.
+  No new grammar or schema acceptance rule is introduced by the digest adaptation.
+- **Merge preservation:** Independent review checked 18 incoming-only files,
+  15 incoming deletions and 117 unchanged branch-only files exactly, plus the
+  combined lockfile delta. Incoming coverage specifications and archived coverage
+  changes remain as supplied by main; approved amendment specs/fixtures and
+  unrelated active changes are preserved. Evidence: `pr7-currentmain-preservation.json`.
+- **Renewed validation:** 572 locked Rust tests passed with zero failed/ignored;
+  the 20 schema unit tests are included in that scope, not an extra 20 tests.
+  The isolated Python coverage-policy suite passed 39 tests. Formatting,
+  all-target/all-feature warning-denied clippy, all 9 main specs and this active
+  change passed strict validation. Native read/create-denial execution is visible
+  in the logs. Evidence: `pr7-currentmain-rust-tests.log`,
+  `pr7-currentmain-schema-tests.log`, `pr7-currentmain-python-tests.log`,
+  `pr7-currentmain-clippy.log`, `pr7-currentmain-spec-validation.json` and
+  `pr7-currentmain-change-validation.json`.
+- **Fresh copy/package/source identity:** Fresh offline build and 572 tests passed,
+  zero failed/ignored, without Git/OpenSpec/local-progress directories, original
+  build outputs or compiler wrappers. Package verification succeeded with 252
+  files; 58 source/asset hashes match the current commit, package and fresh copy.
+  Evidence: `pr7-currentmain-fresh-build-tests.log`,
+  `pr7-currentmain-fresh-record.json`, `pr7-currentmain-package-verify.log`,
+  `pr7-currentmain-package-contents.json` and
+  `pr7-currentmain-validated-source-hashes.json`.
+
+`pr7-currentmain-integration-result.json` records the accepted merge and measured
+results. Independent review recomputed the digests and verified preservation,
+hash/package/fresh-copy identity and the semantic boundaries above. At that source
+acceptance, final documentation/evidence acceptance and parent-owned section 7
+delivery remained separate gates; source acceptance does not imply a push, current
+hosted check result or PR mergeability. Execution was local macOS only, with no
+root, Linux, Windows, hosted-CI or LLVM coverage claim. Existing loader EOF
+normalisation, the separate pre-selection input-reader race, silent closed-stream
+acceptance and the unknown original socket sibling remain qualified as above.
+No PR merge, automatic archive, release or global installation is authorised.
