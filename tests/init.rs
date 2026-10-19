@@ -143,6 +143,26 @@ fn captured_results_and_diagnostics_stay_plain_even_when_colour_is_forced() {
 }
 
 #[test]
+fn version_flags_print_only_the_version_number() {
+    for flag in ["--version", "-V"] {
+        let directory = tempdir().unwrap();
+        let output = command(directory.path())
+            .env("CI", "true")
+            .env("CLICOLOR_FORCE", "1")
+            .arg(flag)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        assert_eq!(
+            output.stdout,
+            format!("{}\n", env!("CARGO_PKG_VERSION")).as_bytes()
+        );
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
 fn help_and_version_bypass_input_collection() {
     for arguments in [vec!["--help"], vec!["init", "--help"], vec!["--version"]] {
         let directory = tempdir().unwrap();

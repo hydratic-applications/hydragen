@@ -71,7 +71,16 @@ struct InitArgs {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) if error.kind() == clap::error::ErrorKind::DisplayVersion => {
+            return match writeln!(io::stdout().lock(), "{}", env!("CARGO_PKG_VERSION")) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => ExitCode::FAILURE,
+            };
+        }
+        Err(error) => error.exit(),
+    };
     let presentation = presentation::Presentation::detect();
     presentation.configure();
     match run(cli, presentation) {

@@ -907,6 +907,7 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
 fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
     for (arguments, success) in [
         (vec!["--version"], true),
+        (vec!["-V"], true),
         (vec![], false),
         (vec!["init", "--bogus"], false),
         (vec!["init", "--name"], false),
@@ -931,7 +932,7 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
             assert!(session.stderr.is_empty());
             assert_eq!(
                 visible_text(&session.stdout),
-                format!("hydragen {}\r\n", env!("CARGO_PKG_VERSION"))
+                format!("{}\r\n", env!("CARGO_PKG_VERSION"))
             );
         } else {
             assert!(session.stdout.is_empty());
