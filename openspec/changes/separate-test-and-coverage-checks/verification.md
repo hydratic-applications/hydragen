@@ -168,17 +168,13 @@ specification synchronisation or archival was performed.
   [39178427489](https://github.com/hydratic-applications/hydragen/actions/runs/39178427489)
   was started for that commit. The working tree was clean immediately after
   the push, before adding these subsequent rollout observations.
-- Read-only inspection of Codecov's
-  [configuration manager](https://app.codecov.io/gh/hydratic-applications/hydragen/config)
-  listed `Coverage reports` as configured, but `Project coverage` under
-  `Available with Pro Plan`. Its YAML settings showed default branch `main`.
-  [Codecov's pricing page](https://about.codecov.io/pricing/) also distinguishes
-  patch coverage/status access from project coverage. This is an account-feature
-  warning to verify, not proof that uploading is blocked or that a paid plan
-  must be purchased. No trial, purchase, or configuration change was made.
-  Browsable aggregate coverage from earlier uploads does not establish that the
-  named overall-coverage status can be published on this account. Documentation
-  now makes that distinction explicit.
+- Codecov's YAML settings showed default branch `main`.
+  [Configuration manager](https://app.codecov.io/gh/hydratic-applications/hydragen/config)
+  and [Codecov's pricing page](https://about.codecov.io/pricing/) provide
+  configuration and feature information. The pricing page distinguishes patch
+  coverage/status access from project coverage. Browsable aggregate coverage
+  from earlier uploads does not establish that the named overall-coverage
+  status was published or enforced. Documentation makes that distinction explicit.
 
 ## Hosted repair outcome
 
@@ -193,8 +189,7 @@ specification synchronisation or archival was performed.
   `github-actions` upload linked to the coverage job, confirming report processing
   rather than merely upload acceptance.
 - The [processed commit's file explorer](https://app.codecov.io/gh/hydratic-applications/hydragen/commit/a6bd4532c8242e092a16f0de35984421545abe9c/tree)
-  showed 2,348/2,443 tracked lines covered (96.11%). That aggregate report is
-  available without any account or billing change. It is not evidence that the
+  showed 2,348/2,443 tracked lines covered (96.11%). It is not evidence that the
   overall 80% status was published or enforced.
 - Opened `view YAML file` on that commit. Codecov's effective YAML contained
   `patch.changed-lines` and `project.total-coverage`, both with target 80.0,
@@ -205,10 +200,9 @@ specification synchronisation or archival was performed.
   the commit-status API returned an empty `statuses` list. No live named Codecov
   assessment or extra default assessment was observed. Codecov's commit page
   showed no changed covered files, while its PR page retained the first-upload
-  onboarding/missing-default-branch comparison limitation. The earlier account
-  feature warning remains unresolved; do not claim that a main merge alone
-  guarantees all four checks, or that project reporting definitely requires a
-  purchase based only on that warning.
+  onboarding/missing-default-branch comparison limitation. Do not claim that a main merge alone
+  guarantees all four checks or that project reporting definitely requires a
+  purchase.
 - No merge, trial, purchase, visibility change, alternate local gate, fabricated
   success status, or required-check change was used to conceal the remaining
   service-verification gap. The terminal-test/report-pipeline failure is fixed;

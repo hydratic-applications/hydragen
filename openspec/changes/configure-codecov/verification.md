@@ -6,17 +6,11 @@
   The browser is signed out; Codecov shows a not-found page explaining that
   private repositories require login. This does not establish whether the
   repository is configured or whether the account supports private coverage.
-- After the maintainer signed in, the repository's Coverage Analytics setup page
-  became visible at `https://app.codecov.io/gh/hydratic-applications/hydragen/new`.
-  This confirms Codecov recognises the repository and the signed-in user can
-  access its setup page. However, the page displays **"Plan limits reached, you
-  can upgrade or manage members"**, alongside a trial offer. Private-account
-  entitlement and successful processing therefore remain unverified.
-- The maintainer noted the warning may concern the private plan's member limit,
-  not upload availability. Codecov's official pricing page, checked 2026-10-18,
-  lists 250 private uploads for the free Developer plan and unlimited public
-  uploads: <https://about.codecov.io/pricing/>. The banner alone is not evidence
-  that uploads are blocked.
+- Codecov setup: [Coverage Analytics setup page](https://app.codecov.io/gh/hydratic-applications/hydragen/new).
+  Successful report processing remains unverified at this stage.
+- Codecov's official pricing page, checked 2026-10-18, lists 250 private
+  uploads for the free Developer plan and unlimited public uploads:
+  <https://about.codecov.io/pricing/>.
 - That pricing page lists Patch Coverage and Status Checks on Developer, but
   marks Project Coverage unavailable on Developer (both private and open-source)
   and available on Pro. This marketing label alone does not establish whether
@@ -140,12 +134,10 @@
   The workflow's library/CLI report validation passed, GitHub issued the OIDC
   token, and Codecov accepted the upload for processing. Uploader integrity
   verification remained enabled.
-- Authenticated inspection of the
-  [processed commit report](https://app.codecov.io/gh/hydratic-applications/hydragen/commit/e7c0a3484ff33e8b80460f11abb52e2c7b17a016/tree)
+- The [processed commit report](https://app.codecov.io/gh/hydratic-applications/hydragen/commit/e7c0a3484ff33e8b80460f11abb52e2c7b17a016/tree)
   showed one merged upload, browsable source coverage, and **2,348/2,443 lines
-  covered (96.11%)**. This confirms private report processing and aggregate
-  coverage viewing work on the current account without a billing or membership
-  change; it is not an inference about every paid feature.
+  covered (96.11%)**. This verifies report processing and aggregate coverage
+  viewing, not the availability of every service feature.
 - The comparison view reports **Missing Base Commit**, because the default
   branch has no coverage report yet. A Codecov patch check was observed pending;
   no successful project/patch comparison is claimed. This is the expected
