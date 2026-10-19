@@ -10,7 +10,8 @@ language, MSRV, coverage, repo, stars, sponsors, and license images SHALL use HT
 Shields.io URLs; dependencies SHALL use the existing HTTPS deps.rs URL. All nine
 SHALL use `for-the-badge` styling and `height="22"`. Images SHALL NOT use fixed
 widths that prevent wrapping on narrow displays. The addition SHALL NOT replace
-introductory text or otherwise redesign the header.
+introductory text or otherwise redesign the header. The source SHALL retain one
+linked HTML image per line, with HTML-safe query separators.
 
 #### Scenario: Read the README introduction
 
@@ -82,6 +83,103 @@ a network requirement for ordinary local building, testing, or running Hydragen.
 - **WHEN** Shields.io, Codecov, or deps.rs is unavailable
 - **THEN** ordinary builds, tests, and CLI use remain unaffected because those
   processes do not fetch badge images
+
+### Requirement: Stable deps.rs URLs with an accepted unknown state
+
+The dependencies image SHALL use
+`https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=for-the-badge`.
+The image and report URLs SHALL omit `path` because Hydragen's `Cargo.toml` is at
+the repository root. The badge SHALL be included even if deps.rs cannot analyze
+the private repository and returns `unknown`. Adding it SHALL NOT require a
+repository visibility change, credentials, or a successful analysis. Neither its
+alternative text nor accompanying prose SHALL claim that dependencies are healthy
+or that the badge guarantees security.
+
+#### Scenario: Repository remains private
+
+- **WHEN** deps.rs cannot analyze the private repository and returns an `unknown` badge
+- **THEN** the README still includes the live badge and report link
+- **AND** this temporary service result does not block adding the badge
+
+#### Scenario: Repository later becomes publicly analyzable
+
+- **WHEN** the repository becomes public and deps.rs successfully analyzes it
+- **THEN** the existing badge and report URLs remain appropriate without a README edit
+- **AND** the badge displays the service result when service and image caches refresh,
+  without a promise of immediate updates
+
+### Requirement: Live stars and account-wide sponsor counts
+
+The stars image SHALL use
+`https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&label=stars`.
+The sponsors image SHALL use
+`https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&label=sponsors`.
+Existing presentation-only logo and colour parameters SHALL remain permitted.
+These SHALL remain service-backed dynamic images, not hardcoded counts, snapshots,
+or locally generated assets. The sponsor count SHALL refer to the owner
+`hydratic-applications`, not be described as a repository-specific count.
+
+Unavailable results SHALL NOT be replaced with zero. The badges SHALL be included
+even if the private repository is not found by Shields.io or the organization has
+no Sponsors listing. This change SHALL NOT require public repository access,
+credentials, enabling sponsorship, or a working sponsorship destination.
+
+#### Scenario: Public counts change
+
+- **WHEN** GitHub exposes updated star or sponsor counts to Shields.io
+- **THEN** the existing badge URLs can display the updated counts after cache
+  refreshes without a README edit
+- **AND** zero is displayed only when it is the service's result
+
+#### Scenario: Public data or sponsorship is not available
+
+- **WHEN** the stars integration reports `repo not found` for the private repository
+  or the owner's GitHub Sponsors page is unavailable
+- **THEN** the README still includes the dynamic badges and their intended links
+- **AND** implementation does not substitute a zero, add credentials, change
+  visibility, or enable sponsorship to conceal those limitations
+
+### Requirement: Live main-branch coverage shield
+
+The coverage image SHALL use the token-free URL
+`https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge`,
+retaining existing presentation-only logo parameters. The branch SHALL be explicit
+regardless of which branch contains the displayed README. The image SHALL remain
+service-backed, not a hardcoded percentage or checked-in snapshot. Unavailable or
+uninitialised service data SHALL NOT be replaced with zero or fabricated success.
+Documentation SHALL explain first-main-report, report-access, and cache-refresh
+requirements. Rendering SHALL NOT embed badge-access, upload, API, or repository
+credentials, and local README rendering SHALL NOT require secret interpolation.
+Neither a visibility nor billing change SHALL be required for local coverage gates.
+
+Documentation SHALL distinguish public GitHub repository visibility from public
+Codecov report access. If an earlier private badge-access token exists, removal
+from the README SHALL NOT be described as revoking it or removing it from Git
+history; documentation SHALL direct maintainers to check remaining consumers and
+revoke no-longer-needed tokens separately. OIDC uploading SHALL remain unchanged.
+
+#### Scenario: Read the README from a feature branch
+
+- **WHEN** a feature branch's README is rendered and main coverage is accessible
+- **THEN** the shield displays Codecov's latest processed `main` coverage after
+  normal cache refresh, not that feature branch's coverage
+
+#### Scenario: Main report or anonymous badge access is unavailable
+
+- **WHEN** Codecov has no processed main report or Shields.io cannot access it
+- **THEN** the live URL and useful report link remain without a fabricated number
+- **AND** documentation explains remaining access, processing, or cache checks
+  without claiming the live numeric badge has been verified
+- **AND** no token is added to conceal the unavailable result
+
+#### Scenario: Public repository and report access are verified separately
+
+- **WHEN** the GitHub repository is public
+- **THEN** maintainers still verify public Codecov report access and processing
+- **AND** the existing token-free branch-specific image and report URLs remain
+  appropriate without replacing the integration or changing OIDC uploads
+- **AND** any removal of an earlier private badge token is distinguished from
+  revocation and Git-history removal
 
 ## ADDED Requirements
 

@@ -134,4 +134,37 @@ main-only Codecov uploader was correctly skipped for the PR.
 This satisfies task 4.4 for the implementation revision. The documentation-only
 follow-up recording this evidence does not alter implementation inputs. Tasks
 4.3 (ordered specification sync) and 4.5 (numeric badge verification after merge)
-remain open. The PR remains a draft; no merge or archive has been performed.
+remained open at that stage. The PR was still a draft; no merge or archive had
+been performed.
+
+## Ordered specification sync on 2026-10-20
+
+The main specifications were reconciled from `configure-codecov`, followed by
+`separate-test-and-coverage-checks`, then `declare-rust-msrv`. This updated
+`openspec/specs/readme-badges/spec.md` and created the maintained
+`code-coverage-ci`, `test-ci`, and `rust-version-support` specifications.
+
+The result preserves the centred HTML header, separate test and coverage results,
+exact Actions-owned coverage gates, validated evidence, and isolated main-only
+OIDC uploads, while adding the ninth badge and independent MSRV contract. The
+historical Markdown-reference requirement and Codecov-owned percentage policy
+were removed or superseded as specified by the earlier changes.
+
+Two stale badge details needed explicit reconciliation: old `flat-square` URL
+examples now follow the already adopted `for-the-badge` style, and the older
+optional private coverage badge-token route now follows the later token-free
+coverage requirement. Historical-token revocation guidance remains. These
+resolutions are included in the MSRV badge delta and design, so a later sync
+does not restore the contradictions. No implemented image, workflow, runtime,
+Cargo metadata, or lockfile was changed by this reconciliation.
+
+Validation passed for all nine maintained main specifications and all three
+affected changes in strict mode. A read-only composition check verified that
+all 22 requirements in the four affected capabilities match the ordered deltas
+and preserved base content, including the explicit removal and rename. Repeating
+the composition produced the same result. Whitespace checks also passed.
+
+Task 4.3 is complete. Only task 4.5, checking the live numeric MSRV shield after
+an approved merge, remains open. No other change was archived or marked complete,
+and the foundations and glossary remain unchanged because the sync adds no new
+product belief or terminology. No merge or archive was performed.

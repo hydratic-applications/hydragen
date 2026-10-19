@@ -183,6 +183,16 @@ coverage gates before narrowing their enumeration. If another change is not read
 to sync or has changed, rebase and validate these deltas against the agreed
 baseline rather than silently archiving it or restoring stale requirements.
 
+The spec reconciliation also applies the existing `for-the-badge` decision to
+older deps.rs, stars, and sponsors URL examples, and retains the HTML source
+conventions that replace Markdown shortcut references. The earlier optional
+private coverage badge-token route is superseded by the later token-free shield
+requirement in `separate-test-and-coverage-checks` and the implemented coverage
+reference. Retain the historical-token revocation guidance, but do not preserve
+a contradictory requirement to add a token. These reconciliations are recorded
+in this change's badge delta so subsequent sync does not restore stale rules.
+They change specifications only, not existing badge URLs, CI or runtime behaviour.
+
 ## Risks / Trade-offs
 
 - **Later source or test changes can invalidate the initial verification.** →

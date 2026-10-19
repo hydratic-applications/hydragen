@@ -32,7 +32,9 @@ implying that only one Rust version works.
 ### Modified Capabilities
 
 - `readme-badges`: Permit a verified MSRV claim and add an accessible MSRV badge
-  while preserving the current centred header and existing badges.
+  while preserving the current centred header and existing badges. Reconcile
+  older URL styling and private-token wording with the already implemented
+  header and later token-free coverage rules.
 - `code-coverage-ci`: Narrow the pending three-policy enumeration to stable tests
   and coverage, permitting the independent MSRV check without changing their
   results, dependencies, thresholds, or upload policy.
