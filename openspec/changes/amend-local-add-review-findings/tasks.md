@@ -40,4 +40,4 @@
 - [x] 6.2 Validate current specs and this change strictly; check local links/whitespace and complete scheduled captured/bounded terminal family review with child cleanup.
 - [x] 6.3 Verify source packaging and fresh offline build/tests without OpenSpec or old build outputs; report only executed platform/runtime/coverage evidence.
 - [x] 6.4 Obtain independent final review, resolve confirmed findings and finish measured dispositions/remaining limitations without claiming the separate input-reader race is fixed.
-- [ ] 6.5 Parent completes approved focused commits, ordinary push and concise PR #7 description refresh; do not merge the PR, autoarchive, publish a release or install globally.
+- [x] 6.5 Parent completes approved focused commits, ordinary push and concise PR #7 description refresh; do not merge the PR, autoarchive, publish a release or install globally.

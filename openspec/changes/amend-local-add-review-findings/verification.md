@@ -330,3 +330,18 @@ At pre-delivery acceptance only parent-owned task 6.5 remained. Its commits, pus
 and PR-description update are tracked separately by that task and the PR head;
 local review acceptance does not itself assert they happened. No PR merge,
 automatic archive, global installation or publication is authorised by this record.
+
+### Delivery and later upstream changes
+
+The approved amendments were committed as `417c426` (YAML), `fe1cf74`
+(diagnostics and fixtures) and `8c6d96b` (documentation and specifications), then
+ordinary-pushed to [PR #7](https://github.com/hydratic-applications/hydragen/pull/7).
+Its description was replaced with the current scope, validation and limitations.
+The change remains active and unarchived, and the PR remains open.
+
+During delivery, main advanced to `4a82827`, including dependency/schema updates
+and coverage-change archival. Those changes are not part of the validated
+`6ccf96b` integration. GitHub reported a merge conflict; a checkout-free merge
+check identified `Cargo.toml`. Integrating that newer main requires a separately
+approved increment and renewed validation. Successful local amendment checks do
+not establish that the PR is mergeable or that hosted checks have passed.
