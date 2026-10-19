@@ -173,7 +173,8 @@ changes Git.
 
 ## Output and automation
 
-Add success uses standard output. Warnings and errors from either command use
+Add results use standard output. No-change results are informational and still
+exit successfully. Warnings and errors from either command use
 standard error, and errors return a nonzero exit status. Global
 `--non-interactive` is accepted before or after either subcommand.
 

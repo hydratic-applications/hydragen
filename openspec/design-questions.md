@@ -241,6 +241,10 @@ design everything upfront.
       naming both layers and explicitly identifying no changes when already present.
       Multiple and mixed results retain the counted groups; operation and styling
       rules are unchanged.
+      The [informational-status refinement](changes/add-info-status-style/design.md#classify-the-complete-verified-add-outcome)
+      uses shared blue info styling for all no-change add results, while actual
+      additions retain green success styling. Neutral feedback remains successful
+      stdout output; plain text, grouping and operational behaviour are unchanged.
     - **Approved usage-error follow-up:** Root and subcommand parser failures use
       the shared compact red-cross error style in eligible terminals and meaningful
       plain output otherwise, under the existing colour controls. Explicit help

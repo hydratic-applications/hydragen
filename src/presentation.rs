@@ -125,13 +125,14 @@ impl Presentation {
 
     pub fn diagnostic(self, severity: Severity, message: &str) -> String {
         let mut lines = message.lines();
-        let headline = format!("{}: {}", severity.label(), lines.next().unwrap_or(""));
+        let summary = lines.next().unwrap_or("");
+        let headline = match severity.label() {
+            Some(label) => format!("{label}: {summary}"),
+            None => summary.to_owned(),
+        };
         let mut output = if self.decorated {
-            let style = match severity {
-                Severity::Warning => self.style().yellow(),
-                Severity::Error => self.style().red(),
-            };
-            style
+            severity
+                .headline_style(self)
                 .apply_to(format!("{} {headline}", severity.symbol()))
                 .to_string()
         } else {
@@ -144,8 +145,14 @@ impl Presentation {
         output
     }
 
+    /// A successfully completed add can have a neutral, informational no-op result.
     pub fn add_success(self, plan: &hydragen::dependencies::AddPlan) -> String {
         let name = &plan.current().metadata.name;
+        let (symbol, headline_style) = if plan.is_noop() {
+            (Severity::Info.symbol(), Severity::Info.headline_style(self))
+        } else {
+            ("✓", self.style().green())
+        };
         let single = match (plan.added(), plan.already_present()) {
             ([entry], []) => Some(("Added ", &entry.name, " to ")),
             ([], [entry]) => Some((
@@ -156,14 +163,16 @@ impl Presentation {
             _ => None,
         };
         if let Some((prefix, dependency, relation)) = single {
-            let text = self.style().green();
-            let names = self.style().green().bold();
+            let text = headline_style;
+            let names = text.clone().bold();
+            let prefix = if self.decorated {
+                format!("{symbol} {prefix}")
+            } else {
+                prefix.to_owned()
+            };
             return format!(
                 "{}{}{}{}{}\n",
-                text.apply_to(format!(
-                    "{}{prefix}",
-                    if self.decorated { "✓ " } else { "" }
-                )),
+                text.apply_to(prefix),
                 names.apply_to(dependency),
                 text.apply_to(relation),
                 names.apply_to(name),
@@ -177,15 +186,15 @@ impl Presentation {
         };
         let mut output = if self.decorated {
             let prefix = if plan.is_noop() {
-                "✓ No changes needed for "
+                "No changes needed for "
             } else {
-                "✓ Dependencies updated for "
+                "Dependencies updated for "
             };
             format!(
                 "{}{}{}",
-                self.style().green().apply_to(prefix),
-                self.style().green().bold().apply_to(name),
-                self.style().green().apply_to(".")
+                headline_style.apply_to(format!("{symbol} {prefix}")),
+                headline_style.clone().bold().apply_to(name),
+                headline_style.apply_to(".")
             )
         } else {
             headline
@@ -214,20 +223,31 @@ impl Presentation {
 
 #[derive(Clone, Copy)]
 pub enum Severity {
+    Info,
     Warning,
     Error,
 }
 
 impl Severity {
-    fn label(self) -> &'static str {
+    fn label(self) -> Option<&'static str> {
         match self {
-            Self::Warning => "Warning",
-            Self::Error => "Error",
+            Self::Info => None,
+            Self::Warning => Some("Warning"),
+            Self::Error => Some("Error"),
+        }
+    }
+
+    fn headline_style(self, presentation: Presentation) -> Style {
+        match self {
+            Self::Info => presentation.style().blue(),
+            Self::Warning => presentation.style().yellow(),
+            Self::Error => presentation.style().red(),
         }
     }
 
     fn symbol(self) -> &'static str {
         match self {
+            Self::Info => "ℹ",
             Self::Warning => "▲",
             Self::Error => "✕",
         }
@@ -294,8 +314,16 @@ mod tests {
                     };
                     assert_eq!(presentation(false).add_success(&plan), expected);
                     let styled = presentation(true).add_success(&plan);
-                    assert_eq!(console::strip_ansi_codes(&styled), format!("✓ {expected}"));
-                    let names = presentation(true).style().green().bold();
+                    let symbol = if already_present { "ℹ" } else { "✓" };
+                    assert_eq!(
+                        console::strip_ansi_codes(&styled),
+                        format!("{symbol} {expected}")
+                    );
+                    let names = if already_present {
+                        presentation(true).style().blue().bold()
+                    } else {
+                        presentation(true).style().green().bold()
+                    };
                     for name in ["@example/rules", "@example/app"] {
                         assert!(
                             styled.contains(&names.apply_to(name).to_string()),
@@ -310,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_mixed_and_internal_empty_add_results_keep_existing_output() {
+    fn multiple_mixed_and_internal_empty_add_results_keep_wording_and_group_layout() {
         let style = presentation(true).style();
         for (existing, requested, headline, groups) in [
             (
@@ -341,11 +369,16 @@ mod tests {
         ] {
             let plan = add_plan(&existing, &requested);
             let mut plain = format!("{headline}@example/app.");
+            let (symbol, headline_style) = if plan.is_noop() {
+                ("ℹ", style.clone().blue())
+            } else {
+                ("✓", style.clone().green())
+            };
             let mut styled = format!(
                 "{}{}{}",
-                style.clone().green().apply_to(format!("✓ {headline}")),
-                style.clone().green().bold().apply_to("@example/app"),
-                style.clone().green().apply_to(".")
+                headline_style.apply_to(format!("{symbol} {headline}")),
+                headline_style.clone().bold().apply_to("@example/app"),
+                headline_style.apply_to(".")
             );
             for (label, entries) in groups {
                 let count = format!("({})", entries.len());
@@ -444,8 +477,32 @@ mod tests {
     }
 
     #[test]
+    fn shared_info_has_no_label_and_only_colours_the_headline() {
+        let message = "No changes needed.\nThe requested layers were already present.";
+        let plain = presentation(false).diagnostic(Severity::Info, message);
+        assert_eq!(
+            plain,
+            "No changes needed.\n  The requested layers were already present."
+        );
+        let styled = presentation(true).diagnostic(Severity::Info, message);
+        assert_eq!(
+            styled,
+            format!(
+                "{}\n  The requested layers were already present.",
+                presentation(true)
+                    .style()
+                    .blue()
+                    .apply_to("ℹ No changes needed.")
+            )
+        );
+        assert_eq!(console::strip_ansi_codes(&styled), format!("ℹ {plain}"));
+        assert!(!styled.contains("Info:"));
+        assert!(!styled.contains('✓'));
+    }
+
+    #[test]
     fn statuses_share_wording_and_colour_only_the_headline() {
-        for severity in [Severity::Warning, Severity::Error] {
+        for severity in [Severity::Info, Severity::Warning, Severity::Error] {
             let plain = presentation(false).diagnostic(severity, "Headline\nRecovery /full/path");
             let styled = presentation(true).diagnostic(severity, "Headline\nRecovery /full/path");
             assert!(!plain.contains('\x1b'));

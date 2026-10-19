@@ -1,14 +1,38 @@
 # CLI diagnostics
 
-This reference governs all current and future Hydragen CLI errors: make clear what
-failed, what to do next, and whether work completed. Parser failures reject syntax
+This reference governs Hydragen's shared status conventions and all current and
+future CLI errors: clarify what happened, what to do next when needed, and whether
+work completed. Parser failures reject syntax
 before an operation runs; operational failures concern accepted commands, such as
 loading or writing a layer manifest. Both use shared compact composition. Guided
 field rejection and cancellation retain cliclack interaction, not compact layout.
 
+## Compact status meanings
+
+- **Success — green `✓`:** An affirmative completion, such as adding a dependency.
+- **Info — blue `ℹ`:** A neutral observation, such as finding that all requested
+  dependencies were already present. It has no automatic `Info:` prefix.
+- **Warning — yellow `▲ Warning:`:** A concern that needs attention, without
+  necessarily making the operation fail.
+- **Error — red `✕ Error:`:** An operation or its feedback failed; retain truthful
+  information about any work already completed.
+
+Choose the style for the meaning, not simply whether the command reads or writes
+files. Reuse shared info styling for future neutral outcomes rather than inventing
+command-local colours or symbols. For add, single and grouped all-repeat results
+are informational; any actual additions, including mixed results, retain success
+styling. Only the compact headline uses the status colour, including name emphasis;
+supporting groups keep their normal foreground and existing label/count emphasis.
+
+Style does not change a message's established channel or an operation's status.
+No-op add still uses stdout and exits zero. Plain output keeps the wording and
+layout without colour, icons or an added `Info:` label. Existing colour controls
+apply to every style.
+
 ## Shared body structure
 
-Compose useful blocks in this order, omitting those the failure does not need:
+For compact errors, compose useful blocks in this order, omitting those the
+failure does not need. Neutral one-shot messages may need only a headline:
 
 1. **Problem:** One sentence-case, punctuated `Error:` headline explaining what
    failed. A single failure leads directly with its concrete problem and affected

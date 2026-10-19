@@ -102,7 +102,7 @@ fn text(bytes: &[u8]) -> String {
 fn assert_plain(output: &Output) {
     for bytes in [&output.stdout, &output.stderr] {
         let message = text(bytes);
-        for unwanted in ['\x1b', '✓', '✕', '▲', '┌', '│', '└', '⠀'] {
+        for unwanted in ['\x1b', '✓', 'ℹ', '✕', '▲', '┌', '│', '└', '⠀'] {
             assert!(!message.contains(unwanted), "{message}");
         }
         assert!(!message.contains("Hydragen"), "{message}");

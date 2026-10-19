@@ -272,9 +272,11 @@ search, recovery and accurate no-change result without the invocation path.
 Review families together in captured and bounded actual-terminal output; shared
 layout and passing snapshots alone do not establish clear, useful wording.
 
-Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
-where styled; keep supporting details and recovery guidance in the normal
-foreground. Rejected guided input uses a red cross, frame, and correction text,
+Use green `✓` success, blue `ℹ` info for neutral outcomes, yellow `▲ Warning:`
+headlines, and red `✕ Error:` headlines where styled. Info has no automatic `Info:`
+prefix and does not imply failure or change an operation's stream or exit status.
+Keep supporting details and recovery guidance in the normal foreground.
+Rejected guided input uses a red cross, frame, and correction text,
 not a recoloured warning triangle. Cancellation uses red cancellation feedback.
 Plain status output retains the meaningful wording without ANSI or status icons.
 
@@ -381,9 +383,11 @@ manifest path by default. One effective requested dependency uses `Added <depend
 to <destination>.` or `No changes needed: <dependency> is already a dependency of
 <destination>.`, ending with one newline and no list or count. Choose from verified
 outcomes after deduplication, not argument count or unrequested declarations.
-Eligible terminals use the green check and consistent bold green emphasis for both
-validated names; plain output has no decoration. Multiple or mixed results retain
-the destination headline and separate counted `Added` and `Already present` name
+All-repeat results use shared blue informational styling, including grouped
+no-ops; actual additions and mixed results retain green-check success styling.
+Single-result validated names use consistent bold emphasis in the status colour;
+plain output has no decoration or extra `Info:` label. Multiple or mixed results
+retain the destination headline and separate counted `Added` and `Already present` name
 lists, omitting empty groups and unrequested dependencies. `Already present` means
 present before invocation; repeated new sources belong only under `Added`.
 All-repeat success reports no changes needed. Keep per-group first-appearance
