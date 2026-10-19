@@ -186,6 +186,25 @@ author and description strings unchanged.
 Archived schemas are historical snapshots: do not synchronize them with maintained
 assets, require equality in tests, or use them as build or test inputs.
 
+### Layer manifest field order
+
+Guide generated layouts and maintained general-usage examples with the preferred
+order `$schema`, `name`, `author`, `description`, `dependencies`, skipping absent
+fields. Keep optional fields optional: init emits only name and supplied author
+and description, in that order; it does not generate `$schema` or dependencies.
+Accept any otherwise valid field order without ordering warnings or schema order
+checks. Additional fields have no prescribed placement. Preserve examples and
+test fixtures intentionally demonstrating alternative layouts, and leave archived
+artifacts unchanged.
+
+Add must not normalise existing layouts. Extend an existing dependencies list in
+place; introduce a missing field after all existing root entries without moving
+them. In TOML, keep the new root assignment before explicit table sections and
+their leading comments. In block YAML, insert after the complete final root value
+and its attached comments, before root footer comments and document-end markers.
+Preserve existing field and reference order, comments, and unrelated source text;
+retain the insertion-only verification and safe-write rules below.
+
 ## CLI development
 
 Follow the [DX value](FOUNDATIONS.md#guiding-values): beauty, enjoyment,

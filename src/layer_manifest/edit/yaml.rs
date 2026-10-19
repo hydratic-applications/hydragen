@@ -57,6 +57,13 @@ pub(super) fn append(source: &str, references: &[&str]) -> Result<String, String
     candidate.push_str(&source[..position]);
     candidate.push_str(&addition);
     candidate.push_str(&source[position..]);
+    if dependencies.is_none()
+        && style == StructureStyle::Block
+        && position == source.len()
+        && !source.ends_with(['\r', '\n'])
+    {
+        document.verify_final_block_string(&candidate, root)?;
+    }
     Ok(candidate)
 }
 
@@ -87,6 +94,7 @@ enum Syntax {
     Comma,
     Dash,
     Value,
+    Content,
     Other,
 }
 
@@ -206,6 +214,10 @@ impl<'source> Document<'source> {
                 TokenType::FlowEntry => Syntax::Comma,
                 TokenType::BlockEntry => Syntax::Dash,
                 TokenType::Value => Syntax::Value,
+                TokenType::Scalar(..)
+                | TokenType::Alias(..)
+                | TokenType::Anchor(..)
+                | TokenType::Tag(..) => Syntax::Content,
                 TokenType::Comment(_) => {
                     comments.push(range);
                     continue;
@@ -229,47 +241,147 @@ impl<'source> Document<'source> {
         root: &Node<'_>,
         declaration: &str,
     ) -> Result<(usize, String), String> {
-        // Keep the first field together with its leading own-line comments.
-        // Inserting at the key itself would make those comments describe the
-        // new dependencies declaration instead. Scanner ranges distinguish
-        // real comments from '#' inside scalars and inline property comments.
-        let start = byte_range(source, root.start)?.start;
-        let indent = " ".repeat(root.start.start.col());
-        let mut boundary = line_start(source, start);
-        let mut position = start;
-        for comment in self.comments.iter().rev() {
-            if comment.end > boundary {
-                continue;
+        let tail = self.block_tail(root)?;
+        let end = match tail.kind {
+            Kind::Sequence(StructureStyle::Flow) | Kind::Mapping(StructureStyle::Flow) => {
+                // Collection-end events can point into following syntax. The
+                // scanner-backed flow path identifies the real closing byte.
+                self.flow_insertion(tail, "")?.0 + 1
             }
-            let line = line_start(source, comment.start);
-            // A stream BOM must remain at the beginning of the source, not
-            // between the newly inserted field and the original first field.
-            let line = if line == 0 && source.starts_with('\u{feff}') {
-                '\u{feff}'.len_utf8()
-            } else {
-                line
-            };
-            if !source[comment.end..boundary]
-                .bytes()
-                .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
-                || !source[line..comment.start]
-                    .bytes()
-                    .all(|byte| matches!(byte, b' ' | b'\t'))
-            {
-                break;
+            Kind::Scalar(_, ScalarStyle::Plain) if byte_range(source, tail.start)?.is_empty() => {
+                // Implicit null has no scalar token; its event can point at a
+                // footer or document marker. End at its actual key/value,
+                // property, or sequence-dash syntax, retaining inline comments.
+                let start = byte_range(source, tail.start)?.start;
+                self.tokens
+                    .iter()
+                    .rev()
+                    .find(|token| {
+                        token.range.start <= start
+                            && matches!(token.kind, Syntax::Value | Syntax::Content | Syntax::Dash)
+                    })
+                    .map(|token| {
+                        if token.kind == Syntax::Value {
+                            token.range.end.max(token.range.start + 1)
+                        } else {
+                            token.range.end
+                        }
+                    })
+                    .ok_or("Cannot locate the final YAML value's syntax.")?
             }
-            position = line;
-            boundary = line;
-        }
-        let eol = newline(source);
-        if position == start {
-            // With no leading comment group, retain the parser's first-key
-            // boundary. Root anchors/tags and document markers before it stay
-            // attached to the mapping, rather than to a newly introduced node.
-            Ok((start, format!("{declaration}{eol}{indent}")))
+            _ => byte_range(source, tail.end)?.end,
+        };
+        let line = line_start(source, end);
+        let block_string = matches!(
+            tail.kind,
+            Kind::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded)
+        );
+        // Block-string spans include consumed blank lines, and may end at the
+        // next token's indentation. Keep meaningful trailing lines in the value.
+        // An unfinished EOF line is still part of the scalar's source: never
+        // move its whitespace after the new field, even if it looks blank.
+        let at_boundary = block_string
+            && source[line..end].bytes().all(|byte| byte == b' ')
+            && (end < source.len() || end == line);
+        let position = if at_boundary {
+            line
         } else {
-            Ok((position, format!("{indent}{declaration}{eol}")))
+            next_line(source, end)
+        };
+        let indent = root.start.start.col();
+        let position = self.trailing_item_comment_end(source, position, indent);
+        let eol = newline(source);
+        let mut addition = String::new();
+        if position > 0 && !source[..position].ends_with(['\r', '\n']) {
+            addition.push_str(eol);
         }
+        addition.push_str(&" ".repeat(indent));
+        addition.push_str(declaration);
+        if position < source.len() || source.ends_with(['\r', '\n']) {
+            addition.push_str(eol);
+        }
+        Ok((position, addition))
+    }
+
+    fn block_tail<'a>(&'a self, mut node: &'a Node<'source>) -> Result<&'a Node<'source>, String> {
+        // Descend through complete block subtrees, not their closing events.
+        // Parsing already bounds depth and establishes collection balance.
+        while matches!(
+            node.kind,
+            Kind::Mapping(StructureStyle::Block) | Kind::Sequence(StructureStyle::Block)
+        ) {
+            node = &self.nodes[*node.children.last().ok_or("Empty YAML block collection.")?];
+        }
+        Ok(node)
+    }
+
+    fn verify_final_block_string(
+        &self,
+        candidate: &str,
+        root: &Node<'source>,
+    ) -> Result<(), String> {
+        let tail = self.block_tail(root)?;
+        let Kind::Scalar(original, ScalarStyle::Literal | ScalarStyle::Folded) = &tail.kind else {
+            return Ok(());
+        };
+        // Some EOF arrangements acquire a meaningful newline when separated
+        // from a new root field. Compare parser-decoded block strings directly
+        // so this gets a specific preparation refusal, not only the caller's
+        // generic unintended-change error. No alias expansion is necessary.
+        let ordinal = self
+            .nodes
+            .iter()
+            .take_while(|node| !std::ptr::eq(*node, tail))
+            .filter(|node| {
+                matches!(
+                    node.kind,
+                    Kind::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded)
+                )
+            })
+            .count();
+        let budget = Budget::default();
+        let mut seen = 0;
+        let mut scalar_bytes = 0usize;
+        let mut depth = 0usize;
+        let options = parser::options! {
+            simple_key_max_lookahead: budget.simple_key_max_lookahead,
+            flow_nesting_limit: budget.flow_nesting_limit,
+        };
+        for (count, event) in
+            parser::Parser::new_from_str_with_options(candidate, options).enumerate()
+        {
+            if count >= budget.max_events {
+                return Err("YAML editing exceeded the parser event budget.".into());
+            }
+            let (event, _) = event.map_err(|error| error.to_string())?;
+            match event {
+                Event::SequenceStart(..) | Event::MappingStart(..) => {
+                    depth += 1;
+                    if depth > budget.max_depth {
+                        return Err("YAML editing exceeded the parser depth budget.".into());
+                    }
+                }
+                Event::SequenceEnd | Event::MappingEnd => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            if let Event::Scalar(value, style, ..) = event {
+                scalar_bytes = scalar_bytes.saturating_add(value.len());
+                if scalar_bytes > budget.max_total_scalar_bytes {
+                    return Err("YAML editing exceeded the parser scalar-byte budget.".into());
+                }
+                if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+                    if seen == ordinal {
+                        return if value == *original {
+                            Ok(())
+                        } else {
+                            Err("The final YAML block string cannot be separated from the new dependencies field without changing its trailing whitespace or newlines. End the block string explicitly with a root-level comment or document-end marker before adding dependencies.".into())
+                        };
+                    }
+                    seen += 1;
+                }
+            }
+        }
+        Err("Cannot locate the final YAML block string in the prepared source.".into())
     }
 
     fn flow_insertion(&self, node: &Node<'_>, addition: &str) -> Result<(usize, String), String> {
@@ -677,31 +789,31 @@ mod tests {
         for (source, expected) in [
             (
                 "# Name of this app\nname: app\ncustom: true\n",
-                "dependencies: [\"../new\"]\n# Name of this app\nname: app\ncustom: true\n",
+                "# Name of this app\nname: app\ncustom: true\ndependencies: [\"../new\"]\n",
             ),
             (
                 "# Header\n\n# Name of this app\n# Another name detail\nname: app # name inline\n# Custom flag\ncustom: true\n",
-                "dependencies: [\"../new\"]\n# Header\n\n# Name of this app\n# Another name detail\nname: app # name inline\n# Custom flag\ncustom: true\n",
+                "# Header\n\n# Name of this app\n# Another name detail\nname: app # name inline\n# Custom flag\ncustom: true\ndependencies: [\"../new\"]\n",
             ),
             (
                 "---\n# Name of this app\nname: app\n...\n# Outside document\n",
-                "---\ndependencies: [\"../new\"]\n# Name of this app\nname: app\n...\n# Outside document\n",
+                "---\n# Name of this app\nname: app\ndependencies: [\"../new\"]\n...\n# Outside document\n",
             ),
             (
                 "# Stream header\n%YAML 1.2\n--- # Document\n# Name of this app\nname: app\n... # End\n",
-                "# Stream header\n%YAML 1.2\n--- # Document\ndependencies: [\"../new\"]\n# Name of this app\nname: app\n... # End\n",
+                "# Stream header\n%YAML 1.2\n--- # Document\n# Name of this app\nname: app\ndependencies: [\"../new\"]\n... # End\n",
             ),
             (
                 "  # Name of this app\n  name: app\n  custom: true\n",
-                "  dependencies: [\"../new\"]\n  # Name of this app\n  name: app\n  custom: true\n",
+                "  # Name of this app\n  name: app\n  custom: true\n  dependencies: [\"../new\"]\n",
             ),
             (
                 "# 💧 Name\r\n  # é detail\r\n  name: app\r\n  custom: true",
-                "  dependencies: [\"../new\"]\r\n# 💧 Name\r\n  # é detail\r\n  name: app\r\n  custom: true",
+                "# 💧 Name\r\n  # é detail\r\n  name: app\r\n  custom: true\r\n  dependencies: [\"../new\"]",
             ),
             (
                 "\u{feff}# Name of this app\nname: app",
-                "\u{feff}dependencies: [\"../new\"]\n# Name of this app\nname: app",
+                "\u{feff}# Name of this app\nname: app\ndependencies: [\"../new\"]",
             ),
         ] {
             assert_eq!(check(source, &["../new"]), expected);
@@ -713,35 +825,35 @@ mod tests {
         for (source, expected) in [
             (
                 "&root\n# Name\nname: app\n",
-                "&root\ndependencies: [\"../new\"]\n# Name\nname: app\n",
+                "&root\n# Name\nname: app\ndependencies: [\"../new\"]\n",
             ),
             (
                 "!!map\n# Name\nname: app\n",
-                "!!map\ndependencies: [\"../new\"]\n# Name\nname: app\n",
+                "!!map\n# Name\nname: app\ndependencies: [\"../new\"]\n",
             ),
             (
                 "# Root mapping\n&root !!map # Root inline\n# Name\nname: app\n",
-                "# Root mapping\n&root !!map # Root inline\ndependencies: [\"../new\"]\n# Name\nname: app\n",
+                "# Root mapping\n&root !!map # Root inline\n# Name\nname: app\ndependencies: [\"../new\"]\n",
             ),
             (
                 "--- &root !!map\n# Name\nname: app\n...\n",
-                "--- &root !!map\ndependencies: [\"../new\"]\n# Name\nname: app\n...\n",
+                "--- &root !!map\n# Name\nname: app\ndependencies: [\"../new\"]\n...\n",
             ),
             (
                 "%TAG !e! tag:yaml.org,2002:\n--- !e!map &root\n  # Name\n  name: app\n...\n",
-                "%TAG !e! tag:yaml.org,2002:\n--- !e!map &root\n  dependencies: [\"../new\"]\n  # Name\n  name: app\n...\n",
+                "%TAG !e! tag:yaml.org,2002:\n--- !e!map &root\n  # Name\n  name: app\n  dependencies: [\"../new\"]\n...\n",
             ),
             (
                 "# Name\n&key name: app\ncustom: *key\n",
-                "dependencies: [\"../new\"]\n# Name\n&key name: app\ncustom: *key\n",
+                "# Name\n&key name: app\ncustom: *key\ndependencies: [\"../new\"]\n",
             ),
             (
                 "# Name\n!!str name: app\ncustom: true\n",
-                "dependencies: [\"../new\"]\n# Name\n!!str name: app\ncustom: true\n",
+                "# Name\n!!str name: app\ncustom: true\ndependencies: [\"../new\"]\n",
             ),
             (
                 "# Name\n? &key name\n: app\ncustom: *key\n",
-                "dependencies: [\"../new\"]\n# Name\n? &key name\n: app\ncustom: *key\n",
+                "# Name\n? &key name\n: app\ncustom: *key\ndependencies: [\"../new\"]\n",
             ),
         ] {
             assert_eq!(check(source, &["../new"]), expected);
