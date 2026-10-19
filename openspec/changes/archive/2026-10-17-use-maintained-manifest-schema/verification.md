@@ -143,7 +143,7 @@ or unrelated CLI-presentation work was added.
 Detailed machine-local logs were retained under the approved temporary workspace:
 
 ```text
-/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode/
+/audit/
   hydragen-schema-standalone-qwuyraih/results.json
   hydragen-schema-standalone-qwuyraih/boundary-results.json
   hydragen-schema-standalone-qwuyraih/release-terminal-results.json

@@ -1,0 +1,10 @@
+codecov:
+  branch: main
+  disable_default_path_fixes: true
+
+coverage:
+  status:
+    project: false
+    patch: false
+
+comment: false

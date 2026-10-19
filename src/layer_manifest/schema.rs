@@ -1,6 +1,7 @@
 //! Cached, offline validation of parsed layer manifest content using the bundled schema.
 
 use std::fmt;
+use std::fmt::Write;
 use std::sync::OnceLock;
 
 use jsonschema::{
@@ -180,7 +181,11 @@ impl Validators {
             })?;
         // This annotation approves diagnostics, not input validity. Missing, malformed,
         // or stale approval must never prevent compilation or weaken the schema rule.
-        let fingerprint = format!("{:x}", Sha256::digest(nonblank_pattern.as_bytes()));
+        let digest = Sha256::digest(nonblank_pattern.as_bytes());
+        let mut fingerprint = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            write!(fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
+        }
         let approved_nonblank_pattern = schema
             .pointer(NONBLANK_APPROVAL_PATH)
             .and_then(Value::as_str)

@@ -4,11 +4,12 @@
   <a href="#hydragen"><img src="https://img.shields.io/badge/status-prototype-orange?style=for-the-badge" alt="Status: prototype" height="22"></a>
   <a href="https://rust-lang.org/"><img src="https://img.shields.io/badge/language-Rust-D34516?style=for-the-badge&amp;logo=rust&amp;logoColor=white" alt="Language: Rust" height="22"></a>
   <a href="https://deps.rs/repo/github/hydratic-applications/hydragen"><img src="https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=for-the-badge" alt="Dependency status" height="22"></a>
+  <a href="https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main"><img src="https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge&amp;logo=codecov" alt="Code coverage on main" height="22"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=for-the-badge" alt="License: GPL-3.0-or-later" height="22"></a>
   <br>
   <a href="https://github.com/hydratic-applications/hydragen"><img src="https://img.shields.io/badge/GitHub-hydratic--applications%2Fhydragen-blue?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub: hydratic-applications/hydragen" height="22"></a>
-  <a href="https://github.com/hydratic-applications/hydragen/stargazers"><img src="https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&amp;label=stars&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Im0xMiAyIDMuMDkgNi4yNkwyMiA5LjI3bC01IDQuODdMMTguMTggMjEgMTIgMTcuNzYgNS44MiAyMSA3IDE0LjE0IDIgOS4yN2w2LjkxLTEuMDFaIi8%2BPC9zdmc%2B" alt="GitHub stars" height="22"></a>
-  <a href="https://github.com/sponsors/hydratic-applications"><img src="https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&amp;label=sponsors&amp;color=EA4AAA&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyMSAzIDEyQy0zIDYgNi0zIDEyIDVjNi04IDE1IDEgOSA3WiIvPjwvc3ZnPg%3D%3D" alt="GitHub sponsors" height="22"></a>
+  <a href="https://github.com/hydratic-applications/hydragen/stargazers"><img src="https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&amp;label=stars&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwb2x5Z29uIHBvaW50cz0iMTIgMiAxNS4wOSA4LjI2IDIyIDkuMjcgMTcgMTQuMTQgMTguMTggMjEuMDIgMTIgMTcuNzcgNS44MiAyMS4wMiA3IDE0LjE0IDIgOS4yNyA4LjkxIDguMjYgMTIgMiIvPjwvc3ZnPg%3D%3D" alt="GitHub stars" height="22"></a>
+  <a href="https://github.com/sponsors/hydratic-applications"><img src="https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&amp;label=sponsors&amp;color=EA4AAA&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMC44NCA0LjYxYTUuNSA1LjUgMCAwIDAtNy43OCAwTDEyIDUuNjdsLTEuMDYtMS4wNmE1LjUgNS41IDAgMCAwLTcuNzggNy43OGwxLjA2IDEuMDZMMTIgMjEuMjNsNy43OC03Ljc4IDEuMDYtMS4wNmE1LjUgNS41IDAgMCAwIDAtNy43OHoiLz48L3N2Zz4%3D" alt="GitHub sponsors" height="22"></a>
 </p>
 
 Hydragen is a development system for building distinct projects from shared code,
@@ -204,6 +205,26 @@ Tests cover flag-based and guided input, layer manifest formats and validation,
 repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
+
+CI has three independent Actions quality checks: **Tests**, **Total coverage**,
+and **Changed-line coverage**. Each applicable coverage gate requires at least
+**80%**, using unrounded line counts; a PR with no changed measured executable
+lines reports changed-line coverage as not applicable. **Coverage report** retains
+the shared evidence even below target. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
+provides report browsing and the token-free `main` shield, not percentage gates;
+only main pushes and manual runs on main upload. The shield may be unavailable
+while report access is private.
+
+With the [coverage tools installed](docs/coverage.md#local-coverage), generate a
+report locally without uploading:
+
+```sh
+mkdir -p target/coverage
+cargo +stable llvm-cov --locked --workspace --all-targets --lcov --output-path target/coverage/lcov.info
+```
+
+See [coverage setup and checks](docs/coverage.md) for helper tests, measurement
+scope, fork behaviour, and troubleshooting.
 
 ## License
 
