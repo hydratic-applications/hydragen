@@ -91,10 +91,47 @@ the original verification log as `implementation-msrv.log` and
 `implementation-stable.log`. These checks cover the uncommitted working tree,
 not a new committed or remotely tested revision.
 
-Tasks 4.3–4.5 remain open: ordered specification sync must preserve the pending
+At the end of local verification, tasks 4.3–4.5 remained open: ordered
+specification sync must preserve the pending
 `configure-codecov` and `separate-test-and-coverage-checks` deltas, a real Linux
 MSRV CI run must be observed for the implementation revision before merge, and
 the numeric dynamic badge must be checked after merging to `main`. Neither local
-testing nor `actionlint` substitutes for those external acceptance checks. No
-commit, push, PR, merge, or unrelated archive was performed. No foundations or
+testing nor `actionlint` substitutes for those external acceptance checks. At that
+stage no commit, push, PR, merge, or unrelated archive had been performed. The
+subsequent PR and Linux evidence are recorded below. No foundations or
 glossary change is needed for this implementation-only support policy.
+
+## Linux CI verification
+
+Draft [PR #13](https://github.com/hydratic-applications/hydragen/pull/13) runs the
+implementation commit `bc110bb51da6c9a1912939e94aa7893855b49fa0` in
+[Actions run 39335525424](https://github.com/hydratic-applications/hydragen/actions/runs/39335525424).
+The run completed successfully on 2026-10-19 UTC and was inspected on 2026-10-20.
+
+The separate [MSRV job](https://github.com/hydratic-applications/hydragen/actions/runs/39335525424/job/118343948252)
+ran on Ubuntu 24.04.5, host `x86_64-unknown-linux-gnu`. Checkout logged the tested
+commit, and the compiler-identification step logged:
+
+```text
+MSRV: 1.89.0
+rustc 1.89.0 (29483883e 2025-08-04)
+cargo 1.89.0 (c24e10642 2025-06-23)
+```
+
+The job passed all 23 Python helper regressions, validated the local declaration
+and README, and successfully ran `cargo "+$MSRV" build --locked` followed by
+`cargo "+$MSRV" test --locked`. All 190 Rust tests passed with zero failures or
+ignored tests, including all 27 terminal-interaction tests. The documentation-test
+harness contained zero tests.
+
+The independent [stable Tests job](https://github.com/hydratic-applications/hydragen/actions/runs/39335525424/job/118343948505)
+also passed. Both jobs started independently and have separate visible status
+results; neither has a job dependency on the other. Coverage report production
+passed, total coverage passed at 2379/2475 lines (96.12%), and changed-line coverage
+reported N/A with valid evidence of no applicable measured Rust lines. The
+main-only Codecov uploader was correctly skipped for the PR.
+
+This satisfies task 4.4 for the implementation revision. The documentation-only
+follow-up recording this evidence does not alter implementation inputs. Tasks
+4.3 (ordered specification sync) and 4.5 (numeric badge verification after merge)
+remain open. The PR remains a draft; no merge or archive has been performed.
