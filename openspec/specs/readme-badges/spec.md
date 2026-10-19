@@ -10,26 +10,22 @@ guarantees or affecting local builds.
 
 ### Requirement: Compact badge row
 
-The README SHALL display seven linked badges immediately below its top-level
-Hydragen heading and before the introduction: static `status: prototype` and
-`language: Rust` badges served over HTTPS by `img.shields.io`, followed by a live
-dependencies badge served over HTTPS by `deps.rs`, and a static
-`repo: hydratic-applications/hydragen`
-badge served over HTTPS by `img.shields.io`, followed by dynamic stars and sponsors
-badges served over HTTPS by `img.shields.io`, then a static
-`license: GPL-3.0-or-later` badge served over HTTPS by `img.shields.io`.
-All seven SHALL use the compact `flat-square` style with square corners and no
-gradients. The layout SHALL use ordinary Markdown without a fixed width so the
-badges can wrap on narrow displays.
+The README SHALL display eight linked badges immediately below its top-level
+Hydragen heading and before the introduction. Its centred HTML header SHALL
+retain status, language, dependencies, and license in their existing relative
+order, adding coverage between dependencies and license. A line break SHALL
+retain repo, stars, and sponsors as the second group. Status, language, coverage,
+repo, stars, sponsors, and license images SHALL use HTTPS Shields.io URLs; the
+dependencies image SHALL use the existing HTTPS deps.rs URL. All eight SHALL
+use `for-the-badge` styling and `height="22"` to match the header. Images SHALL NOT
+use fixed widths that prevent wrapping on narrow displays.
 
 #### Scenario: Read the README introduction
 
 - **WHEN** a reader opens the rendered README with badge images available
-- **THEN** the prototype-status, Rust-language, dependencies, repo, stars,
-  sponsors, and license badges appear below the title, in that order, before
-  the introduction
-- **AND** all seven use `flat-square` styling with square corners and no gradients,
-  without replacing any introductory text
+- **THEN** status, language, dependencies, coverage, and license appear in that
+  order in the first group, with repo, stars, and sponsors in the second group
+- **AND** all eight use `for-the-badge` styling at 22px height without replacing introductory text
 
 #### Scenario: Read on a narrow display
 
@@ -39,18 +35,14 @@ badges can wrap on narrow displays.
 
 ### Requirement: Accessible labels and useful navigation
 
-The status badge SHALL have alternative text `Status Badge` and a Markdown
-link to `#hydragen`. The language badge SHALL have alternative text
-`Rust Badge` and a Markdown link to `#build-and-run-locally`. The dependencies
-badge SHALL have alternative text `Deps Badge` and link to
-`https://deps.rs/repo/github/hydratic-applications/hydragen`. The repo badge SHALL
-have alternative text `Repo Badge` and link to
-`https://github.com/hydratic-applications/hydragen`. The stars badge SHALL have
-alternative text `Stars Badge` and link to
-`https://github.com/hydratic-applications/hydragen/stargazers`. The sponsors badge
-SHALL have alternative text `Sponsors Badge` and link to
-`https://github.com/sponsors/hydratic-applications`. The license badge SHALL have
-alternative text `License Badge` and link to the relative path `LICENSE`.
+The existing badges SHALL retain descriptive alternative text and their current
+destinations: status to `#hydragen`, language to `https://rust-lang.org/`,
+dependencies to `https://deps.rs/repo/github/hydratic-applications/hydragen`,
+repo to `https://github.com/hydratic-applications/hydragen`, stars to
+`https://github.com/hydratic-applications/hydragen/stargazers`, sponsors to
+`https://github.com/sponsors/hydratic-applications`, and license to `LICENSE`.
+The coverage badge SHALL have alternative text `Code coverage on main` and link
+to `https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main`.
 The README SHALL retain its textual prototype warning, current limitations,
 and Rust build guidance independently of the badges, and SHALL identify
 `GPL-3.0-or-later` in its License section independently of the badge image.
@@ -59,94 +51,57 @@ and Rust build guidance independently of the badges, and SHALL identify
 
 - **WHEN** a reader follows a badge's link
 - **THEN** the status badge navigates to the introduction and the language badge
-  navigates to the local build instructions
+  navigates to the Rust language website
 - **AND** the dependencies badge navigates to Hydragen's deps.rs repository report
 - **AND** the repo badge navigates to Hydragen's GitHub repository
 - **AND** the stars and sponsors badges link to the repository's stargazers and
   the repository owner's GitHub Sponsors page, respectively
+- **AND** coverage opens the Codecov main-branch report rather than a badge SVG
 - **AND** the license badge opens the repository's `LICENSE` file rather than
   a badge SVG or third-party license summary
 
 #### Scenario: External images are unavailable
 
 - **WHEN** badge images cannot load or a reader uses a nonvisual reading tool
-- **THEN** descriptive alternative text identifies each badge's meaning
+- **THEN** descriptive alternative text identifies each badge's meaning, including
+  that coverage tracks `main`
 - **AND** the README's prose still explains the prototype's limitations and how
   to build it with Rust
 - **AND** its License section still identifies `GPL-3.0-or-later` and links to
   the local license text
 
-### Requirement: Shortcut badge references with definitions at the bottom
-
-The badge paragraph SHALL use `[![Status Badge]][Status]`,
-`[![Rust Badge]][Rust]`, `[![Deps Badge]][Deps]`, `[![Repo Badge]][Repo]`,
-`[![Stars Badge]][Stars]`, `[![Sponsors Badge]][Sponsors]`, and
-`[![License Badge]][License]`, with one linked image per source line in the same
-paragraph. All fourteen image and destination reference definitions SHALL appear
-together at the bottom of the README, after its existing content. The
-`Deps Badge` definition SHALL identify the SVG URL and the `Deps` definition
-SHALL identify the deps.rs report page.
-The `Repo Badge` definition SHALL use
-`https://img.shields.io/badge/repo-hydratic--applications%2Fhydragen-181717?style=flat-square&logo=github&logoColor=white`
-and the `Repo` definition SHALL identify the GitHub repository page.
-The `License Badge` definition SHALL use
-`https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square`
-and the `License` definition SHALL identify `LICENSE`.
-
-#### Scenario: Inspect the README source
-
-- **WHEN** a maintainer reads the README Markdown
-- **THEN** the badge paragraph contains shortcut image references wrapped in
-  reference-style links, without inline URLs or repeated explicit image labels
-- **AND** all badge image and destination definitions are grouped at the bottom
-
-#### Scenario: Render the dependency reference link
-
-- **WHEN** a Markdown renderer resolves `[![Deps Badge]][Deps]`
-- **THEN** it displays the SVG identified by `Deps Badge` as an image linked to
-  the report page identified by `Deps`, rather than to the SVG itself
-
-#### Scenario: Render the repo reference link
-
-- **WHEN** a Markdown renderer resolves `[![Repo Badge]][Repo]`
-- **THEN** it displays the static `repo: hydratic-applications/hydragen` image linked to
-  `https://github.com/hydratic-applications/hydragen`, rather than to the badge SVG
-
-#### Scenario: Render the license reference link
-
-- **WHEN** a Markdown renderer resolves `[![License Badge]][License]`
-- **THEN** it displays the static `license: GPL-3.0-or-later` image linked to
-  the local `LICENSE` file
-
 ### Requirement: Badges do not imply unsupported project guarantees
 
 The README SHALL include only prototype-status, Rust-language, deps.rs
-dependencies, GitHub repo, dynamic stars, dynamic sponsors, and the established
-`GPL-3.0-or-later` license badges. It SHALL NOT add badges claiming a CI result,
-coverage level, published version, minimum supported Rust version, or platform
-support. The license claim SHALL agree with the project application notice and
-Cargo package metadata. Badge rendering SHALL NOT introduce any network
-requirement for building, testing, or running Hydragen.
+dependencies, live Codecov main-branch coverage, GitHub repo, dynamic stars,
+dynamic sponsors, and the established `GPL-3.0-or-later` license badges. Coverage
+SHALL present a measured service result, not a fixed percentage or a guarantee of
+correctness, security, complete testing, or platform support. The README SHALL
+NOT add badges claiming a CI pass result, published version, minimum supported
+Rust version, or platform support. The license claim SHALL agree with the project
+application notice and Cargo package metadata. Badge rendering SHALL NOT
+introduce any network requirement for building, testing, or running Hydragen.
 
 #### Scenario: Review badge claims
 
 - **WHEN** a maintainer reviews the updated README
 - **THEN** the badges describe the project's prototype status and Rust
-  implementation, display deps.rs's dependency result, link to the GitHub
+  implementation, display deps.rs's dependency result and the latest service-backed
+  main-branch coverage measurement, link to the GitHub
   repository, stargazers, and owner's sponsorship page, and identify the
   established GPLv3-or-later license without implying other unestablished
   guarantees or infrastructure
 
 #### Scenario: Use Hydragen without badge service access
 
-- **WHEN** Shields.io or deps.rs is unavailable
+- **WHEN** Shields.io, Codecov, or deps.rs is unavailable
 - **THEN** the badge addition does not affect building, testing, or running
   Hydragen because no implementation or build process fetches the images
 
 ### Requirement: Stable deps.rs URLs with an accepted unknown state
 
 The dependencies image SHALL use
-`https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=flat-square`.
+`https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=for-the-badge`.
 The image and report URLs SHALL omit `path` because Hydragen's `Cargo.toml` is at
 the repository root. The badge SHALL be included even if deps.rs cannot analyze
 the private repository and returns `unknown`. Adding it SHALL NOT require a
@@ -170,9 +125,9 @@ or that the badge guarantees security.
 ### Requirement: Live stars and account-wide sponsor counts
 
 The stars image SHALL use
-`https://img.shields.io/github/stars/hydratic-applications/hydragen?style=flat-square&label=stars`.
+`https://img.shields.io/github/stars/hydratic-applications/hydragen?style=for-the-badge&label=stars`.
 The sponsors image SHALL use
-`https://img.shields.io/github/sponsors/hydratic-applications?style=flat-square&label=sponsors`.
+`https://img.shields.io/github/sponsors/hydratic-applications?style=for-the-badge&label=sponsors`.
 These SHALL remain service-backed dynamic images, not hardcoded counts, snapshots,
 or locally generated assets. The sponsor count SHALL refer to the owner
 `hydratic-applications`, not be described as a repository-specific count.
@@ -214,3 +169,56 @@ rather than any service's detected label.
   repository access
 - **AND** its relative destination remains the repository's `LICENSE` file
 - **AND** no public-visibility change or credential is needed
+
+### Requirement: Live main-branch coverage shield
+
+The coverage image SHALL use
+`https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge`,
+with `logo=codecov` for the service's native-colour icon and optionally with an
+approved dedicated Codecov badge-access token. HTML query separators SHALL be
+escaped as `&amp;`; no hardcoded replacement icon SHALL replace the native logo.
+The branch SHALL be explicit regardless of which branch contains the displayed README.
+The image SHALL remain service-backed, not a hardcoded percentage or checked-in
+snapshot. Unavailable or uninitialised service data SHALL NOT be replaced with
+zero or a fabricated success. Documentation SHALL explain first-main-report and
+cache-refresh requirements.
+
+For a private repository, implementation SHALL request maintainer approval before
+embedding a dedicated badge-access token and explain that URL readers, Shields.io,
+and image proxies can see it. It SHALL NOT embed an upload token, API token, or
+GitHub credential. Without approved badge access, the token-free URL SHALL remain
+and the unavailable result and remaining setup SHALL be explicit; numerical
+private-badge verification SHALL remain incomplete. No visibility change SHALL
+be required. Local README rendering SHALL NOT require secret interpolation.
+Documentation SHALL treat later publication as a separate maintainer decision,
+not a prerequisite for private CI. It SHALL explain verifying public Codecov
+report access, retaining the same branch-specific image and report URLs, and
+removing and revoking any no-longer-needed badge token after publication. It SHALL
+NOT imply that removing a token from the README removes it from Git history.
+
+#### Scenario: Read the README from a feature branch
+
+- **WHEN** a feature branch's README is rendered and main coverage is accessible
+- **THEN** the shield displays Codecov's latest processed `main` coverage after
+  normal cache refresh, not that feature branch's coverage
+
+#### Scenario: No main report or approved private badge access exists
+
+- **WHEN** Codecov has no processed main report or Shields.io cannot access it
+- **THEN** the live URL and useful report link remain without a fabricated number
+- **AND** documentation explains the remaining setup without claiming the live
+  numeric badge has been verified
+
+#### Scenario: Private badge access is approved
+
+- **WHEN** the maintainer approves including Codecov's dedicated badge-access token
+- **THEN** only that token is added to the image URL with HTML-safe query separators
+- **AND** no upload or repository credential is included or requested for rendering
+
+#### Scenario: The maintainer later makes the repository public
+
+- **WHEN** GitHub repository visibility and Codecov report access become public
+- **THEN** the existing token-free branch-specific image URL and report link remain
+  appropriate without replacing them with a different badge integration
+- **AND** documentation explains removing any private badge token from the current
+  README and revoking it if no longer needed, while retaining OIDC uploads

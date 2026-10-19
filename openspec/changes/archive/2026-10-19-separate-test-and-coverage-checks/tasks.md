@@ -45,7 +45,12 @@ validate the Actions gates below. Active progress counts only the new checklist.
 
 - [x] 5.1 On an authorised ordinary push to the existing PR, observe `Tests`, `Total coverage` and `Changed-line coverage`, plus retained report data and supporting pipeline jobs; verify the measured head/run and record real N/A only when justified.
 - [x] 5.2 Reconcile hosted results with controlled local pass/fail fixtures and independent gates; do not claim a documentation-only PR proves live positive-denominator changed-line threshold behaviour or introduce unrelated production changes for evidence.
-- [ ] 5.3 After separately cleared publication/merge and an eligible main run, verify the isolated OIDC upload for the actual main revision, processed report, anonymous report access and the unchanged token-free main shield after cache refresh; leave this pending until those prerequisites occur.
+- [x] 5.3 After separately cleared publication/merge and an eligible main run, verify the isolated OIDC upload for the actual main revision, processed report, anonymous report access and the unchanged token-free main shield after cache refresh; leave this pending until those prerequisites occur.
+
+Task 5.3 is verified for main `6ccf96b` in
+[the final main/public rollout evidence](actions-gates-verification.md#final-main-and-public-rollout--2026-10-19).
+All **23 active tasks are complete**; the historical superseded checklist above
+is not included in that count.
 
 Tasks 5.1 and 5.2 establish observed policy rollout, not terminal-test reliability
 or publication readiness. A matching input-selection race has been diagnosed;
