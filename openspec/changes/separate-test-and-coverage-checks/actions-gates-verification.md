@@ -10,7 +10,7 @@ gates' outcomes.
 The coverage implementation has local and hosted PR policy evidence. Diagnosis
 of the retained initial terminal-test timeout confirmed a matching Linux input
 selection race. The test-only synchronisation increment has completed local
-validation and independent review; fresh hosted verification is still pending.
+validation, independent review and fresh hosted verification of the reviewed commit.
 Production fallback before input selection remains a separate unfixed runtime
 gap. Main OIDC uploading, processed main reports and anonymous access remain
 unverified; PR #8 remains open and the repository private at this review.
@@ -348,19 +348,51 @@ There are no production Rust, Cargo dependency, workflow or coverage-policy chan
   change is part of the harness increment.
 - Independent review approved the exact harness source and completed evidence
   for commit and ordinary-push validation, with no material evidence gaps. At
-  this review the harness correction is still uncommitted on HEAD `9e3cc75` and
-  has not been pushed. The earlier green run on `9e3cc75` therefore does not
-  contain or validate this correction. A fresh hosted run remains required.
+  that stage the correction was uncommitted on HEAD `9e3cc75` and had not been
+  pushed. Its earlier green run did not contain or validate the correction;
+  the required fresh hosted verification is recorded below.
 
 These results validate the test-harness correction locally, not a production
 runtime fix. Input loss before stdin selection can still enter the `/dev/tty`
-fallback and remains a separate unfixed follow-up. Independent approval does not
+fallback and remains a separate unfixed follow-up. Independent approval alone does not
 establish hosted success, main uploading, publication readiness or merge clearance.
 
 The design and `test-ci` requirements now record this test-setup distinction
 without broadening the production contract. Revised text was reviewed from a
 first-time reader's perspective. Documentation/specification validation remains
 separate from actual hosted verification and the open production runtime gap.
+
+### Fresh hosted verification of the harness correction
+
+Reviewed commit `4d44910396dd5b6538b32b259f5137b3a680a2d1` was pushed normally.
+[Run 39195433082](https://github.com/hydratic-applications/hydragen/actions/runs/39195433082),
+attempt **1**, succeeded on that exact head against immutable base
+`c99e24e497772d5da78088ee2f65557534f71374`:
+
+- [Tests](https://github.com/hydratic-applications/hydragen/actions/runs/39195433082/job/117877075523)
+  passed **189 Rust tests**, none ignored or filtered out, the zero-doctest phase
+  and all **39 Python tests**.
+- [Coverage report](https://github.com/hydratic-applications/hydragen/actions/runs/39195433082/job/117877074725)
+  passed its instrumented suite and retained valid canonical report data.
+- [Total coverage](https://github.com/hydratic-applications/hydragen/actions/runs/39195433082/job/117877496107)
+  passed at **2,374/2,469 (96.15%)**;
+  [Changed-line coverage](https://github.com/hydratic-applications/hydragen/actions/runs/39195433082/job/117877496186)
+  succeeded with explicit valid **N/A** for that immutable comparison.
+- [Codecov main report](https://github.com/hydratic-applications/hydragen/actions/runs/39195433082/job/117877497211)
+  was correctly skipped for the PR event.
+
+The retained artifact
+`coverage-39195433082-1-4d44910396dd5b6538b32b259f5137b3a680a2d1` was downloaded and
+rechecked with the actual `total` and `changed` consumers at the matching checkout.
+Independently expected repository, run/attempt, head and base matched; source
+hashes, report digest, canonical counts and valid N/A were revalidated.
+
+This completes local and hosted validation of the scoped test-harness correction,
+not proof of every future timing interleaving. The initial failure remains
+recorded, and the production pre-selection `/dev/tty` fallback is still unfixed.
+Changed-line N/A is not a numerical threshold demonstration. No actual main OIDC
+upload, processed main report or anonymous-access/shield proof follows from this
+PR run; PR #8 remains unmerged and the repository private at this review.
 
 ## Active progress and pending evidence
 
@@ -369,11 +401,11 @@ three focused harness tasks. Tasks 5.1 and 5.2 retain their actual hosted check,
 artifact and local-fixture reconciliation evidence; that earlier green revision
 does not prove this later harness change works.
 
-Active progress is now **21/23 tasks complete**. Task **6.2** is complete on the
-full local validation and independent-review evidence above. Only **5.3 and 6.3**
-remain pending: eligible main OIDC/report/anonymous-access/shield verification
-and a fresh hosted run of the reviewed harness increment. PR #8 has not been
-merged into main, the repository remains private, and publication readiness is
-not established.
+Active progress is now **22/23 tasks complete**. Task **6.3** is complete on the
+fresh hosted run and retained-artifact checks above. Only **5.3** remains pending:
+eligible main OIDC uploading, processed report, anonymous access and token-free
+main shield verification after separate publication-readiness and merge
+prerequisites. PR #8 has not been merged into main, the repository remains
+private, and publication readiness is not established.
 The production pre-selection fallback remains a separate open runtime issue,
 not an implicitly completed task or an exception to the interaction policy.

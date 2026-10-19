@@ -49,13 +49,13 @@ validate the Actions gates below. Active progress counts only the new checklist.
 
 Tasks 5.1 and 5.2 establish observed policy rollout, not terminal-test reliability
 or publication readiness. A matching input-selection race has been diagnosed;
-the later passing revision does not prove a fix. The focused harness increment
-below has completed local validation and independent review; fresh hosted
-verification remains pending. See the current
+the earlier green revision alone did not prove a fix. The focused harness
+increment below has now completed local validation, independent review and fresh
+hosted verification; the production pre-selection fallback remains unfixed. See the current
 [hosted evidence and reliability follow-up](actions-gates-verification.md#hosted-pr-rollout-and-unresolved-terminal-test-reliability).
 
 ## 6. Synchronise the terminal input-loss harness
 
 - [x] 6.1 Implement test-only selected-input readiness: verify the dedicated stdin PTY's canonical baseline before spawn, wait for the target frame then its observed noncanonical transition with existing deadlines/event draining and explicit unsupported/child-exit diagnostics, close all input masters afterward, preserve every Name/selector assertion, add two readiness helper tests and improve finish diagnostics without changing timeout/cleanup. Record the separate unfixed production pre-selection fallback without changing production/Cargo/workflow behaviour.
 - [x] 6.2 Complete fixed 100-repetition batches on macOS, normal Linux and instrumented Linux, exercising both injection cases and failing on any failure; run full normal macOS/Linux and instrumented Linux suites (expected 189 Rust tests), 39 Python tests, formatting and Clippy; obtain independent review of the exact harness increment and rerun affected checks. Record partial results without claiming pending validation passed.
-- [ ] 6.3 After an authorised push of the reviewed harness increment, verify fresh hosted normal/instrumented tests and all quality checks for that exact head; retain earlier failure evidence and do not infer either a production fallback fix or main/service verification from a successful PR run.
+- [x] 6.3 After an authorised push of the reviewed harness increment, verify fresh hosted normal/instrumented tests and all quality checks for that exact head; retain earlier failure evidence and do not infer either a production fallback fix or main/service verification from a successful PR run.
