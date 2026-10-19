@@ -53,6 +53,15 @@ design everything upfront.
      documentation, CLI, code, and tests to distinguish it from other tools'
      manifests. File contents and behavior do not change. See the
      [terminology decision](changes/use-layer-manifest-terminology/design.md).
+   - **Implemented field-order decision:** Guide generated and documented layouts
+     rather than constrain valid input: init keeps identifying metadata in a
+     familiar order, and add appends a missing dependencies field without moving
+     existing fields. Preserve existing field and reference order, with no warnings
+     about placement alone. This improves everyday scanning while retaining
+     source-preserving edits. See the
+     [field-order decision](changes/guide-layer-manifest-field-order/design.md#guide-field-order-without-enforcing-it-on-input)
+     and [insertion rules](changes/guide-layer-manifest-field-order/design.md#append-a-missing-dependency-field-without-moving-existing-fields).
+     An explicit formatter and placement of future fields remain deferred.
 3. **Files and tool dependency.** Are shared files committed into a consumer's
    repository, or created or linked by Hydragen when needed? What project layout
    does this require? Can collaborators and continuous integration (CI) build,

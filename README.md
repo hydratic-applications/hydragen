@@ -184,6 +184,12 @@ The layer manifest lives at the layer's repository root. It requires a `name` an
 can include optional `author`, `description`, and an ordered `dependencies` list.
 An omitted or empty dependency list means the layer has no dependencies.
 
+For easy scanning, the preferred field order is `$schema` (an optional editor or
+validator schema reference), `name`, `author`, `description`, then `dependencies`,
+skipping absent optional fields. This guides defaults and examples, not validity:
+any otherwise valid field order is accepted without ordering warnings. Add appends
+a missing `dependencies` field and never reorders existing fields.
+
 **Layer names must be lowercase.** Use lowercase ASCII letters, digits, `.`, `_`,
 and `-`, optionally as `@scope/name`, with at most 214 characters in the complete
 name. Unscoped names and scopes cannot start with `.` or `_`; the name after a

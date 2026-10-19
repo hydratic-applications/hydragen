@@ -531,6 +531,14 @@ differently or organise similar code in different ways. Before making a change,
 the developer must rebuild their understanding of how this particular project
 works.
 
+The same attention cost can arise within Hydragen itself. In an earlier CLI
+version, the project author ran `hydragen init`, then `hydragen add ../shared`,
+and found the YAML layer manifest's `name` below the newly added `dependencies`
+section. Having to look past dependencies to identify the layer disrupted the
+familiar layout created by init. Tool-written changes should make layer manifests
+consistently easy to scan across projects, without imposing one layout on
+hand-written files or rearranging a developer's existing choices.
+
 Shared approaches should make matching parts familiar across projects, reducing
 time spent rediscovering setup and rebuilding that understanding. When adding a
 technology, configuration, or implementation, the developer should be able to
