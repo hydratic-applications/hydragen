@@ -107,6 +107,11 @@ useful choice over existing approaches.
    in guided or long-running terminal sessions, while routine one-shot actions
    should stay concise so branding does not crowd out useful results.
 
+   Keep developers moving rather than making them wait between every step. When
+   preparation cannot finish before it is needed, show clear progress and keep
+   cancellation available. Do not pretend optional suggestions are required work
+   or let late-arriving information disrupt a choice already being made.
+
 3. **Granular reuse — Take what you need.** Let projects share individual needs
    without adopting an entire set of technologies. This includes directory
    structures, configuration in any format, and Markdown skills and rules for
@@ -149,6 +154,14 @@ useful choice over existing approaches.
    efficient resource use must guide design decisions from the outset. Avoid
    unnecessary processing, file access, memory use, and repeated work, so the tool
    remains practical as projects and shared content grow.
+
+   Where it is safe and likely to help, prepare information for later steps in
+   the background while the developer completes an earlier step. This should
+   reduce time spent waiting, not move the same delay to startup or guess the
+   developer's decisions. Limit background resource use and lifetime separately
+   from any wait after the information is needed; stop unnecessary work when the
+   operation is cancelled or moves on. Earlier preparation must not bypass input,
+   privacy, or filesystem safety rules.
 
 8. **Visibility and traceability — Know the source and see the differences.**
    Developers and agents must be able to locate the authoritative source for shared
@@ -472,6 +485,13 @@ requires cumbersome imports, configuration, or extra steps, the direct edit can
 feel easier, even when reuse would benefit other projects later.
 Slow startup and repeated waits can have the same effect, even when the steps
 themselves are simple.
+
+Consider a guided layer initialisation flow that offers author suggestions from
+project files, local settings, or optional GitHub lookups. Preparing these while
+the developer answers the earlier Name question can make the Author step ready
+when they reach it. If preparation is unfinished, a short, clearly indicated wait
+is preferable to an unexplained pause. Optional discovery must not hold the
+developer indefinitely or change the choices after they start selecting one.
 
 One developer changes a shared configuration without AI tools. Another uses their
 own AI assistant for help and later delegates an update to an agent. Both need to

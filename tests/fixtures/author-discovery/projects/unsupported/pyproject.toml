@@ -1,0 +1,11 @@
+[project]
+dynamic = ["authors"]
+maintainers = [{ name = "Maintainer" }]
+
+[tool.poetry]
+authors = ["Poetry Author <poetry@example.com>"]
+
+[build-system]
+requires = []
+build-backend = "backend"
+backend-path = ["."]

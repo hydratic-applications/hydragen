@@ -1,0 +1,6 @@
+[project]
+authors = [
+    { name = "Python Person" },
+    { name = "Example organisation" },
+    { name = "example organisation" },
+]

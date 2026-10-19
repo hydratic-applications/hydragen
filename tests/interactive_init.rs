@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::BorrowedFd;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Mutex, MutexGuard};
@@ -9,9 +10,15 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use hydragen::LayerManifestFormat;
-use portable_pty::{Child, CommandBuilder, ExitStatus, PtyPair, PtySize, native_pty_system};
+use portable_pty::{
+    Child, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, native_pty_system,
+};
 use serde_json::{Value, json};
 use tempfile::tempdir;
+
+#[path = "support/terminal_identity.rs"]
+mod terminal_identity;
+use terminal_identity::{DEFAULT_AUTHOR, IdentityFixture};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 // Bound terminal allocation independently of the test runner's thread count.
@@ -23,6 +30,89 @@ enum Event {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputMode {
+    Canonical,
+    Noncanonical,
+}
+
+fn input_mode(input: &dyn MasterPty) -> Option<InputMode> {
+    input.get_termios().map(|settings| {
+        // Use the flag's supported name instead of platform-specific bit values
+        // or a direct dependency on portable-pty's termios implementation.
+        if settings
+            .local_flags
+            .iter_names()
+            .any(|(name, _)| name == "ICANON")
+        {
+            InputMode::Canonical
+        } else {
+            InputMode::Noncanonical
+        }
+    })
+}
+
+fn noncanonical_input_ready(
+    mode: Option<InputMode>,
+    child_status: Option<&ExitStatus>,
+    before_deadline: bool,
+) -> Result<bool, String> {
+    let mode = mode.ok_or_else(|| {
+        "Could not observe dedicated input PTY termios: get_termios returned None".to_owned()
+    })?;
+    if let Some(status) = child_status {
+        return Err(format!(
+            "Terminal child exited before dedicated input PTY readiness: {status:?}"
+        ));
+    }
+    if !before_deadline {
+        return Err(format!(
+            "Timed out waiting for dedicated input PTY to become noncanonical; last mode: {mode:?}"
+        ));
+    }
+    Ok(mode == InputMode::Noncanonical)
+}
+
+#[test]
+fn noncanonical_input_readiness_distinguishes_pending_ready_and_expired_states() {
+    assert_eq!(
+        noncanonical_input_ready(Some(InputMode::Canonical), None, true),
+        Ok(false)
+    );
+    assert_eq!(
+        noncanonical_input_ready(Some(InputMode::Noncanonical), None, true),
+        Ok(true)
+    );
+    for mode in [InputMode::Canonical, InputMode::Noncanonical] {
+        let error = noncanonical_input_ready(Some(mode), None, false).unwrap_err();
+        assert!(
+            error.contains("Timed out waiting for dedicated input PTY"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("last mode: {mode:?}")), "{error}");
+    }
+}
+
+#[test]
+fn noncanonical_input_readiness_rejects_missing_termios_and_exited_children() {
+    let error = noncanonical_input_ready(None, None, true).unwrap_err();
+    assert!(
+        error.contains("Could not observe dedicated input PTY termios"),
+        "{error}"
+    );
+    assert!(error.contains("get_termios returned None"), "{error}");
+
+    let status = ExitStatus::with_exit_code(1);
+    for mode in [InputMode::Canonical, InputMode::Noncanonical] {
+        let error = noncanonical_input_ready(Some(mode), Some(&status), true).unwrap_err();
+        assert!(
+            error.contains("Terminal child exited before dedicated input PTY readiness"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("{status:?}")), "{error}");
+    }
+}
+
 struct TerminalSettings {
     cols: u16,
     rows: u16,
@@ -30,6 +120,7 @@ struct TerminalSettings {
     term: &'static str,
     no_color: Option<&'static str>,
     clicolor: Option<&'static str>,
+    identity: Option<IdentityFixture>,
 }
 
 impl Default for TerminalSettings {
@@ -41,6 +132,7 @@ impl Default for TerminalSettings {
             term: "xterm-256color",
             no_color: None,
             clicolor: None,
+            identity: None,
         }
     }
 }
@@ -48,6 +140,7 @@ impl Default for TerminalSettings {
 // Keep stdout and stderr on distinct terminals so stream assertions exercise
 // actual cliclack output rather than relying on a combined terminal transcript.
 struct Session {
+    identity: IdentityFixture,
     _terminal_session: MutexGuard<'static, ()>,
     child: Box<dyn Child + Send + Sync>,
     writer: Option<Box<dyn Write + Send>>,
@@ -118,9 +211,17 @@ impl Session {
         let terminal = system.openpty(size).unwrap();
         let stdout_terminal = system.openpty(size).unwrap();
         let mut command = CommandBuilder::new("/bin/sh");
+        let identity = settings.identity.unwrap_or_else(IdentityFixture::new);
+        identity.apply(&mut command);
+        // console restores the previous input mode between key reads. Preserve
+        // queued Backspace/Ctrl-C without changing output newline handling. Use
+        // the system utility explicitly: PATH contains only fixture executables.
+        // Run before redirection so a dedicated stdin PTY stays canonical until
+        // console actually selects it for input.
         command.args([
             "-c",
-            "case \"$REDIRECT\" in
+            "/bin/stty -icanon -echo -isig min 1 time 0 || exit
+case \"$REDIRECT\" in
 stdin) exec \"$@\" </dev/null >\"$RESULT_TTY\";;
 stdin-eof) exec \"$@\" <\"$CAPTURE\" >\"$RESULT_TTY\";;
 stdout) exec \"$@\" >\"$CAPTURE\";;
@@ -193,6 +294,7 @@ esac",
         let child = terminal.slave.spawn_command(command).unwrap();
         drop(terminal.slave);
         Self {
+            identity,
             _terminal_session: terminal_session,
             child,
             writer,
@@ -233,6 +335,89 @@ esac",
         writer.flush().unwrap();
     }
 
+    fn wait_for_noncanonical_input(&mut self, input: &dyn MasterPty) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let mode = input_mode(input);
+            let status = self.child.try_wait().expect(
+                "Could not observe terminal child status while waiting for dedicated input PTY readiness",
+            );
+            match noncanonical_input_ready(mode, status.as_ref(), Instant::now() < deadline) {
+                Ok(true) => return,
+                Ok(false) => self.receive(
+                    Duration::from_millis(10)
+                        .min(deadline.saturating_duration_since(Instant::now())),
+                ),
+                Err(error) => panic!(
+                    "{error}; closed readers: {}/{}; stderr: {}; stdout: {}",
+                    self.closed,
+                    self.readers.len(),
+                    String::from_utf8_lossy(&self.stderr),
+                    String::from_utf8_lossy(&self.stdout)
+                ),
+            }
+        }
+    }
+
+    fn author_frame_since(&mut self, offset: usize) -> String {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let text = visible_text(&self.stderr[offset..]);
+            if let Some((_, frame)) = text.rsplit_once("Author (optional)")
+                && frame.lines().any(|line| line.trim_start().starts_with('└'))
+            {
+                return frame.to_owned();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Timed out waiting for a complete Author frame: {}",
+                String::from_utf8_lossy(&self.stderr)
+            );
+            self.receive(Duration::from_millis(10));
+        }
+    }
+
+    fn author_frame(&mut self) -> String {
+        self.author_frame_since(0)
+    }
+
+    fn choose_author(&mut self, label: &str, action: bool) {
+        let mut frame = self.author_frame();
+        for _ in 0..128 {
+            let selected = frame
+                .lines()
+                .find_map(|line| line.split_once('●').map(|(_, item)| item.trim()))
+                .expect("Author must be a native selector");
+            // Actions have no source hint. A candidate literally named Skip or
+            // Enter another author has a hint and is a different typed value.
+            if (action && selected == label)
+                || (!action && selected.starts_with(&format!("{label} (")))
+            {
+                self.send(b"\r");
+                return;
+            }
+            let offset = self.stderr.len();
+            self.send(b"\x1b[B");
+            frame = self.author_frame_since(offset);
+        }
+        panic!("Could not select author {label:?}: {frame}");
+    }
+
+    fn custom_author(&mut self) {
+        self.choose_author("Enter another author", true);
+        // The action is followed by another Author prompt, never editable
+        // prefilling. Wait for its complete frame before sending text.
+        let offset = self.stderr.len();
+        let frame = self.author_frame_since(offset);
+        assert!(!frame.contains('●'), "{frame}");
+        assert!(!frame.contains(DEFAULT_AUTHOR), "{frame}");
+    }
+
+    fn skip_author(&mut self) {
+        self.choose_author("Skip", true);
+        self.wait_for("Description (optional");
+    }
+
     fn choose_format(&mut self, directory: &Path, format: LayerManifestFormat) {
         self.wait_for("Layer manifest format");
         self.wait_for("jsonc");
@@ -264,7 +449,9 @@ esac",
             }
             assert!(
                 Instant::now() < deadline,
-                "Terminal child did not finish: {}",
+                "Terminal child did not finish (child status: {status:?}, closed readers: {}/{}): {}",
+                self.closed,
+                self.readers.len(),
                 String::from_utf8_lossy(&self.stderr)
             );
             self.receive(Duration::from_millis(10));
@@ -365,12 +552,21 @@ impl Drop for Session {
     fn drop(&mut self) {
         if !self.finished {
             let _ = self.child.kill();
-            let _ = self.child.wait();
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < deadline {
+                if !matches!(self.child.try_wait(), Ok(None)) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
         }
         self.writer.take();
         self.stdout_terminal.take();
         for reader in self.readers.drain(..) {
-            let _ = reader.join();
+            // A descendant retaining the PTY must not hang the test runner.
+            if reader.is_finished() {
+                let _ = reader.join();
+            }
         }
     }
 }
@@ -486,6 +682,40 @@ fn selector_summary(transcript: &str) -> &str {
             })
         })
         .unwrap()
+}
+
+fn author_summary(transcript: &str) -> &str {
+    transcript
+        .split_once("Description (optional)")
+        .unwrap()
+        .0
+        .rsplit_once("Author (optional)")
+        .unwrap()
+        .1
+}
+
+fn github_fixture(organisations: Value) -> IdentityFixture {
+    let fixture = IdentityFixture::new();
+    fixture.github(
+        json!({"name": "Fixture GitHub person", "login": "fixture-person"}),
+        json!({"data": {"viewer": {
+            "login": "fixture-person",
+            "organizations": {
+                "nodes": organisations,
+                "pageInfo": {"hasNextPage": false, "endCursor": null}
+            }
+        }}}),
+    );
+    fixture
+}
+
+fn finish_after_author(session: &mut Session, directory: &Path) {
+    session.wait_for("Description (optional");
+    assert_no_layer_manifests(directory);
+    session.send(b"\r");
+    session.choose_format(directory, LayerManifestFormat::Yaml);
+    assert!(session.finish().success());
+    session.assert_guided_success(directory, LayerManifestFormat::Yaml);
 }
 
 fn layer_manifest(directory: &Path) -> Value {
@@ -635,8 +865,7 @@ fn guided_header_preserves_the_grid_hierarchy_and_once_per_session_opening() {
             );
         }
         session.send(b"example\r");
-        session.wait_for("Author (optional");
-        session.send(b"\r");
+        session.skip_author();
         session.wait_for("Description (optional");
         session.send(b"\r");
         session.choose_format(directory.path(), LayerManifestFormat::Yaml);
@@ -669,8 +898,7 @@ fn explicit_colour_disables_beat_force_without_disabling_guided_questions() {
         session.wait_for("Enter a non-blank name.");
         assert_no_layer_manifests(directory.path());
         session.send(b"\x7fexample\r");
-        session.wait_for("Author (optional");
-        session.send(b"\r");
+        session.skip_author();
         session.wait_for("Description (optional");
         session.send(b"\r");
         session.choose_format(directory.path(), LayerManifestFormat::Jsonc);
@@ -893,6 +1121,17 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
                             "Input flags are --name, --author, --description and --format."
                         ));
                         assert!(prose.contains("Format defaults to yaml (layer.yaml)."));
+                        for expected in [
+                            "Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups",
+                            "with grouped source hints",
+                            "Choose a name, Enter another author, or Skip",
+                            "With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author",
+                            "Optional GitHub requests use only existing gh authentication, never login or extra permissions",
+                            "Offline use and use without gh are supported",
+                            "Flag-only input performs no author discovery",
+                        ] {
+                            assert!(prose.contains(expected), "{help}");
+                        }
                         assert!(prose.contains("yaml, yml, toml, json, jsonc"));
                         assert!(help.contains("hydragen init --format json\r\n"));
                     }
@@ -947,10 +1186,10 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
     let directory = tempdir().unwrap();
     let mut session = Session::new(directory.path(), &["init"], None);
     session.wait_for("Name");
-    let guidance = "Enter accepts the default or skips an optional field.";
+    let guidance = "Enter accepts the current selection or default; empty optional text skips.";
     assert!(visible_text(&session.stderr).contains(guidance));
     session.send("  配置 🦀  \r".as_bytes());
-    session.wait_for("Author (optional");
+    session.custom_author();
     session.send(b"  Example team  \r");
     session.wait_for("Description (optional");
     session.send(b"Description\r");
@@ -979,8 +1218,7 @@ fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     session.wait_for("Name");
     session.wait_for(default_name);
     session.send(b"\r");
-    session.wait_for("Author (optional");
-    session.send(b"\r");
+    session.skip_author();
     session.wait_for("Description (optional");
     session.send(b"\r");
     session.choose_format(&directory, LayerManifestFormat::Yaml);
@@ -1013,7 +1251,7 @@ fn optional_fields_can_be_skipped_independently() {
         let mut session = Session::new(directory.path(), &["init"], None);
         session.wait_for("Name");
         session.send(b"example\r");
-        session.wait_for("Author (optional");
+        session.custom_author();
         assert!(!visible_text(&session.stderr).contains("Skipped"));
         session.send(format!("{author}\r").as_bytes());
         session.wait_for("Description (optional");
@@ -1045,6 +1283,418 @@ fn optional_fields_can_be_skipped_independently() {
         assert!(format_summary.contains("yaml"), "{format_summary}");
         assert!(!format_summary.contains("layer."), "{format_summary}");
         assert!(!format_summary.contains("Skipped"), "{format_summary}");
+    }
+}
+
+#[test]
+fn project_author_and_declared_organisation_are_default_without_changing_layer_name() {
+    for author in ["Project author", "Fixture organisation"] {
+        let directory = tempdir().unwrap();
+        let package = json!({"name": "not-the-layer-name", "author": {"name": author}}).to_string();
+        fs::write(directory.path().join("package.json"), &package).unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                identity: Some(github_fixture(json!([
+                    {"name": "Fixture organisation", "login": "fixture-org"}
+                ]))),
+                ..Default::default()
+            },
+        );
+        let layer_name = directory.path().file_name().unwrap().to_str().unwrap();
+        session.wait_for("Name");
+        session.wait_for(layer_name);
+        session.send(b"\r");
+        let frame = session.author_frame();
+        assert!(
+            frame.contains(&format!("● {author} (package.json author")),
+            "{frame}"
+        );
+        assert!(frame.contains(DEFAULT_AUTHOR), "{frame}");
+        session.send(b"\r");
+        session.wait_for("Description (optional");
+        let transcript = visible_text(&session.stderr);
+        let summary = author_summary(&transcript);
+        assert!(summary.contains(author), "{summary}");
+        for hint in ["package.json", "GitHub", "GIT_AUTHOR_NAME", "fixture-org"] {
+            assert!(!summary.contains(hint), "{summary}");
+        }
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name": layer_name, "author": author})
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join("package.json")).unwrap(),
+            package
+        );
+        assert_only_files(directory.path(), &["package.json", "layer.yaml"]);
+    }
+}
+
+#[test]
+fn project_sources_are_grouped_once_with_all_hints_before_identity_alternatives() {
+    let directory = tempdir().unwrap();
+    let files = [
+        (
+            "package.json",
+            json!({"author": {"name": format!("  {DEFAULT_AUTHOR}  ")}}).to_string(),
+        ),
+        (
+            "Cargo.toml",
+            format!(
+                "[package]\nauthors = [\"{DEFAULT_AUTHOR}\", \"Cargo alternative\", \"Cargo alternative\"]\n"
+            ),
+        ),
+        (
+            "pyproject.toml",
+            format!(
+                "[project]\nauthors = [{{name = \"{DEFAULT_AUTHOR}\"}}, {{name = \"Python alternative\"}}]\n"
+            ),
+        ),
+    ];
+    for (filename, contents) in &files {
+        fs::write(directory.path().join(filename), contents).unwrap();
+    }
+    let mut session = Session::new(directory.path(), &["init"], None);
+    session.wait_for("Name");
+    session.send(b"example\r");
+    let frame = session.author_frame();
+    assert_eq!(frame.matches(DEFAULT_AUTHOR).count(), 1, "{frame}");
+    let grouped = frame
+        .lines()
+        .find(|line| line.contains(DEFAULT_AUTHOR))
+        .unwrap();
+    for hint in [
+        "package.json author",
+        "Cargo.toml package.authors",
+        "pyproject.toml project.authors",
+        "GIT_AUTHOR_NAME",
+    ] {
+        assert_eq!(grouped.matches(hint).count(), 1, "{grouped}");
+    }
+    let first = frame.find(DEFAULT_AUTHOR).unwrap();
+    let cargo = frame.find("Cargo alternative").unwrap();
+    let python = frame.find("Python alternative").unwrap();
+    assert!(first < cargo && cargo < python, "{frame}");
+    assert_eq!(frame.matches("Cargo alternative").count(), 1, "{frame}");
+    session.choose_author("Python alternative", false);
+    finish_after_author(&mut session, directory.path());
+    assert_eq!(
+        layer_manifest(directory.path()),
+        json!({"name": "example", "author": "Python alternative"})
+    );
+    for (filename, contents) in &files {
+        assert_eq!(
+            fs::read_to_string(directory.path().join(filename)).unwrap(),
+            *contents
+        );
+    }
+    assert_only_files(
+        directory.path(),
+        &["package.json", "Cargo.toml", "pyproject.toml", "layer.yaml"],
+    );
+}
+
+#[test]
+fn github_organisation_can_be_selected_without_storing_membership_or_leaking_credentials() {
+    let directory = tempdir().unwrap();
+    let mut session = Session::with_settings(
+        directory.path(),
+        &["init"],
+        None,
+        None,
+        TerminalSettings {
+            identity: Some(github_fixture(json!([
+                {"name": "Fixture organisation", "login": "fixture-org"}
+            ]))),
+            ..Default::default()
+        },
+    );
+    session.wait_for("Name");
+    session.send(b"example\r");
+    let frame = session.author_frame();
+    let selected = frame
+        .lines()
+        .find_map(|line| line.split_once('●').map(|(_, item)| item.trim()))
+        .expect("Author must have an initially selected candidate");
+    let hints = selected
+        .strip_prefix(&format!("{DEFAULT_AUTHOR} ("))
+        .and_then(|hints| hints.strip_suffix(')'))
+        .expect("The fixture author must be initially selected");
+    assert!(
+        hints.split(", ").any(|hint| hint == "GIT_AUTHOR_NAME"),
+        "{frame}"
+    );
+    session.choose_author("Fixture organisation", false);
+    session.wait_for("Description (optional");
+    let text = visible_text(&session.stderr);
+    let summary = author_summary(&text);
+    assert!(summary.contains("Fixture organisation"), "{summary}");
+    assert!(
+        !summary.contains("fixture-org") && !summary.contains("GitHub"),
+        "{summary}"
+    );
+    finish_after_author(&mut session, directory.path());
+    assert_eq!(
+        layer_manifest(directory.path()),
+        json!({"name": "example", "author": "Fixture organisation"})
+    );
+    let root = session.identity.path();
+    let environment = fs::read_to_string(root.join("gh-environment")).unwrap();
+    for (key, value) in [
+        ("HOME", root.join("home")),
+        ("XDG_CONFIG_HOME", root.join("xdg")),
+        ("GH_CONFIG_DIR", root.join("gh")),
+        ("GIT_CONFIG_GLOBAL", root.join("gitconfig")),
+        ("PATH", root.join("bin")),
+    ] {
+        assert!(
+            environment
+                .lines()
+                .any(|line| line == format!("{key}={}", value.display())),
+            "{environment}"
+        );
+    }
+    for line in environment.lines() {
+        let key = line.split_once('=').unwrap().0;
+        assert!(
+            !key.contains("TOKEN") && !key.contains("PASSWORD") && !key.contains("SECRET"),
+            "Unexpected credential variable: {key}"
+        );
+        assert!(!matches!(
+            key,
+            "GIT_CONFIG_COUNT"
+                | "GIT_CONFIG_SYSTEM"
+                | "GIT_AUTHOR_EMAIL"
+                | "GIT_COMMITTER_NAME"
+                | "GIT_COMMITTER_EMAIL"
+                | "USER"
+                | "LOGNAME"
+        ));
+    }
+    let calls = fs::read_to_string(root.join("gh-calls")).unwrap();
+    assert_eq!(calls.lines().count(), 2, "{calls}");
+    assert!(
+        calls
+            .lines()
+            .all(|line| line.starts_with("api --hostname github.com ")),
+        "{calls}"
+    );
+    assert!(
+        !calls.contains("auth login") && !calls.contains("auth refresh"),
+        "{calls}"
+    );
+    assert_only_files(directory.path(), &["layer.yaml"]);
+}
+
+#[test]
+fn long_author_lists_scroll_natively_without_dropping_declared_names() {
+    let directory = tempdir().unwrap();
+    let names: Vec<_> = (0..36)
+        .map(|index| format!("Project author {index:02}"))
+        .collect();
+    let cargo = format!(
+        "[package]\nauthors = {}\n",
+        serde_json::to_string(&names).unwrap()
+    );
+    fs::write(directory.path().join("Cargo.toml"), &cargo).unwrap();
+    let mut session = Session::with_settings(
+        directory.path(),
+        &["init"],
+        None,
+        None,
+        TerminalSettings {
+            rows: 16,
+            ..Default::default()
+        },
+    );
+    session.wait_for("Name");
+    session.send(b"example\r");
+    let frame = session.author_frame();
+    assert!(frame.contains("● Project author 00"), "{frame}");
+    assert!(
+        !frame.contains("Project author 35"),
+        "Expected a scroll window, not every row: {frame}"
+    );
+    session.choose_author("Project author 35", false);
+    finish_after_author(&mut session, directory.path());
+    let transcript = visible_text(&session.stderr);
+    for name in names {
+        assert!(transcript.contains(&name), "Missing {name}: {transcript}");
+    }
+    assert_eq!(
+        layer_manifest(directory.path()),
+        json!({"name": "example", "author": "Project author 35"})
+    );
+    assert_eq!(
+        fs::read_to_string(directory.path().join("Cargo.toml")).unwrap(),
+        cargo
+    );
+    assert_only_files(directory.path(), &["Cargo.toml", "layer.yaml"]);
+}
+
+#[test]
+fn candidate_names_that_match_actions_remain_literal_author_metadata() {
+    for name in ["Skip", "Enter another author"] {
+        let directory = tempdir().unwrap();
+        let package = json!({"author": {"name": name}}).to_string();
+        fs::write(directory.path().join("package.json"), &package).unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        session.send(b"example\r");
+        let frame = session.author_frame();
+        assert!(
+            frame.contains(&format!("● {name} (package.json author")),
+            "{frame}"
+        );
+        session.choose_author(name, false);
+        session.wait_for("Description (optional");
+        let text = visible_text(&session.stderr);
+        let summary = author_summary(&text);
+        assert!(summary.contains(name), "{summary}");
+        assert!(
+            !summary.contains("Skipped") && !summary.contains("package.json"),
+            "{summary}"
+        );
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name": "example", "author": name})
+        );
+        assert_only_files(directory.path(), &["package.json", "layer.yaml"]);
+    }
+}
+
+#[test]
+fn direct_skip_is_one_author_question_even_with_action_like_candidate_names() {
+    let directory = tempdir().unwrap();
+    fs::write(
+        directory.path().join("Cargo.toml"),
+        "[package]\nauthors = [\"Skip\", \"Enter another author\"]\n",
+    )
+    .unwrap();
+    let mut session = Session::new(directory.path(), &["init"], None);
+    session.wait_for("Name");
+    session.send(b"example\r");
+    session.skip_author();
+    let text = visible_text(&session.stderr);
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.contains('◇') && line.contains("Author (optional)"))
+            .count(),
+        1,
+        "{text}"
+    );
+    let summary = author_summary(&text);
+    assert!(summary.contains("Skipped"), "{summary}");
+    assert!(
+        !summary.contains("Enter another author") && !summary.contains("Cargo.toml"),
+        "{summary}"
+    );
+    finish_after_author(&mut session, directory.path());
+    assert_eq!(layer_manifest(directory.path()), json!({"name": "example"}));
+    assert_only_files(directory.path(), &["Cargo.toml", "layer.yaml"]);
+}
+
+#[test]
+fn author_choices_and_hints_remain_meaningful_without_colour_or_on_basic_terminals() {
+    for settings in [
+        TerminalSettings {
+            no_color: Some("1"),
+            ..Default::default()
+        },
+        TerminalSettings {
+            term: "dumb",
+            colour: Some(false),
+            ..Default::default()
+        },
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::with_settings(directory.path(), &["init"], None, None, settings);
+        session.wait_for("Name");
+        session.send(b"example\r");
+        let frame = session.author_frame();
+        for label in [
+            DEFAULT_AUTHOR,
+            "GIT_AUTHOR_NAME",
+            "Enter another author",
+            "Skip",
+        ] {
+            assert!(frame.contains(label), "{frame}");
+        }
+        session.send(b"\r");
+        finish_after_author(&mut session, directory.path());
+        assert_no_sgr(&session.stderr);
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name": "example", "author": DEFAULT_AUTHOR})
+        );
+        assert_only_files(directory.path(), &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn missing_git_and_gh_still_allow_empty_custom_author_without_restoring_suggestions() {
+    let directory = tempdir().unwrap();
+    let fixture = IdentityFixture::new();
+    fixture.without_tools();
+    let mut session = Session::with_settings(
+        directory.path(),
+        &["init"],
+        None,
+        None,
+        TerminalSettings {
+            identity: Some(fixture),
+            ..Default::default()
+        },
+    );
+    session.wait_for("Name");
+    session.send(b"example\r");
+    session.custom_author();
+    session.send(b"\r");
+    session.wait_for("Description (optional");
+    let text = visible_text(&session.stderr);
+    assert!(author_summary(&text).contains("Skipped"), "{text}");
+    assert!(
+        !text.contains("Warning:") && !text.contains("Error:"),
+        "{text}"
+    );
+    finish_after_author(&mut session, directory.path());
+    assert_eq!(layer_manifest(directory.path()), json!({"name": "example"}));
+    assert_only_files(directory.path(), &["layer.yaml"]);
+}
+
+#[test]
+fn cancelling_custom_author_input_reports_once_and_creates_nothing() {
+    for key in [b"\x1b".as_slice(), b"\x03"] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        session.send(b"example\r");
+        session.custom_author();
+        session.send(b"unsubmitted author");
+        session.send(key);
+        assert!(!session.finish().success());
+        let text = visible_text(&session.stderr);
+        assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+        assert_eq!(
+            text.to_lowercase().matches("no files were changed").count(),
+            1,
+            "{text}"
+        );
+        assert!(
+            !text.contains("Error:")
+                && !text.contains("Description (optional")
+                && !text.contains("Layer initialised"),
+            "{text}"
+        );
+        assert!(session.stdout.is_empty());
+        assert_no_layer_manifests(directory.path());
+        assert_only_files(directory.path(), &[]);
     }
 }
 
@@ -1082,7 +1732,7 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             }
             assert_no_layer_manifests(directory.path());
             session.send("\x7f  配置 🦀  \r".as_bytes());
-            session.wait_for("Author (optional");
+            session.custom_author();
             session.send(b" \r");
             session
                 .wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
@@ -1140,7 +1790,7 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
     session.wait_for("Enter a non-blank name.");
     assert_no_layer_manifests(directory.path());
     session.send("\x7f\u{feff}\r".as_bytes());
-    session.wait_for("Author (optional");
+    session.custom_author();
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
     assert_no_layer_manifests(directory.path());
@@ -1165,7 +1815,7 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         session.wait_for("Name");
         assert_no_layer_manifests(directory.path());
         session.send(b"shared-agent-rules\r");
-        session.wait_for("Author (optional");
+        session.custom_author();
         assert_no_layer_manifests(directory.path());
         session.send("  Équipe 🦀  \r".as_bytes());
         session.wait_for("Description (optional");
@@ -1346,9 +1996,10 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             session.wait_for("Name");
             if answered >= 1 {
                 session.send(b"example\r");
-                session.wait_for("Author (optional");
+                session.author_frame();
             }
             if answered >= 2 {
+                session.custom_author();
                 session.send(b"Team\r");
                 session.wait_for("Description (optional");
             }
@@ -1486,8 +2137,7 @@ fn the_exact_default_target_created_during_questions_is_not_overwritten() {
     session.wait_for("Name");
     fs::write(directory.path().join("layer.yaml"), "another process").unwrap();
     session.send(b"example\r");
-    session.wait_for("Author (optional");
-    session.send(b"\r");
+    session.skip_author();
     session.wait_for("Description (optional");
     session.send(b"\r");
     session.wait_for("Layer manifest format");
@@ -1528,8 +2178,7 @@ fn alternate_formats_appearing_during_questions_allow_creation_in_both_priority_
         )
         .unwrap();
         session.send(b"example\r");
-        session.wait_for("Author (optional");
-        session.send(b"\r");
+        session.skip_author();
         session.wait_for("Description (optional");
         session.send(b"\r");
         session.wait_for("Layer manifest format");
@@ -1612,8 +2261,45 @@ fn redirecting_any_single_stream_disables_guided_input() {
 }
 
 #[test]
+fn absolute_stty_preamble_preserves_queued_keys_with_fixture_only_path() {
+    for cancel in [false, true] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        assert!(!session.identity.path().join("bin/stty").exists());
+        assert!(Path::new("/bin/stty").is_file());
+        session.wait_for("Name");
+        // Queue editing keys together, rather than timing each byte to a read.
+        session.send(b"temp\x7f\x7f\x7f\x7fexample\r");
+        session.custom_author();
+        if cancel {
+            session.send(b"queued\x7f\x03");
+            assert!(!session.finish().success());
+            let text = visible_text(&session.stderr);
+            assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+            assert_eq!(
+                text.to_lowercase().matches("no files were changed").count(),
+                1,
+                "{text}"
+            );
+            assert!(!text.contains("Error:") && !text.contains("Description (optional"));
+            assert!(session.stdout.is_empty());
+            assert_no_layer_manifests(directory.path());
+            assert_only_files(directory.path(), &[]);
+        } else {
+            session.send(b"temp\x7f\x7f\x7f\x7fChosen author\r");
+            finish_after_author(&mut session, directory.path());
+            assert_eq!(
+                layer_manifest(directory.path()),
+                json!({"name": "example", "author": "Chosen author"})
+            );
+            assert_only_files(directory.path(), &["layer.yaml"]);
+        }
+    }
+}
+
+#[test]
 fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
-    for at_selector in [false, true] {
+    for stop_at in ["name", "author-selector", "author-text", "format"] {
         let directory = tempdir().unwrap();
         let terminal_session = TERMINAL_SESSION
             .lock()
@@ -1626,8 +2312,20 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
                 pixel_height: 0,
             })
             .unwrap();
+        assert_eq!(
+            input_mode(input.master.as_ref()),
+            Some(InputMode::Canonical),
+            "Dedicated input PTY must have a canonical baseline before child spawn"
+        );
         let input_path = input.master.tty_name().unwrap();
-        let mut input_writer = input.master.take_writer().unwrap();
+        // portable-pty's writer sends a newline and EOT on drop. A plain
+        // duplicate closes silently, so dropping it tests disconnection instead
+        // of accidentally submitting the current prompt.
+        // SAFETY: input.master owns this descriptor and outlives the borrow;
+        // try_clone_to_owned creates an independently owned descriptor.
+        let input_fd = unsafe { BorrowedFd::borrow_raw(input.master.as_raw_fd().unwrap()) };
+        let mut input_writer: Box<dyn Write + Send> =
+            Box::new(fs::File::from(input_fd.try_clone_to_owned().unwrap()));
         let mut session = Session::spawn_with_lock(
             directory.path(),
             &["init"],
@@ -1637,9 +2335,19 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             TerminalSettings::default(),
         );
         session.wait_for("Name");
-        if at_selector {
+        if stop_at != "name" {
+            input_writer.write_all(b"example\r").unwrap();
+            input_writer.flush().unwrap();
+            session.author_frame();
+        }
+        if matches!(stop_at, "author-text" | "format") {
+            let original_writer = session.writer.replace(input_writer);
+            session.custom_author();
+            input_writer = session.writer.take().unwrap();
+            session.writer = original_writer;
+        }
+        if stop_at == "format" {
             for (answer, next_prompt) in [
-                ("example\r", "Author (optional"),
                 ("Team\r", "Description (optional"),
                 ("Description\r", "Layer manifest format"),
             ] {
@@ -1650,11 +2358,21 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             session.wait_for("jsonc");
         }
         assert_no_layer_manifests(directory.path());
+        // Frames are flushed before console selects its input. With no answer
+        // bytes left queued, this PTY's canonical-to-noncanonical transition
+        // proves stdin has been selected, not that a read syscall is blocked.
+        session.wait_for_noncanonical_input(input.master.as_ref());
         // Closing every master handle disconnects stdin while stderr remains usable.
         // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
         drop(input_writer);
         drop(input);
-        assert!(!session.finish().success());
+        let status = session.finish();
+        assert!(
+            !status.success(),
+            "Input loss at {stop_at} returned {status:?}; stderr: {}; stdout: {}",
+            String::from_utf8_lossy(&session.stderr),
+            String::from_utf8_lossy(&session.stdout)
+        );
         assert!(
             String::from_utf8_lossy(&session.stderr)
                 .contains("Could not collect initialisation input")

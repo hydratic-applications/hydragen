@@ -1,0 +1,11 @@
+[project]
+authors = [
+    { name = "Python First", email = "first@example.com" },
+    { email = "email-only@example.com" },
+    { name = 42 },
+    "Unsupported Python String",
+    { name = " " },
+    { name = "Unsafe\u001bName" },
+    { name = "Python Last" },
+]
+maintainers = [{ name = "Not An Author" }]

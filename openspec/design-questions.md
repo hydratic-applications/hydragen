@@ -132,6 +132,26 @@ design everything upfront.
      [mode-selection decision](changes/archive/2026-10-16-add-interactive-init/design.md#select-interactive-mode-conservatively),
      and [future-command convention](changes/archive/2026-10-16-add-interactive-init/design.md#keep-the-convention-reusable-without-adding-future-commands).
      This does not select an MCP server or skills as an agent-specific interface.
+   - **Guided-author decision:** Prefer directly declared authors in the init
+     directory's `package.json`, `Cargo.toml`, and `pyproject.toml`, followed by
+     Git/account names and optional GitHub profile/organisation names through
+     existing `gh` authentication. Group equal values into single choices with
+     combined source hints. When names exist, show a single-choice selector with
+     those names, Enter another
+     author, and Skip. Skip omits author and moves to Description. With no names,
+     or after choosing Enter another author, reuse one empty optional text prompt;
+     an empty submission also omits author and moves to Description. GitHub lookup
+     uses one selected host/account and bounded background preparation; it never starts
+     login or requests permissions. GitHub-membership-only choices are never
+     selected initially, but a project-declared organisation is eligible.
+     All discovery is best effort and disabled entirely for flag-only execution;
+     offline use remains supported. See the planned
+     [source order](changes/suggest-init-author/design.md#order-project-and-identity-sources),
+     [project author discovery](changes/suggest-init-author/design.md#read-directly-declared-authors-from-project-files),
+     [optional GitHub discovery](changes/suggest-init-author/design.md#add-optional-github-candidates-through-existing-gh-authentication),
+     [early preparation and Author waiting](changes/suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered),
+     [grouping](changes/suggest-init-author/design.md#group-equal-names-and-retain-their-sources),
+     and [conditional author interaction](changes/suggest-init-author/design.md#show-a-selector-only-when-there-are-names-to-choose-from).
 10. **Success criteria.** Which real projects and observations should we use to
     assess success? The assessment should cover:
     - Effort to adopt reuse compared with editing directly.
@@ -187,7 +207,17 @@ design everything upfront.
       into the result; see the
       [identity decision](changes/define-cli-visual-identity/design.md#preserve-the-meaning-of-the-name-and-icon).
 11. **Performance targets.** What response times and resource limits should startup
-    and common operations meet, and for what project sizes?
+     and common operations meet, and for what project sizes?
+    - **Responsiveness decision:** Prepare safe, likely later-step information
+      during earlier input rather than moving optional delays to startup. Limit
+      background lifetime/resources separately from the short wait starting when
+      results are needed, with meaningful progress, cancellation, stable choices,
+      and cleanup. The init increment uses a 15-second preparation lifetime and
+      at most 1,500 ms additional Author wait; these are scoped values, not global
+      targets for all commands. See the
+      [preparation decision](changes/suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered)
+      and the existing [DX/performance values](../FOUNDATIONS.md#guiding-values).
+      Broader command targets and project-size benchmarks remain open.
 12. **Patch structure.** What internal structure should `.patch` files use to
     describe modifications to inherited files? The filename suffix does not select
     an existing patch format. See [Patch](../GLOSSARY.md#patch) for the agreed meaning.

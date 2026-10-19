@@ -371,6 +371,13 @@ fn help_explains_defaults_and_optional_metadata_without_writes() {
                 "yaml, yml, toml, json, jsonc",
                 "Format defaults to yaml (layer.yaml)",
                 "Any input flag",
+                "Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups",
+                "with grouped source hints",
+                "Choose a name, Enter another author, or Skip",
+                "With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author",
+                "Optional GitHub requests use only existing gh authentication, never login or extra permissions",
+                "Offline use and use without gh are supported",
+                "Flag-only input performs no author discovery",
             ] {
                 assert!(prose.contains(expected), "{help}");
             }
