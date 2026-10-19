@@ -196,6 +196,49 @@ report file, automatic search disabled, integrity checks enabled, and
 Valid below-target main reports still upload because neither gate is its
 dependency. Fork and other PR checks need no upload or credential expansion.
 
+### Synchronise the input-loss test after dedicated stdin selection
+
+The terminal input-loss test redirects standard input to a separate
+pseudo-terminal (PTY), while the process's controlling terminal and error output
+remain usable. A visible prompt is not proof that the prompt library has selected
+that input. With the locked cliclack 0.5.6 and console 0.16.6 dependencies, the
+prompt frame can be flushed before console checks whether stdin is a terminal.
+On Linux, disconnecting the dedicated input PTY in that interval can make the
+check fail and cause console to read `/dev/tty`, the surviving controlling
+terminal, instead. A controlled reproduction confirmed this matching race; the
+earlier hosted transcript alone cannot establish its unique cause.
+
+This increment repairs the test's injection setup, not the production fallback.
+Before spawning, require the dedicated stdin PTY to be canonical (line-buffered).
+After observing the target Name or format-selector frame, wait for that same PTY
+to become noncanonical (input delivered without line buffering), then close all
+of its master handles. That transition establishes that stdin has been selected;
+it does not prove a read system call is currently blocked, or that every terminal
+setting is in raw mode. Do not infer readiness from output alone.
+
+Observe the transition through portable-pty's supported `MasterPty::get_termios`
+API and the `ICANON` name exposed by `local_flags.iter_names()`, without
+platform-specific bit constants or new Cargo dependencies. Use the existing
+`TIMEOUT` deadline and output-event draining while checking child status. Missing
+termios support, early child exit or an expired deadline must fail diagnostically,
+not skip the test or extend its wait. Add two helper tests for pending/ready,
+expired, unsupported and exited-child states. Improve `Session::finish` timeout
+diagnostics with child status and closed/expected reader counts only; retain its
+existing timeout, completion condition and child cleanup.
+
+Keep both Name and selector injection cases and all existing assertions: nonzero
+exit, one correctly styled input-error diagnostic, empty standard output, no
+cancellation or success wording, and no created files or layer manifest. Do not
+add retries, arbitrary readiness sleeps or keystrokes, weaker assertions, or
+test/coverage exclusions. Run fixed 100-repetition batches for macOS, normal
+Linux and instrumented Linux, exercising both cases each time and failing a batch
+on any failure, then full suites, independent review and a fresh hosted run.
+
+Production input loss **before** console selects stdin can still enter the
+controlling-terminal fallback. That runtime gap remains a separate open follow-up;
+this test-only change neither fixes it nor relaxes the existing interaction policy.
+Production Rust, Cargo dependencies, workflow and coverage policy remain unchanged.
+
 ### Keep specifications ordered and documentation focused
 
 `configure-codecov` introduces `code-coverage-ci` outside the main specifications.
@@ -258,3 +301,5 @@ work rather than silently restoring superseded policy.
 - [GitHub OIDC security](https://docs.github.com/en/actions/concepts/security/openid-connect)
 - [Codecov action OIDC and supported inputs](https://github.com/codecov/codecov-action#using-oidc)
 - [Codecov disabling project and patch statuses](https://docs.codecov.com/docs/commit-status)
+- [cliclack 0.5.6 prompt interaction source](https://docs.rs/crate/cliclack/0.5.6/source/src/prompt/interaction.rs)
+- [console 0.16.6 terminal input selection source](https://docs.rs/crate/console/0.16.6/source/src/unix_term.rs)

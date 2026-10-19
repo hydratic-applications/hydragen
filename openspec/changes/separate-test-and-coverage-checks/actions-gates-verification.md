@@ -7,9 +7,13 @@ This record covers the revised Actions-owned `Tests`, `Total coverage` and
 describes the superseded Codecov-only policy and does not establish the new
 gates' outcomes.
 
-The corrected local implementation and independent review are now complete.
-Hosted execution, actual OIDC uploading, processed main reports and public access
-remain unverified; local completion is not publication or merge clearance.
+The coverage implementation has local and hosted PR policy evidence. Diagnosis
+of the retained initial terminal-test timeout confirmed a matching Linux input
+selection race. The test-only synchronisation increment has completed local
+validation and independent review; fresh hosted verification is still pending.
+Production fallback before input selection remains a separate unfixed runtime
+gap. Main OIDC uploading, processed main reports and anonymous access remain
+unverified; PR #8 remains open and the repository private at this review.
 
 The documentation/specification work revises the active proposal, design and
 requirements, including the original authenticated-upload requirement. README
@@ -44,7 +48,7 @@ from these edits.
   `--diff-file`, JSON output and rounded display behaviour. This is documentation
   evidence, not execution of the policy adapter or integration tests.
 
-## Fresh Rust test and measurement-scope verification
+## Initial fresh Rust test and measurement-scope verification
 
 The following fresh runs validate the unchanged Rust test infrastructure and
 coverage measurement scope, not the new Python helpers, percentage policy,
@@ -164,7 +168,7 @@ checks, forced-text diff validation and renewed approval were required after
 these findings. Their completion is recorded next. The compatibility analysis
 alone did not establish hosted checks, main uploading or service outcomes.
 
-## Corrected local validation and independent approval
+## Corrected local validation and independent approval (before incorporating main)
 
 - The orchestrator and independent reviewer each reran all **39 Python tests**
   successfully, including the real pinned diff-cover CLI, raw/canonical report
@@ -210,13 +214,166 @@ additional changes. The revised evidence was reread for first-time-reader clarit
 the existing Rust-suite/scope results above are not evidence for a different
 source revision or a later main-branch run.
 
+## Hosted PR rollout and unresolved terminal-test reliability
+
+### Initial hosted failure retained
+
+The first ordinary push, `7c6d65b`, triggered
+[run 39193711392](https://github.com/hydratic-applications/hydragen/actions/runs/39193711392).
+`Tests` failed because
+`losing_terminal_input_reports_failure_without_creating_a_layer_manifest` timed
+out waiting for child exit at the Name prompt in `Session::finish`, which has a
+10-second limit. Independently, the report producer succeeded, total coverage
+passed at **96.11%**, and changed-line coverage reported valid N/A. The main-only
+uploader correctly skipped the PR event. This failure is retained as evidence;
+it was not replaced by a successful retry of the same revision.
+
+At this stage the intermittent terminal-test failure was unresolved and read-only
+diagnosis was pending. The later green run on a different revision did not prove
+the timeout fixed. The matching mechanism and subsequent test-only increment are
+recorded below; completing policy rollout does not close their validation or the
+separate production fallback issue.
+
+### PR head after incorporating main (before the harness increment)
+
+Main revision `c99e24e497772d5da78088ee2f65557534f71374` was merged into the PR
+branch, producing head `9e3cc759d6bd9024194c1b50d8084a2b98f29487`. This incorporated
+both source contributions without a conflict; it did **not** merge PR #8 into
+main. The combined candidate received independent review. Fresh local formatting,
+Clippy, macOS normal tests, Linux normal/instrumented tests and all **39 Python
+tests** passed. Each Rust suite passed **187 tests**; the fresh canonical report
+contained the same nine production sources and **2,374/2,469 covered lines
+(96.15%)**. These results belong to the combined revision, not the earlier
+186-test source snapshot recorded above, and do not explain the initial timeout.
+
+The separate [run 39194042983](https://github.com/hydratic-applications/hydragen/actions/runs/39194042983)
+on this head, attempt **1**, succeeded:
+
+- [Tests](https://github.com/hydratic-applications/hydragen/actions/runs/39194042983/job/117872802591)
+  passed all **187 Rust tests**, with none ignored or filtered out, completed the
+  zero-doctest phase, and passed all **39 Python tests**.
+- [Coverage report](https://github.com/hydratic-applications/hydragen/actions/runs/39194042983/job/117872802391)
+  succeeded and retained the canonical report and run-bound manifest.
+- [Total coverage](https://github.com/hydratic-applications/hydragen/actions/runs/39194042983/job/117873143610)
+  passed at **2,374/2,469 (96.15%)**.
+- [Changed-line coverage](https://github.com/hydratic-applications/hydragen/actions/runs/39194042983/job/117873143549)
+  succeeded with explicit **N/A**, after validating the immutable base/head
+  comparison and finding no applicable measured head lines.
+- `Codecov main report` was correctly **skipped** because this was a PR event,
+  not an eligible main push or manual-main run.
+
+### Retained evidence and policy reconciliation
+
+The named artifact
+`coverage-39194042983-1-9e3cc759d6bd9024194c1b50d8084a2b98f29487` was downloaded and
+rechecked with the actual `total` and `changed` consumers. Independently supplied
+expectations were repository `hydratic-applications/hydragen`, run
+`39194042983`, attempt `1`, event `pull_request`, head `9e3cc759d6bd9024194c1b50d8084a2b98f29487`
+and base `c99e24e497772d5da78088ee2f65557534f71374`. Identity, report digest,
+source hashes, counts and comparison validation passed; the repeated results
+were total **2,374/2,469 PASS** and changed-line **valid N/A**.
+
+The hosted results match the independent-consumer design and controlled local
+fixtures for exact 80%, below-target failure, opposite total/changed outcomes and
+valid N/A. Neither hosted PR run demonstrates a positive-denominator changed-line
+threshold pass or failure: those arithmetic/failure boundaries are supported by
+the controlled local tests, not by interpreting N/A as 100% coverage. No OIDC
+issuance, actual Codecov upload, processed main report or anonymous-access proof
+is established by these PR runs or artifact checks.
+
+## Terminal input-selection harness increment
+
+### Diagnosis and scope
+
+A controlled Linux reproduction confirmed a mechanism matching the retained
+timeout. With locked cliclack 0.5.6 and console 0.16.6, a Name frame can be visible
+before console selects an input terminal. The test's standard input (stdin) is
+redirected to a dedicated pseudo-terminal (PTY), while a separate controlling
+terminal stays alive for output. Disconnecting the input master before console
+checks whether stdin is a terminal (`isatty(stdin)`) can make
+that check fail on Linux; console then opens `/dev/tty` and keeps waiting on the
+surviving terminal. The original hosted transcript cannot establish this as its
+only possible cause. macOS hangup behaviour differs, so a successful macOS batch
+alone cannot establish Linux reliability.
+
+The implemented change is confined to `tests/interactive_init.rs`. It verifies a
+canonical, line-buffered baseline for the dedicated input PTY before spawn, waits
+for the Name or format-selector frame, then waits for that PTY's observed
+noncanonical transition before closing every input master. Supported
+`MasterPty::get_termios` observation and the named `ICANON` flag avoid platform
+bit constants and new Cargo dependencies. This establishes stdin selection, not
+proof of a blocked read system call or a fully raw terminal configuration.
+
+Readiness checks keep the existing timeout and output-event draining, explicitly
+failing for unsupported termios, early child exit or deadline expiry. Two helper
+tests cover those decisions. `Session::finish` adds child-status and reader-count
+timeout diagnostics only; its timeout, exit condition and cleanup remain unchanged.
+Both injection cases retain their nonzero exit, single styled error, empty stdout,
+no cancellation/success wording and no-created-files/layer-manifest assertions.
+No readiness keystrokes, arbitrary sleeps, retries or skipped tests were added.
+
+Production input loss **before** stdin selection can still trigger the fallback
+to the controlling terminal. That runtime gap is not fixed by this harness-only
+increment and remains an open follow-up under the existing interaction policy.
+There are no production Rust, Cargo dependency, workflow or coverage-policy changes.
+
+### Confirmed local validation and independent review
+
+- The actual test-source diff was reviewed for the documented scope and unchanged
+  Name/selector assertions. Initial source inspection established task 6.1;
+  completed validation and independent review now establish task 6.2.
+- macOS Clippy passed. The full macOS normal suite passed all **189 Rust tests**,
+  with none ignored or filtered out, and completed its zero-doctest phase. The
+  increase from 187 is the two test-only readiness helpers, not production code.
+  Results were corroborated from the maintained local validation logs.
+- Full normal Linux and instrumented Linux suites each passed all **189 Rust
+  tests**, with no failures, ignored tests or filtered tests. The normal run also
+  completed its zero-doctest phase. Both new readiness-helper diagnostic tests ran
+  in the full suites. These results were corroborated from the Linux validation log.
+- The three fixed stress batches—macOS, normal Linux and instrumented Linux—each
+  passed **100 repetitions**, exercising both injection cases per repetition,
+  with **zero failures**. All **300 repetitions / 600 case executions** passed in
+  their first fixed batches; there was no retry-until-green procedure or CI retry
+  policy. The driver stops on any nonzero result or timeout.
+- The independent reviewer read all 300 distinct repetition logs, matched the
+  normal/instrumented stress executable paths to the full-suite binaries and
+  checked **300 nonempty LLVM profile files** from instrumented stress execution.
+  Review confirmed the existing error/style/stdout/no-cancellation/no-files
+  assertions were unchanged in both injection cases.
+- Formatting and the existing **39 Python tests** passed in the orchestrator's
+  checks. Fresh coverage retained all nine production sources at canonical
+  **2,374/2,469 covered lines (96.15%)**. Actual report parsing, `prepare`, `total`,
+  `changed` and the inline uploader's local data fixture passed. This is local
+  validation, not OIDC issuance or a service upload; no source or coverage-policy
+  change is part of the harness increment.
+- Independent review approved the exact harness source and completed evidence
+  for commit and ordinary-push validation, with no material evidence gaps. At
+  this review the harness correction is still uncommitted on HEAD `9e3cc75` and
+  has not been pushed. The earlier green run on `9e3cc75` therefore does not
+  contain or validate this correction. A fresh hosted run remains required.
+
+These results validate the test-harness correction locally, not a production
+runtime fix. Input loss before stdin selection can still enter the `/dev/tty`
+fallback and remains a separate unfixed follow-up. Independent approval does not
+establish hosted success, main uploading, publication readiness or merge clearance.
+
+The design and `test-ci` requirements now record this test-setup distinction
+without broadening the production contract. Revised text was reviewed from a
+first-time reader's perspective. Documentation/specification validation remains
+separate from actual hosted verification and the open production runtime gap.
+
 ## Active progress and pending evidence
 
-Active progress is **17/20 tasks complete**. Implementation, local validation,
-documentation reconciliation and independent local review (sections 1–4) are
-complete. Only **5.1–5.3** remain pending: observe the actual revised PR checks and
-retained report, reconcile hosted results against controlled fixtures, then
-verify an eligible main OIDC upload, processed report, anonymous access and the
-unchanged token-free shield when their separate prerequisites are met. No hosted
-execution or actual upload has occurred for this revised implementation. Local
-results and earlier successful uploads do not establish those remaining outcomes.
+The coverage-policy rollout reached **19/20 tasks complete** before adding the
+three focused harness tasks. Tasks 5.1 and 5.2 retain their actual hosted check,
+artifact and local-fixture reconciliation evidence; that earlier green revision
+does not prove this later harness change works.
+
+Active progress is now **21/23 tasks complete**. Task **6.2** is complete on the
+full local validation and independent-review evidence above. Only **5.3 and 6.3**
+remain pending: eligible main OIDC/report/anonymous-access/shield verification
+and a fresh hosted run of the reviewed harness increment. PR #8 has not been
+merged into main, the repository remains private, and publication readiness is
+not established.
+The production pre-selection fallback remains a separate open runtime issue,
+not an implicitly completed task or an exception to the interaction policy.

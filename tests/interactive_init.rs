@@ -10,7 +10,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use hydragen::LayerManifestFormat;
-use portable_pty::{Child, CommandBuilder, ExitStatus, PtyPair, PtySize, native_pty_system};
+use portable_pty::{
+    Child, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, native_pty_system,
+};
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -22,6 +24,89 @@ static TERMINAL_SESSION: Mutex<()> = Mutex::new(());
 enum Event {
     Data(bool, Vec<u8>),
     Closed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputMode {
+    Canonical,
+    Noncanonical,
+}
+
+fn input_mode(input: &dyn MasterPty) -> Option<InputMode> {
+    input.get_termios().map(|settings| {
+        // Use the flag's supported name instead of platform-specific bit values
+        // or a direct dependency on portable-pty's termios implementation.
+        if settings
+            .local_flags
+            .iter_names()
+            .any(|(name, _)| name == "ICANON")
+        {
+            InputMode::Canonical
+        } else {
+            InputMode::Noncanonical
+        }
+    })
+}
+
+fn noncanonical_input_ready(
+    mode: Option<InputMode>,
+    child_status: Option<&ExitStatus>,
+    before_deadline: bool,
+) -> Result<bool, String> {
+    let mode = mode.ok_or_else(|| {
+        "Could not observe dedicated input PTY termios: get_termios returned None".to_owned()
+    })?;
+    if let Some(status) = child_status {
+        return Err(format!(
+            "Terminal child exited before dedicated input PTY readiness: {status:?}"
+        ));
+    }
+    if !before_deadline {
+        return Err(format!(
+            "Timed out waiting for dedicated input PTY to become noncanonical; last mode: {mode:?}"
+        ));
+    }
+    Ok(mode == InputMode::Noncanonical)
+}
+
+#[test]
+fn noncanonical_input_readiness_distinguishes_pending_ready_and_expired_states() {
+    assert_eq!(
+        noncanonical_input_ready(Some(InputMode::Canonical), None, true),
+        Ok(false)
+    );
+    assert_eq!(
+        noncanonical_input_ready(Some(InputMode::Noncanonical), None, true),
+        Ok(true)
+    );
+    for mode in [InputMode::Canonical, InputMode::Noncanonical] {
+        let error = noncanonical_input_ready(Some(mode), None, false).unwrap_err();
+        assert!(
+            error.contains("Timed out waiting for dedicated input PTY"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("last mode: {mode:?}")), "{error}");
+    }
+}
+
+#[test]
+fn noncanonical_input_readiness_rejects_missing_termios_and_exited_children() {
+    let error = noncanonical_input_ready(None, None, true).unwrap_err();
+    assert!(
+        error.contains("Could not observe dedicated input PTY termios"),
+        "{error}"
+    );
+    assert!(error.contains("get_termios returned None"), "{error}");
+
+    let status = ExitStatus::with_exit_code(1);
+    for mode in [InputMode::Canonical, InputMode::Noncanonical] {
+        let error = noncanonical_input_ready(Some(mode), Some(&status), true).unwrap_err();
+        assert!(
+            error.contains("Terminal child exited before dedicated input PTY readiness"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("{status:?}")), "{error}");
+    }
 }
 
 struct TerminalSettings {
@@ -238,6 +323,30 @@ esac",
         writer.flush().unwrap();
     }
 
+    fn wait_for_noncanonical_input(&mut self, input: &dyn MasterPty) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let mode = input_mode(input);
+            let status = self.child.try_wait().expect(
+                "Could not observe terminal child status while waiting for dedicated input PTY readiness",
+            );
+            match noncanonical_input_ready(mode, status.as_ref(), Instant::now() < deadline) {
+                Ok(true) => return,
+                Ok(false) => self.receive(
+                    Duration::from_millis(10)
+                        .min(deadline.saturating_duration_since(Instant::now())),
+                ),
+                Err(error) => panic!(
+                    "{error}; closed readers: {}/{}; stderr: {}; stdout: {}",
+                    self.closed,
+                    self.readers.len(),
+                    String::from_utf8_lossy(&self.stderr),
+                    String::from_utf8_lossy(&self.stdout)
+                ),
+            }
+        }
+    }
+
     fn choose_format(&mut self, directory: &Path, format: LayerManifestFormat) {
         self.wait_for("Layer manifest format");
         self.wait_for("jsonc");
@@ -269,7 +378,9 @@ esac",
             }
             assert!(
                 Instant::now() < deadline,
-                "Terminal child did not finish: {}",
+                "Terminal child did not finish (child status: {status:?}, closed readers: {}/{}): {}",
+                self.closed,
+                self.readers.len(),
                 String::from_utf8_lossy(&self.stderr)
             );
             self.receive(Duration::from_millis(10));
@@ -1630,6 +1741,11 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
                 pixel_height: 0,
             })
             .unwrap();
+        assert_eq!(
+            input_mode(input.master.as_ref()),
+            Some(InputMode::Canonical),
+            "Dedicated input PTY must have a canonical baseline before child spawn"
+        );
         let input_path = input.master.tty_name().unwrap();
         // portable-pty's writer sends a newline and EOT on drop. That can submit
         // the current prompt instead of testing input loss. A plain duplicate
@@ -1660,6 +1776,10 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             session.wait_for("jsonc");
         }
         assert_no_layer_manifests(directory.path());
+        // Frames are flushed before console selects its input. With no answer
+        // bytes left queued, this PTY's canonical-to-noncanonical transition
+        // proves stdin has been selected, not that a read syscall is blocked.
+        session.wait_for_noncanonical_input(input.master.as_ref());
         // Closing every master handle disconnects stdin while stderr remains usable.
         // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
         drop(input_writer);
