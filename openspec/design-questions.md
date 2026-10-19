@@ -62,6 +62,14 @@ design everything upfront.
       [field-order decision](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#guide-field-order-without-enforcing-it-on-input)
       and [insertion rules](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#append-a-missing-dependency-field-without-moving-existing-fields).
      An explicit formatter and placement of future fields remain deferred.
+   - **Approved review safety refinement:** Preserve YAML string meaning and
+     multiline collection/comment layout, not only values compared through the
+     same decoder. Check source-sensitive insertion boundaries, including terminal
+     block-scalar keys with implicit null values, and retain safe ordinary YAML.
+     Use independent source-preservation regressions without requiring one global
+     insertion site. See the [source-facts decision](changes/amend-local-add-review-findings/design.md#guard-the-actual-scanner-scalar-using-bounded-source-facts),
+     [flow-layout decision](changes/amend-local-add-review-findings/design.md#separate-flow-collection-boundaries-from-insertion-layout)
+     and [regression decision](changes/amend-local-add-review-findings/design.md#test-permitted-source-changes-independently).
 3. **Files and tool dependency.** Are shared files committed into a consumer's
    repository, or created or linked by Hydragen when needed? What project layout
    does this require? Can collaborators and continuous integration (CI) build,
@@ -273,6 +281,15 @@ design everything upfront.
       changing operation or safety rules. See the
       [shared composition decision](changes/archive/2026-10-19-unify-cli-diagnostics/design.md#compose-structured-facts-once-at-the-cli-boundary)
       and [new-error contract](changes/archive/2026-10-19-unify-cli-diagnostics/design.md#make-new-errors-join-the-same-contract).
+    - **Approved review reporting clarification:** Completion write/flush errors
+      returned by the established fallible path remain fatal and retain the actual
+      created, updated or unchanged state. Warning/error diagnostic delivery stays
+      best effort; a warning delivery failure does not change completed-write
+      status. Successful output calls do not guarantee receipt, and this increment
+      adds no descriptor checks, terminal reopening or rollback. Library Display
+      and contextual CLI composition remain distinct audiences rather than a
+      wording-deduplication target. See the [reporting boundary](changes/amend-local-add-review-findings/design.md#bound-completion-reporting-without-changing-diagnostic-delivery)
+      and [diagnostic-audience rationale](changes/amend-local-add-review-findings/design.md#correct-diagnostic-facts-without-changing-audiences-or-api-shapes).
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to

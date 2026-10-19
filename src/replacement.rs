@@ -4,6 +4,12 @@
 //! overwrite one another. Abrupt termination can leave a staging file; syncing the
 //! file and renaming it does not promise unconditional power-loss durability or
 //! preservation of ownership, ACLs, or extended attributes.
+//!
+//! Replacement changes only the selected path. Other hard links continue to name
+//! the original file; already-open handles can still refer to it on platforms
+//! permitting replacement while it is open. Some platforms restrict replacement
+//! with open handles. This module does not enumerate hard links or update aliases,
+//! and does not fall back to in-place mutation.
 
 use std::error::Error;
 use std::fmt;

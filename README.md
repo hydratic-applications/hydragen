@@ -131,13 +131,11 @@ hydragen add ../shared-agent-rules ../shared-config
 ```
 
 For a layer manifest initially containing only `name: my-project`, the resulting
-`layer.yaml` declares the following ordered dependencies (formatting may differ):
+`layer.yaml` is:
 
 ```yaml
 name: my-project
-dependencies:
-  - ../shared-agent-rules
-  - ../shared-config
+dependencies: ["../shared-agent-rules", "../shared-config"]
 ```
 
 Use explicit paths: `./shared-config`, `../shared-config`, or a native absolute
@@ -179,9 +177,10 @@ exit successfully. Warnings and errors from either command use
 standard error, and errors return a nonzero exit status. Global
 `--non-interactive` is accepted before or after either subcommand.
 
-Terminal status messages use colour when appropriate. CI, redirected execution,
-or `NO_COLOR=1` keep results plain; `--non-interactive` disables questions without
-disabling eligible terminal styling.
+Terminal status messages use colour only when all standard streams are terminals,
+CI is disabled, and `TERM` is not `dumb`. A nonempty `NO_COLOR` or `CLICOLOR=0`
+disables styling; these controls and CI/redirection take precedence over forced
+colour. `--non-interactive` disables questions, not otherwise eligible styling.
 
 ## The layer manifest
 
@@ -243,16 +242,25 @@ including by a directory or symlink. It never overwrites an existing entry; ther
 is no force option.
 
 If a write fails, a partial new layer manifest may remain. Inspect the path
-reported in the error before retrying. If creation succeeds but reporting the
-result fails, the error tells you the layer manifest was already created.
+reported in the error before retrying.
 
 Add edits only the selected current layer manifest, which must be a regular file,
 not a symlink. It preserves the format, comments, and unrelated source text and
 data, or refuses an edit it cannot perform safely. Dependency files are read only.
 Updates use a hidden staging file beside the layer manifest and atomic replacement,
 preserving file permissions. Handled failures before replacement leave the original
-intact; cleanup failures identify any staging file left behind. If replacement
-succeeds but reporting fails, the error says the layer manifest was already updated.
+intact; cleanup failures identify any staging file left behind. Replacement changes
+only the selected path: other hard links still refer to the original file, and
+already-open handles can keep reading it where the platform permits replacement
+while it is open.
+
+If completion reporting returns a write or flush error, the command exits
+unsuccessfully and attempts an error message identifying the layer manifest as
+already created, already updated, or unchanged for a no-op. Warning and error
+message delivery on standard error is best effort; failed warning delivery does
+not turn a completed write into a failure. A successful output call does not
+guarantee receipt: the runtime can silently accept an unavailable standard stream.
+Reporting failures do not undo completed file changes.
 
 Abrupt termination can leave a hidden staging file. Atomic replacement does not
 guarantee survival of every power failure or preserve all filesystem metadata.

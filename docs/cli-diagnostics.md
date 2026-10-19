@@ -54,7 +54,9 @@ failure does not need. Neutral one-shot messages may need only a headline:
    once for the whole report. See [mutation and reporting state](#mutation-and-reporting-state).
 
 Indent supporting lines two spaces and source-group content two more. Use one
-blank line between blocks and consecutive lines within them. Keep labels
+literally empty line between blocks, without spaces or tabs, and consecutive
+lines within them. Preserve indentation on nonempty lines; do not trim user data
+or normalise whitespace-only separators in test assertions. Keep labels
 capitalized as shown and summaries punctuated. Preserve quoted spelling and case;
 sentence case does not permit changing user data. Omit unhelpful context, repeated
 paths and filler without empty labels or extra gaps. Root missing-command errors
@@ -146,6 +148,12 @@ references, explain the stored choices, including exact-version published
 declarations. Do not confuse that with add's separate refusal to add published
 dependencies.
 
+Describe a selected non-regular entry neutrally: it may be a directory, not a
+symlink. Keep current-layer symlink refusal distinct from readable dependency
+symlinks. For non-string metadata, say the field must be a string without claiming
+that null was supplied. Offer omission only for optional fields; do not imply that
+TOML supports null.
+
 Guided rejection keeps supported cliclack handling: name the field, explain the
 schema-appropriate correction without flag terminology, and retain clear-and-Enter
 instructions for skipping optional fields. Keep retry and no-early-write rules.
@@ -169,10 +177,23 @@ Use typed facts and control flow, never English message matching, to distinguish
   Advise inspection before removal, not blind deletion or a blanket no-change claim.
 - **Completed creation or replacement:** Report created or updated state accurately;
   subsequent warnings do not undo completion.
-- **Failed completion reporting:** Say the layer manifest was already created or
-  updated and preserve the delivery cause. If the operation was a no-op, say it
-  remained unchanged instead. Do not claim cancellation or apply a universal
-  no-files-changed footer.
+- **Failed completion reporting:** When the established fallible completion path
+  returns a write or flush error, retain the nonzero exit and attempt a diagnostic
+  saying the layer manifest was already created or updated, with the actual cause.
+  If the operation was a no-op, say it remained unchanged instead. Do not claim
+  cancellation or apply a universal no-files-changed footer.
+
+Warning/error diagnostic delivery on stderr remains best effort: failure to
+deliver a warning does not change completed-write status, and failure to deliver
+an error does not replace the underlying failure status. Do not introduce new
+propagation or status changes for those writes. An unavailable stderr can prevent
+the explanatory diagnostic from being seen.
+
+Successful output calls do not guarantee receipt: the runtime can silently accept
+an unavailable standard stream without returning an error. This limitation does
+not suppress completion errors returned by the established fallible path or undo
+completed file changes. Do not add descriptor prechecks, reopen a terminal, refuse
+mutations in advance or roll them back to work around it.
 
 ## Command context and shared rendering
 
