@@ -243,20 +243,27 @@ esac",
     /// Used only with the normal shared stdin/stderr PTY, not redirected input.
     fn send_key_when_reading(&mut self, input: &[u8]) -> usize {
         assert_eq!(std::str::from_utf8(input).unwrap().chars().count(), 1);
+        self.wait_for_input_reader(|session| {
+            Self::raw_input_active(session.prompt_terminal.as_ref().unwrap().as_ref())
+        });
+        let checkpoint = self.stderr.len();
+        self.send(input);
+        checkpoint
+    }
+
+    fn raw_input_active(terminal: &dyn portable_pty::MasterPty) -> bool {
+        let mode = terminal.get_termios().expect("Unix PTY termios");
+        !mode
+            .local_flags
+            .iter_names()
+            .any(|(name, _)| matches!(name, "ICANON" | "ECHO"))
+    }
+
+    fn wait_for_input_reader(&mut self, reading: impl Fn(&Self) -> bool) {
         let deadline = Instant::now() + TIMEOUT;
         loop {
-            let mode = self
-                .prompt_terminal
-                .as_ref()
-                .unwrap()
-                .get_termios()
-                .expect("Unix PTY termios");
-            let cooked = mode
-                .local_flags
-                .iter_names()
-                .any(|(name, _)| matches!(name, "ICANON" | "ECHO"));
-            if !cooked {
-                break;
+            if reading(self) {
+                return;
             }
             assert!(
                 Instant::now() < deadline,
@@ -269,9 +276,51 @@ esac",
             );
             self.receive(Duration::from_millis(1));
         }
+    }
+
+    /// The input-loss fixture redirects stdin to a DIFFERENT PTY. Observe and
+    /// write that input terminal, never the still-open prompt terminal.
+    fn send_key_on_input(
+        &mut self,
+        terminal: &dyn portable_pty::MasterPty,
+        writer: &mut dyn Write,
+        input: &[u8],
+    ) -> usize {
+        assert_eq!(std::str::from_utf8(input).unwrap().chars().count(), 1);
+        self.wait_for_input_reader(|_| Self::raw_input_active(terminal));
         let checkpoint = self.stderr.len();
-        self.send(input);
+        writer.write_all(input).unwrap();
+        writer.flush().unwrap();
         checkpoint
+    }
+
+    fn prepare_selector_on_input(
+        &mut self,
+        terminal: &dyn portable_pty::MasterPty,
+        writer: &mut dyn Write,
+    ) {
+        self.wait_for_frame_since(0, "◆", "Name", "");
+        for (field, answer, next) in [
+            ("Name", "example", "Author (optional)"),
+            ("Author (optional)", "Team", "Description (optional)"),
+            (
+                "Description (optional)",
+                "Description",
+                "Layer manifest format",
+            ),
+        ] {
+            for character in answer.chars() {
+                let mut bytes = [0; 4];
+                let checkpoint = self.send_key_on_input(
+                    terminal,
+                    writer,
+                    character.encode_utf8(&mut bytes).as_bytes(),
+                );
+                self.wait_for_frame_since(checkpoint, "◆", field, "");
+            }
+            let checkpoint = self.send_key_on_input(terminal, writer, b"\r");
+            self.wait_for_frame_since(checkpoint, "◆", next, "");
+        }
     }
 
     /// Require a fresh, complete frame, not a label/correction retained anywhere
@@ -469,6 +518,19 @@ impl Drop for Session {
             let _ = reader.join();
         }
     }
+}
+
+// A physical hangup must not use the library writer's synthetic EOT-on-drop.
+fn close_only_pty_writer(terminal: &dyn portable_pty::MasterPty) -> fs::File {
+    use std::os::fd::BorrowedFd;
+    // portable-pty's take_writer() sends newline + VEOF in its Drop. That can
+    // submit a selector BEFORE the master hangs up. A plain duplicated File
+    // closes without injecting any input. The original master remains owned by
+    // the caller throughout this immediate duplication.
+    let descriptor = terminal.as_raw_fd().expect("Unix PTY master descriptor");
+    // SAFETY: terminal owns descriptor and stays borrowed until dup completes.
+    let descriptor = unsafe { BorrowedFd::borrow_raw(descriptor) };
+    fs::File::from(descriptor.try_clone_to_owned().unwrap())
 }
 
 // Match visible text even when cliclack styles parts of labels or defaults.
@@ -1838,7 +1900,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             })
             .unwrap();
         let input_path = input.master.tty_name().unwrap();
-        let mut input_writer = input.master.take_writer().unwrap();
+        let mut input_writer = close_only_pty_writer(input.master.as_ref());
         let mut session = Session::spawn_with_lock(
             directory.path(),
             &["init"],
@@ -1851,25 +1913,81 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
                 ..TerminalSettings::default()
             },
         );
+        let mut input_trace = Vec::new();
+        input_trace.push(format!(
+            "stdin PTY={input_path:?}, master fd={:?}; prompt PTY={:?}, master fd={:?}",
+            input.master.as_raw_fd(),
+            session.prompt_terminal.as_ref().unwrap().tty_name(),
+            session.prompt_terminal.as_ref().unwrap().as_raw_fd()
+        ));
         session.wait_for("Name");
+        input_trace.push(format!(
+            "Name observed: stdin={:?}; prompt={:?}",
+            input.master.get_termios().map(|mode| mode.local_flags),
+            session
+                .prompt_terminal
+                .as_ref()
+                .unwrap()
+                .get_termios()
+                .map(|mode| mode.local_flags)
+        ));
         if at_selector {
-            for (answer, next_prompt) in [
-                ("example\r", "Author (optional"),
-                ("Team\r", "Description (optional"),
-                ("Description\r", "Layer manifest format"),
-            ] {
-                input_writer.write_all(answer.as_bytes()).unwrap();
-                input_writer.flush().unwrap();
-                session.wait_for(next_prompt);
-            }
-            session.wait_for("jsonc");
+            session.prepare_selector_on_input(input.master.as_ref(), &mut input_writer);
         }
         assert_no_layer_manifests(directory.path());
+        input_trace.push(format!(
+            "Before hangup: stdin={:?}; prompt={:?}",
+            input.master.get_termios().map(|mode| mode.local_flags),
+            session
+                .prompt_terminal
+                .as_ref()
+                .unwrap()
+                .get_termios()
+                .map(|mode| mode.local_flags)
+        ));
         // Closing every master handle disconnects stdin while stderr remains usable.
-        // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
+        // Do not wait for a raw read here: loss before the next SDK read is also
+        // valid. This close-only writer sends neither Enter nor Ctrl-D.
         drop(input_writer);
         drop(input);
-        assert!(!session.finish().success());
+        let status = session.finish();
+        if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+            fs::create_dir_all(&evidence).unwrap();
+            fs::write(
+                Path::new(&evidence).join(format!(
+                    "input-loss-selector-{at_selector}-colour-{colour}-{cols}.trace.txt"
+                )),
+                input_trace.join("\n"),
+            )
+            .unwrap();
+        }
+        if status.success() {
+            let files = LayerManifestFormat::ALL
+                .into_iter()
+                .filter_map(|format| {
+                    let path = directory.path().join(format.filename());
+                    fs::read(&path).ok().map(|bytes| (format.filename(), bytes))
+                })
+                .collect::<Vec<_>>();
+            session.evidence(&format!(
+                "input-loss-UNEXPECTED-SUCCESS-selector-{at_selector}-colour-{colour}-{cols}"
+            ));
+            if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+                for (filename, bytes) in &files {
+                    fs::write(
+                        Path::new(&evidence).join(format!(
+                            "unexpected-selector-{at_selector}-colour-{colour}-{cols}.{filename}"
+                        )),
+                        bytes,
+                    )
+                    .unwrap();
+                }
+            }
+            panic!(
+                "Unexpected input-loss success: selector={at_selector}, cols={cols}, colour={colour}; files={files:?}; trace={input_trace:#?}; stderr={}",
+                visible_text(&session.stderr)
+            );
+        }
         assert!(
             String::from_utf8_lossy(&session.stderr)
                 .contains("Could not collect initialisation input")
@@ -1985,4 +2103,62 @@ fn guided_rejection_retry_completion_and_cancellation_keep_their_interaction_at_
             }
         }
     }
+}
+
+#[test]
+fn library_writer_drop_injects_submit_and_is_not_a_terminal_hangup() {
+    let directory = tempdir().unwrap();
+    let terminal_session = TERMINAL_SESSION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let input = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let input_path = input.master.tty_name().unwrap();
+    let mut writer = input.master.take_writer().unwrap();
+    let mut session = Session::spawn_with_lock(
+        directory.path(),
+        &["init"],
+        None,
+        Some(("stdin-eof", &input_path)),
+        terminal_session,
+        TerminalSettings {
+            cols: 80,
+            colour: Some(false),
+            ..Default::default()
+        },
+    );
+    session.prepare_selector_on_input(input.master.as_ref(), &mut writer);
+    assert_no_layer_manifests(directory.path());
+    // Deliberately leave BOTH original master and slave open: this is not HUP.
+    drop(writer);
+    assert!(
+        session.finish().success(),
+        "{}",
+        visible_text(&session.stderr)
+    );
+    let document = layer_manifest(directory.path());
+    assert_eq!(
+        document,
+        json!({"name":"example", "author":"Team", "description":"Description"})
+    );
+    session.evidence("portable-writer-drop-submit-without-hangup");
+    if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+        fs::write(
+            Path::new(&evidence).join("portable-writer-drop-created-metadata.json"),
+            serde_json::to_vec_pretty(&document).unwrap(),
+        )
+        .unwrap();
+    }
+    eprintln!(
+        "PROVEN: portable writer drop alone submitted YAML and created {document}; original input master still open: {:?}",
+        input.master.get_termios().map(|mode| mode.local_flags)
+    );
+    // Release the extra PTY before Session releases the allocation mutex.
+    drop(input);
 }
