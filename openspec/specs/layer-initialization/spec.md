@@ -116,6 +116,11 @@ comments or a header. The object/mapping MUST contain `name`, plus `author` and
 `description` only when supplied, for this increment. It MUST NOT add a version,
 schema address, dependency field, format field, or other properties.
 
+The emitted root fields MUST appear in `name`, `author`, `description` order,
+skipping omitted optional fields, in every supported format. Input flag order
+MUST NOT change that output order. This output guarantee MUST NOT make other
+field orders invalid when reading existing layer manifests.
+
 Serialisation MUST preserve accepted metadata as strings, including values that
 would otherwise be interpreted as YAML booleans, numbers, or nulls. Serialisation
 and metadata validation MUST complete before opening the output file.
@@ -125,6 +130,7 @@ and metadata validation MUST complete before opening the output file.
 - **WHEN** initialisation succeeds in any supported format
 - **THEN** its fixed filename matches the selected extension and its content is readable in that format with a final newline
 - **AND** its only properties are name and any author or description supplied by the developer
+- **AND** those properties appear in name, author, description order with absent fields skipped
 
 #### Scenario: A string resembles a YAML typed scalar
 
@@ -136,6 +142,12 @@ and metadata validation MUST complete before opening the output file.
 - **WHEN** init successfully creates a TOML layer manifest with quotes, backslashes, newlines, or date-like text in accepted metadata
 - **THEN** `layer.toml` contains appropriately quoted or escaped top-level strings and decoding recovers the exact original values
 - **AND** omitted optional fields remain absent and no `[layer]` wrapper or starter comments are generated
+
+#### Scenario: Input order does not dictate generated field order
+
+- **WHEN** flag-only init supplies description before author and name, or guided init supplies equivalent metadata
+- **THEN** both routes emit name, author, description in that order for the selected format
+- **AND** supplying only name and description emits those two fields in that order without adding author
 
 ### Requirement: Use the current directory with a repository-location guard
 
@@ -198,31 +210,37 @@ error. Init MUST NOT repeat an all-format refusal check at the final write.
 A successful invocation MUST create only its selected layer manifest and MUST leave
 all pre-existing project files unchanged.
 
-When an entry occupies the layer manifest path, the diagnostic MUST name the path,
-explain that init does not overwrite existing entries, and suggest a safe next
-step: inspect the entry or run init in the intended different directory. It MUST
-state that this invocation did not change files, without assuming the entry is
-a valid layer or implying that Hydragen read its contents. It MUST NOT recommend
-blind deletion, offer force/overwrite confirmation, or suggest an unimplemented
-command. The occupied path MUST remain intact in the diagnostic.
+When an entry occupies the layer manifest path, the CLI diagnostic MUST name its
+actual filename and identify the current directory as its location, without
+repeating the absolute directory path. Its headline MUST read `This directory
+already has a layer manifest (layer.<extension>).`, substituting the occupied
+filename even when another format was requested. One supporting line MUST read
+`Initialisation creates a new layer manifest; it won’t overwrite an existing one.`
+The refusal MUST contain only these two lines, without separate generic inspection,
+different-directory, or no-files-changed advice. Initialisation MUST still leave
+existing entries unchanged. Naming the entry's layer manifest role MUST NOT imply
+that its contents were read or validated; the same refusal applies to malformed
+files, directories, and symlinks. It MUST NOT recommend blind deletion, offer
+force/overwrite confirmation, or suggest an unimplemented command. Other errors
+and the library's diagnostic path context MUST remain unchanged.
 
 #### Scenario: A layer manifest already exists
 
 - **WHEN** any supported layer manifest path is occupied when init performs its initial check, whether its contents are valid or not
-- **THEN** initialisation fails and identifies the existing path, explains the no-overwrite policy, and gives the safe next-step guidance, even if another format was requested
+- **THEN** initialisation fails with a two-line refusal identifying the existing layer manifest and its filename and explaining that init creates rather than overwrites a layer manifest, even if another format was requested
 - **AND** the existing entry and bytes remain unchanged
 
 #### Scenario: A directory or symlink occupies a layer manifest path
 
 - **WHEN** a directory or symlink, including a dangling symlink, occupies any supported layer manifest path at the initial check
 - **THEN** initialisation fails without replacing the entry or changing a symlink target
-- **AND** its diagnostic names the occupied path and gives guidance accurate for an arbitrary entry, without assuming valid layer manifest contents
+- **AND** its diagnostic names the occupied filename and current directory with guidance accurate for an arbitrary entry, without assuming valid layer manifest contents
 
 #### Scenario: Repeat initialisation
 
 - **WHEN** initialisation is run again in a directory where it previously succeeded
 - **THEN** the second invocation fails without changing the layer manifest or other files, even if it requests a different format
-- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the layer manifest
+- **AND** it explains that initialisation creates rather than overwrites a layer manifest, without offering replacement or appending generic recovery advice
 
 #### Scenario: Preserve an existing project
 
@@ -235,7 +253,7 @@ command. The occupied path MUST remain intact in the diagnostic.
 - **WHEN** another process creates an entry at the chosen layer manifest path before init opens its output
 - **THEN** initialisation fails rather than overwriting that entry
 - **AND** it does not retry with another format
-- **AND** it gives the same occupied-path policy and recovery guidance without claiming that the other process made no changes
+- **AND** it gives the same two-line refusal without claiming that the other process made no changes
 
 #### Scenario: Another format appears after the initial check
 
@@ -247,13 +265,32 @@ command. The occupied path MUST remain intact in the diagnostic.
 
 ### Requirement: Provide predictable command outcomes and help
 
-Successful initialisation MUST exit with status zero and identify the layer manifest
-actually created on standard output after writing completes. Guided cliclack
-prompts and session feedback MUST use standard error, not the result stream.
-Warnings MUST also use standard error. For flag-only input or any other invocation
-where interaction is disabled, success, warning, and error output MUST remain
-plain text without cliclack banners, prompts, spinners, or terminal-control
-sequences.
+Successful initialisation MUST exit with status zero after writing completes and
+report exactly one success message: `Layer initialised, layer manifest created at:
+layer.<extension>`, using the actual created layer manifest filename without
+repeating the absolute directory. Guided init MUST report completion through its cliclack
+session on standard error, with no separate success/path line on standard output.
+Flag-only init MUST report its result on standard output without a session header
+or prompt frame. Prompts, warnings, and errors MUST use standard error.
+
+Operational terminal feedback MUST use a green checkmark (`✓`) for success,
+a yellow triangle (`▲`) with `Warning:` for warnings, and a red cross (`✕`) with
+`Error:` for failures where styling is enabled. The success filename MUST be bold.
+Only diagnostic headlines MUST receive severity colouring; supporting details
+and recovery guidance MUST remain readable in the normal foreground.
+
+Output styling MUST be independent of input mode. Flag-only output to an eligible
+terminal MUST use compact styled feedback without starting guided input.
+Decorative statuses MUST require all standard streams to be terminals, CI to be
+disabled, and `TERM` not to be `dumb`. A non-empty `NO_COLOR` or `CLICOLOR=0`
+MUST disable decorative status styling even if colour is forced. A global
+`--non-interactive` flag MUST disable questions without independently disabling
+otherwise eligible compact styling.
+Captured and unattended output MUST retain the same meaning as plain text,
+without ANSI decoration, status icons, banners, prompts, or spinners even when a
+forced-colour environment variable is supplied. Colour-disabled preferences MUST
+be respected without enabling or disabling questions. Existing layer manifest and
+filesystem error details MUST NOT be discarded to simplify the presentation.
 
 Usage, validation, location, input, cancellation, and create/write failures MUST
 exit with a nonzero status and actionable diagnostics on standard error, without
@@ -293,18 +330,50 @@ adaptation MUST NOT alter the command's meaning, exit behaviour, or output chann
 - **AND** it does not print a success message
 - **AND** it does not alter pre-existing project files
 
-#### Scenario: Non-interactive output
+#### Scenario: Non-interactive terminal output
 
-- **WHEN** valid init runs with interaction disabled
-- **THEN** it reports success and the created layer manifest path only on standard output, with no terminal UI on standard error
-- **AND** any warnings use plain standard error without changing a successful result
-- **AND** errors instead use standard error without success output or terminal UI
+- **WHEN** valid flag-only init runs with its result attached to an eligible terminal
+- **THEN** stdout contains one green-check success naming the created layer manifest file
+- **AND** there is no branded opening, prompt, or session frame
+- **AND** warnings and errors use compact styled stderr diagnostics without changing their meaning or exit-status rules
+
+#### Scenario: Captured or unattended output
+
+- **WHEN** init runs in CI or emits output to a non-terminal stream
+- **THEN** the affected output remains plain text even under forced-colour settings
+- **AND** flag-only success names the created layer manifest on stdout while diagnostics use stderr
+- **AND** there are no status icons, prompts, branded openings, or terminal-control sequences
 
 #### Scenario: Interactive output
 
 - **WHEN** init collects answers in an interactive terminal and successfully creates the layer manifest
-- **THEN** cliclack renders the session on standard error
-- **AND** the successful result line and actual layer manifest path are reported on standard output after the write
+- **THEN** cliclack renders the session and single success message on stderr
+- **AND** the success names the created layer manifest filename rather than the absolute directory
+- **AND** stdout has no duplicate success or layer-manifest-path result
+
+#### Scenario: Every selected format identifies the file actually created
+
+- **WHEN** successful init uses any supported layer manifest format
+- **THEN** the success message names that format's actual fixed layer manifest filename
+- **AND** it neither hardcodes layer.yaml for other formats nor echoes an absolute directory
+
+#### Scenario: Colour-disabled feedback
+
+- **WHEN** the developer disables colour for otherwise eligible terminal output
+- **THEN** feedback remains understandable without coloured text
+- **AND** input-route selection, output streams, status meanings, and filesystem outcomes remain unchanged
+
+#### Scenario: Mixed terminal and redirected streams
+
+- **WHEN** any standard stream is redirected while another remains a terminal
+- **THEN** compact status output on both output streams is plain even if colour is forced
+- **AND** no questions or branded opening appear
+
+#### Scenario: Explicit disable wins over forced colour
+
+- **WHEN** an otherwise eligible terminal invocation sets non-empty NO_COLOR or CLICOLOR=0 together with forced colour
+- **THEN** its status output has no decorative styling or status icons
+- **AND** its input-route and stream choices are unaffected
 
 #### Scenario: Request version
 

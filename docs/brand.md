@@ -46,4 +46,4 @@ Use **Hydragen** for the product name in headings, branding, and prose, and
 
 The selected terminal motif uses dense 16-column by 8-row braille. Its
 layout, styling, and rendering limitations are captured in the
-[CLI visual-identity design](../openspec/changes/define-cli-visual-identity/design.md).
+[CLI visual-identity design](../openspec/changes/archive/2026-10-19-define-cli-visual-identity/design.md).

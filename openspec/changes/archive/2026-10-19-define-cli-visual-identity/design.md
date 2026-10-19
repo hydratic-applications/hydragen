@@ -4,7 +4,7 @@
 
 On 2026-10-17, the author selected an expressive CLI direction and reviewed static
 previews in macOS Terminal. The earlier
-[presentation increment](../archive/2026-10-17-improve-cli-presentation/design.md)
+[presentation increment](../2026-10-17-improve-cli-presentation/design.md)
 improved layout and wording but explicitly excluded a visual identity. This
 document records the selected visual decisions and the focused implementation
 approved after exploration.
@@ -14,7 +14,7 @@ bond, arranged diagonally from upper-left to lower-right. The connector
 reverses into negative space inside the circular atoms. The terminal motif
 approximates the icon; it is not a replacement master logo. The
 meaning of the name and icon is recorded in
-[docs/brand.md](../../../docs/brand.md).
+[docs/brand.md](../../../../docs/brand.md).
 
 ## Goals / Non-Goals
 
@@ -52,7 +52,7 @@ The inverted bond expresses seeing inside a composed result to understand its
 inherited content and local contributions, connecting the mark to visibility,
 traceability, and authoritative shared sources. The meaning of the name and icon
 is documented in
-[docs/brand.md](../../../docs/brand.md); the terminal design must preserve that
+[docs/brand.md](../../../../docs/brand.md); the terminal design must preserve that
 meaning rather than substitute a different metaphor.
 
 ### Keep the dense 16-column by 8-row braille motif

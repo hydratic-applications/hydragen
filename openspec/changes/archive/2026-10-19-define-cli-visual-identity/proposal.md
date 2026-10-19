@@ -58,4 +58,4 @@ cancellation, and safety semantics. No dependency, replacement prompt renderer,
 help redesign, or new command is needed.
 
 The meaning of the name and icon is recorded in
-[docs/brand.md](../../../docs/brand.md), separately from the terminal layout.
+[docs/brand.md](../../../../docs/brand.md), separately from the terminal layout.

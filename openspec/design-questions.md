@@ -59,8 +59,8 @@ design everything upfront.
      existing fields. Preserve existing field and reference order, with no warnings
      about placement alone. This improves everyday scanning while retaining
      source-preserving edits. See the
-     [field-order decision](changes/guide-layer-manifest-field-order/design.md#guide-field-order-without-enforcing-it-on-input)
-     and [insertion rules](changes/guide-layer-manifest-field-order/design.md#append-a-missing-dependency-field-without-moving-existing-fields).
+      [field-order decision](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#guide-field-order-without-enforcing-it-on-input)
+      and [insertion rules](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#append-a-missing-dependency-field-without-moving-existing-fields).
      An explicit formatter and placement of future fields remain deferred.
 3. **Files and tool dependency.** Are shared files committed into a consumer's
    repository, or created or linked by Hydragen when needed? What project layout
@@ -197,32 +197,32 @@ design everything upfront.
       applies this review to width-aware help, prompt-specific validation feedback,
       and safe recovery advice for occupied layer manifest paths without selecting a visual theme
       or minimum terminal width.
-      The subsequent [visual-identity increment](changes/define-cli-visual-identity/design.md#decisions)
+      The subsequent [visual-identity increment](changes/archive/2026-10-19-define-cli-visual-identity/design.md#decisions)
       implements init's selected dense 16-by-8 braille motif, separate brand and
       operation text, and console-reviewed styling and spacing. Its broader header
       policy establishes multi-step guided or
       long-running foreground sessions once, rather than announcing one-shot
       actions. Use cliclack where interactive input or a guided process is useful,
       independently of the header decision—not as every command's renderer.
-      See the [header policy](changes/define-cli-visual-identity/design.md#use-the-full-header-to-establish-a-session-not-announce-every-invocation)
-      and [cliclack decision](changes/define-cli-visual-identity/design.md#use-cliclack-for-suitable-guided-interactions).
-      The [status decision](changes/define-cli-visual-identity/design.md#share-status-styling-without-coupling-it-to-prompts-or-the-header)
+      See the [header policy](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-the-full-header-to-establish-a-session-not-announce-every-invocation)
+      and [cliclack decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-cliclack-for-suitable-guided-interactions).
+      The [status decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#share-status-styling-without-coupling-it-to-prompts-or-the-header)
       selects consistent green-check success, yellow-triangle warning, and
       red-cross error feedback, including compact flag-only terminal output.
-      [Rejected input and cancellation](changes/define-cli-visual-identity/design.md#use-red-for-rejected-input-and-cancellation)
+      [Rejected input and cancellation](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-red-for-rejected-input-and-cancellation)
       also use red, with rejected input sharing the red-cross error pairing rather
       than a recoloured warning triangle. Placement, wording, and behaviour
       distinguish editable input errors, deliberate stops, and operational failures.
-      The [completion decision](changes/define-cli-visual-identity/design.md#report-init-completion-once-naming-the-layer-manifest-rather-than-its-directory)
+      The [completion decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#report-init-completion-once-naming-the-layer-manifest-rather-than-its-directory)
       selects a single success naming the layer manifest filename; guided feedback
       uses stderr without a duplicate stdout result, while flag-only results use stdout.
-      [Occupied-entry refusals](changes/define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
+      [Occupied-entry refusals](changes/archive/2026-10-19-define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
       identify the existing layer manifest and its filename, with one sentence
       explaining that init creates rather than overwrites it. They do not append
       generic recovery advice, assume valid contents, or shorten unrelated paths.
       These revise the earlier contracts through the change's delta
       specifications and aligned project guidance. The
-      [increment policy](changes/define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)
+      [increment policy](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)
       keeps CI and mixed redirected execution plain, honours explicit colour
       disables over force, and uses text-only openings when the motif cannot fit
       or the terminal is basic. Broader font detection and future-command display
@@ -230,18 +230,18 @@ design everything upfront.
       The [name and icon](../docs/brand.md) express the
       generative layer model, simplicity, connected dependencies, and visibility
       into the result; see the
-      [identity decision](changes/define-cli-visual-identity/design.md#preserve-the-meaning-of-the-name-and-icon).
+      [identity decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#preserve-the-meaning-of-the-name-and-icon).
     - **Dependency feedback decision:** Use a compact result naming the destination
       layer and separate counted `Added` and `Already present` name lists. Group
       independent errors cleanly in source order with actionable details and a
       plain-output equivalent. Review both terminal and captured output. See the
       [feedback decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#report-actual-additions-and-pre-existing-dependencies-separately).
-      The [single-result refinement](changes/compact-single-add-results/design.md#select-the-layout-from-verified-outcomes)
+      The [single-result refinement](changes/archive/2026-10-19-compact-single-add-results/design.md#select-the-layout-from-verified-outcomes)
       uses one sentence for one effective requested dependency after deduplication,
       naming both layers and explicitly identifying no changes when already present.
       Multiple and mixed results retain the counted groups; operation and styling
       rules are unchanged.
-      The [informational-status refinement](changes/add-info-status-style/design.md#classify-the-complete-verified-add-outcome)
+      The [informational-status refinement](changes/archive/2026-10-19-add-info-status-style/design.md#classify-the-complete-verified-add-outcome)
       uses shared blue info styling for all no-change add results, while actual
       additions retain green success styling. Neutral feedback remains successful
       stdout output; plain text, grouping and operational behaviour are unchanged.
@@ -253,17 +253,17 @@ design everything upfront.
       guidance. One shared body orders the problem, optional context/correction,
       usage with an optional example, then command-specific help; review errors as
       a family rather than approving different templates through isolated
-      snapshots. See the [shared body decision](changes/unify-cli-usage-errors/design.md#render-one-familiar-optional-block-grammar).
-      The [missing-current-layer refinement](changes/unify-cli-usage-errors/design.md#explain-a-missing-current-layer-without-a-batch-wrapper)
+      snapshots. See the [shared body decision](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#render-one-familiar-optional-block-grammar).
+      The [missing-current-layer refinement](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#explain-a-missing-current-layer-without-a-batch-wrapper)
       reports that prerequisite directly with recovery and no-change information,
       omitting the invocation path and batch wrapper while preserving useful
       paths and source groups for other operational failures.
       All parsing outcomes precede layer discovery, schema preparation, prompts,
       or writes. This supersedes only the earlier plain-usage-error exception,
       not the input, session-header, help/version, or stream policies. See the
-      [shared presentation decision](changes/unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
-      [syntax-first decision](changes/unify-cli-usage-errors/design.md#keep-error-priority-independent-of-layer-state),
-      and [policy-history boundary](changes/unify-cli-usage-errors/design.md#record-the-policy-without-rewriting-historical-decisions).
+      [shared presentation decision](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
+      [syntax-first decision](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#keep-error-priority-independent-of-layer-state),
+      and [policy-history boundary](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#record-the-policy-without-rewriting-historical-decisions).
     - **CLI-wide diagnostic follow-up:** Extend shared composition beyond parser
       failures to all current errors: direct single problems, ordered source groups
       for multiple failures, useful path context and cause-specific recovery, and
@@ -271,8 +271,8 @@ design everything upfront.
       cancellation retain their interaction variants. The maintained reference and
       new-error checklist require family-wide tests and wording review without
       changing operation or safety rules. See the
-      [shared composition decision](changes/unify-cli-diagnostics/design.md#compose-structured-facts-once-at-the-cli-boundary)
-      and [new-error contract](changes/unify-cli-diagnostics/design.md#make-new-errors-join-the-same-contract).
+      [shared composition decision](changes/archive/2026-10-19-unify-cli-diagnostics/design.md#compose-structured-facts-once-at-the-cli-boundary)
+      and [new-error contract](changes/archive/2026-10-19-unify-cli-diagnostics/design.md#make-new-errors-join-the-same-contract).
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to
