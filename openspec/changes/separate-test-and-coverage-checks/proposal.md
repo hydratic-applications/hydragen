@@ -1,51 +1,61 @@
 ## Why
 
-The current coverage job combines test execution, report generation, and uploading,
-so its result does not clearly distinguish test correctness from coverage policy.
-Separate test results and explicit 80% targets for both overall and changed-line
-coverage will make PR feedback easier to understand and act on.
+Test correctness, coverage policy, and report publishing answer different questions.
+GitHub Actions should give every PR, including fork PRs, independent test and
+coverage results without depending on a coverage service's availability or account
+features. Report generation must preserve useful evidence even below the target.
 
 ## What Changes
 
-- Provide distinct GitHub Actions jobs for normal tests and coverage-report
-  generation/uploading, keeping test results independent of Codecov availability.
-- Give the Actions checks clear display names, `Tests` and `Coverage report`.
-  Use descriptive Codecov contexts, `codecov/project/total-coverage` and
-  `codecov/patch/changed-lines`, instead of unexplained default names.
-- Configure separate Codecov project and patch assessments with fixed 80%
-  targets, rather than targets based on previous coverage. Both are independent
-  requirements: passing overall coverage does not excuse poorly covered new code.
-- Use Codecov as the sole enforcer of both coverage percentages, with no duplicate
-  local percentage gate; continue uploading valid reports below the target so
-  developers can inspect them.
-- Preserve existing event coverage, terminal tests, upload security, private
-  repository support, and the token-free main-branch README shield.
-- Update the development documentation to explain the separate checks, exact
-  thresholds, and missing-base or no-changed-executable-lines cases.
+- Provide three Actions-owned quality checks: `Tests`, `Total coverage`, and
+  `Changed-line coverage`. Require at least 80% for each applicable coverage gate,
+  using exact integer counts rather than rounded percentages.
+- Keep `Coverage report` as a read-only producer of fresh Linux coverage and
+  validated metadata. Validate raw LLVM output, then retain canonical line-only
+  LCOV counting every unique measured source line once. The two percentage
+  consumers depend only on that producer,
+  not on each other, normal tests, or Codecov. Retain valid below-target reports.
+- Measure the immutable PR head and compare its changed lines against the merge
+  base of that head and the event's immutable base SHA. Bind report evidence to
+  repository, run/attempt, event, revisions, digest, and tracked production sources.
+- Use pinned `diff-cover` for diff analysis with validated integer JSON results;
+  apply the inclusive threshold in the repository's adapter. Explicitly report
+  valid zero-applicable-line and non-PR results as not applicable, not 100%.
+- Disable Codecov project and patch statuses. Keep Codecov for report browsing and
+  the existing token-free main-branch README shield, not percentage enforcement.
+- Isolate OIDC uploading in a separate main-push/manual-main job that consumes
+  validated same-run report data without checking out or executing repository code.
+  Do not upload from any PR, including same-repository and bot PRs.
+- Revise development documentation and the publication checklist for these trust
+  boundaries, failure modes, and independent checks.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `test-ci`: A standalone, read-only test check whose result is independent of
-  coverage percentages and Codecov service availability.
+- `test-ci`: A standalone, read-only normal Rust and coverage-helper test check,
+  independent of coverage percentages and report publishing.
 
 ### Modified Capabilities
 
-- `code-coverage-ci`: Name the supporting report job clearly and set both
-  Codecov project and changed-line targets to 80%, without local percentage
-  enforcement. Its baseline is introduced by
-  the pending `configure-codecov` change on this same branch and PR; synchronise
-  that baseline before this follow-up's delta specification.
+- `code-coverage-ci`: Actions-owned total and changed-line gates, run-bound report
+  artifacts, and isolated main-only authenticated uploading replace service-owned
+  policy and PR uploading. The pending `configure-codecov` change introduces the
+  baseline: synchronise its additions before this follow-up's modifications when
+  separately requested. Do not modify archived assets or reinterpret historical
+  verification as evidence for the revised gates.
 
 ## Impact
 
 - Revises `.github/workflows/coverage.yml`, `codecov.yml`, README Development,
-  and `docs/coverage.md`; no CLI, Cargo dependencies, or badge appearance changes.
-- Continues on `swift-otter` and PR #8 as requested. Depends on the existing
-  `configure-codecov` implementation, not a second Codecov integration.
-- Adds a normal test run alongside the instrumented coverage run. This modest
-  duplication keeps check responsibilities clear without passing compiled
-  binaries or raw profiling data between jobs.
-- Does not change branch protection, billing, repository visibility, or the
-  existing policy of not uploading reports from fork PRs.
+  `docs/coverage.md`, and `docs/going-public-checklist.md`; adds maintained Python
+  policy helpers and tests outside `openspec/`.
+- Preserves stable Rust, `cargo-llvm-cov` 0.9.1, the workspace/all-targets Linux
+  measurement scope, terminal tests, and inline unit-test contributions. Adds no
+  production-source exclusions or Rust/runtime dependencies. `diff-cover` 10.6.0
+  is an isolated CI/developer tool, not a CLI dependency.
+- Continues on the existing branch and PR. Normal and instrumented test runs
+  remain separate; consumers share only report data, not executables or profiles.
+- Does not change repository visibility, billing, required checks, branch
+  protection, normal offline CLI use, or the existing README shield URL/appearance.
+  Publication remains subject to its separate readiness checks.

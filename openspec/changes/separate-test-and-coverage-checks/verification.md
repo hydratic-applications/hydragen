@@ -1,4 +1,11 @@
-# Independent CI checks verification
+# Historical independent CI checks verification
+
+This file preserves verification of the superseded Codecov-only design. It is
+not evidence that the revised Actions-owned coverage gates have been implemented
+or validated. Active decisions and tasks are in [design.md](design.md) and
+[tasks.md](tasks.md); new technical evidence belongs in
+[actions-gates-verification.md](actions-gates-verification.md). All status and
+pending statements below describe the earlier increment, not current progress.
 
 ## Implementation status — 2026-10-19
 
@@ -208,7 +215,7 @@ specification synchronisation or archival was performed.
   baseline establishment and actual Codecov status availability are follow-up
   prerequisites, not source failures in this successful run.
 
-## Pending
+## Historical pending work
 
 Progress remains **10/12 tasks complete**. The Actions display names have been
 observed and Codecov accepted/processed the named configuration, but task 4.2

@@ -1,217 +1,260 @@
 ## Context
 
-PR #8 already contains `configure-codecov`: one GitHub Actions `coverage` job runs
-instrumented tests, validates an LCOV report, and uploads it with OpenID Connect
-(OIDC), GitHub's short-lived identity authentication. Codecov's project and patch
-statuses currently use automatic targets based on earlier coverage. The first
-private upload worked, but comparisons initially lacked a main-branch baseline.
+The pending `configure-codecov` integration supplies stable Rust instrumentation,
+LCOV reporting, OIDC uploading, and a token-free main-branch shield. This follow-up
+separates normal tests, coverage policy, report production, and publishing.
 
-The maintainer now wants independent test feedback and fixed minimums of 80% for
-both total coverage and changed-line coverage, on this same branch and PR. This
-follow-up supersedes the initial no-fixed-target decision, not the established
-tooling, security, or README shield decisions.
+The active decision is three GitHub Actions-owned quality checks with independent
+inclusive 80% coverage minimums. It supersedes this change's earlier Codecov-only
+policy and the original integration's PR upload scope. Earlier verification is
+historical evidence for the previous design, not validation of these gates.
 
-This supports the foundations' DX and visibility values. It does not settle any
-unresolved product question in `openspec/design-questions.md`, or require changes
-to FOUNDATIONS.md or the glossary.
+This supports the foundations' developer-experience and visibility values. No
+unresolved product question in `openspec/design-questions.md` affects this
+infrastructure increment; no foundation or glossary revision is needed.
 
 ## Goals / Non-Goals
 
-**Goals:** Separate test correctness from report generation/service failures;
-use Codecov consistently for independent overall and changed-line minimums of
-80%; retain useful reports for below-target commits without duplicate gates.
+**Goals:** Make correctness and each coverage policy independently visible on all
+PRs; use exact, reproducible line counts; preserve valid low-coverage reports;
+make local policy independent of Codecov; isolate upload privileges from tested
+code and executable artifacts.
 
-**Non-Goals:** New platforms, branch/doctest coverage instrumentation, source or
-test-gap refactors, new credentials, fork uploads, required-check settings,
-publication, billing changes, or a new coverage provider.
+**Non-Goals:** New platform guarantees, branch/doctest coverage, production Rust
+changes, coverage-driven exclusions, runtime dependencies, PR uploads, new stored
+credentials, billing or required-check changes, or publication as part of this
+implementation.
 
 ## Decisions
 
-### Two independent Actions jobs with explicit responsibilities
+### Separate three quality checks from report-pipeline health
 
-Keep `.github/workflows/coverage.yml` as the shared event entry point, with stable
-job ids `tests` and `coverage`, and explicit display names `Tests` and
-`Coverage report`, respectively. Both run for PRs, pushes to `main`, and
-manual dispatch without path filters, under the existing bounded timeout and
-per-PR/ref concurrency policy. Run them independently, not with `needs: tests`:
-the test result must remain visible even when coverage tooling or Codecov fails.
+Keep the existing bounded workflow for PRs, pushes to `main`, and manual dispatch,
+without path filters, retaining concurrency controls and child-process cleanup.
 
-The `tests` job checks out without credential persistence, installs stable Rust,
-and runs `cargo test --locked`, including normal unit, integration, terminal, and
-documentation tests. It has only `contents: read`, no OIDC permission, uploader,
-coverage threshold, or dependency on Codecov. Any failing test fails this job.
+- `Tests` runs `cargo test --locked` and
+  `python3 -m unittest discover -s tests/coverage -v`. It uses stable Rust, only
+  content-read permission, and checkout without persisted credentials. Normal
+  unit, integration, terminal, and documentation tests remain included. The
+  Python suite uses isolated pinned diff-cover for real diff integration; this
+  does not add that dependency to ordinary Rust tests.
+- `Coverage report` independently runs fresh stable Rust/LLVM coverage with
+  `cargo-llvm-cov` 0.9.1, `--locked --workspace --all-targets`, and LCOV output on
+  Linux. It validates and retains data without a percentage decision or OIDC.
+- `Total coverage` and `Changed-line coverage` are sibling data consumers. Each
+  depends only on successful report production, not on `Tests`, the other
+  consumer, or Codecov. Invalid production visibly blocks assessment; it is not
+  replaced with a placeholder success.
+- The separate `Codecov main report` upload job depends only on the producer.
+  Its service failure fails that job, not either percentage result. It is pipeline
+  health, not a fourth quality policy, just as `Coverage report` is not another
+  quality policy.
 
-The `coverage` job retains the current instrumented workspace/all-targets run,
-LLVM tools, pinned installer/uploader, report validation, and job-scoped OIDC
-permission. Its instrumented tests can still fail: separating checks must not
-hide invalid coverage evidence or force tests to pass. A coverage failure must
-not rewrite the independent test result.
+This retains normal and instrumented test runs to keep correctness feedback
+independent of instrumentation failures. Share normalized report data once,
+instead of rerunning instrumentation for each gate or sharing executable builds.
 
-This runs the suite normally and under instrumentation rather than sharing
-compiled artifacts between jobs. That modest duplication keeps test feedback
-independent and setup simple; parallel execution avoids serialising two builds.
-A single instrumented test producer plus report-consumer jobs would need raw
-profiles, matching binaries/toolchains, and artifact trust rules without adding
-enough benefit for this small package.
+### Measure immutable revisions and retain run-bound data
 
-### Keep report production separate from percentage decisions
+For a PR, check out the event's head SHA, not GitHub's default synthetic merge
+checkout. Acquire the immutable event base SHA and enough history to compute
+`git merge-base BASE HEAD`; compare that merge base to the same measured `HEAD`.
+Never use a moving `origin/main` or a different checkout's source coordinates.
+Verify checkout identity before generation. Missing refs or merge bases are
+errors. Main/manual runs measure their selected commit without inventing a PR.
 
-The maintainer selected Codecov for both percentage assessments, rather than a
-local gate plus an overlapping Codecov project check. The report job only runs
-instrumented tests, validates fresh report data, and uploads eligible reports.
-It can pass with low coverage: that means report production/upload worked, not
-that coverage met either minimum. Codecov's statuses make those decisions.
+Generate LCOV once with default tool scope: no new exclusions, external
+dependencies/build outputs/integration-test source excluded by the tool's normal
+rules, and inline unit-test code still counted. Require execution evidence for
+library and CLI paths. Derive a dynamic inventory of tracked `src/**/*.rs` files
+from the immutable measured head (including files directly under `src/`). Require
+every such file in coverage: a genuinely unmeasured file gets an explicit error,
+not an exemption. Head-deleted files are absent from the inventory; renamed files
+use their head paths. Do not hardcode the current file count.
 
-Generate and validate the fresh LCOV report as today. Upload eligible valid
-reports regardless of the percentage. Do not add `--fail-under-lines`, a custom
-coverage calculator, badge scraping, or a second percentage-enforcing job. This
-avoids duplicate coverage-policy decisions and preserves low-coverage reports.
+Validate LCOV structure, integer counts, line coordinates, and source paths;
+normalize valid paths to repository-relative names. Reject unresolved, ambiguous,
+outside-repository, stale, or mismatched sources. Reject duplicate records with
+a useful diagnostic rather than silently counting them twice.
+Malformed/missing reports, source omissions, or impossible counts are errors,
+never a zero-line result.
 
-Instrumented test, report-validation, authentication, and upload failures still
-fail the report job; do not suppress them with `continue-on-error`. Never assess
-stale data or claim that an invalid/missing report is 0%, 100%, or a valid pass.
-On forks, skip the upload as before. Consequently those PRs have test/report
-results but no Codecov percentage assessments; changing that requires a separate
-secure upload decision, not a silent local fallback.
+### Separate raw LLVM validation from canonical line evidence
 
-### Give total and changed-line Codecov checks independent 80% targets
+LLVM 23.1.1 exports detailed `DA` records (source-line number and execution count)
+from merged file coverage, but exports `LF`/`LH` line totals from function-group
+summaries. Within an instantiation group (compiled versions of the same function),
+LLVM takes maxima before adding groups; distinct groups can overlap on source
+lines. Function details can also enumerate instantiations while function summaries
+count groups. Raw summary/detail equality is therefore not a valid assumption.
 
-Set both `coverage.status.project.total-coverage` and
-`coverage.status.patch.changed-lines` to `target: 80%`, `threshold: 0`, and
-`informational: false`. Treat 80% as a minimum with no configured tolerance, not
-an allowed regression. Retain `main` as the branch. The project check evaluates
-the full uploaded project; patch evaluates executable lines added or modified by
-the PR. Neither can compensate for failure of the other. A drop from 96% to 85%
-passes the total target, while a 70%-covered patch still fails its own target.
+Validate raw LLVM syntax, required fields and paired summaries, nonnegative
+integer counts and covered/found pair bounds, duplicate records/fields/lines,
+inventory, paths, source coordinates and known library/CLI hits. Do not assert
+raw grouped line/function summary equality with enumerated detail records, or
+other cross-summary/detail bounds not guaranteed by LLVM. This accepts valid
+LLVM output without weakening source completeness or line-level policy.
 
-GitHub therefore shows `Tests`, the supporting `Coverage report` job, and
-Codecov's separate project and patch assessments where available. There are three
-quality requirements (tests, total coverage, changed-line coverage), plus a
-report-pipeline health result, not two total-coverage gates. A successful report
-job does not replace pending or failed Codecov assessments. Changing the targets
-does not make them mandatory for merging; branch protection remains untouched.
+Then emit only `SF`, `DA`, recomputed `LF`/`LH` and `end_of_record` records in
+canonical repository-relative `lcov.info`. Preserve every validated unique
+source-line record and its count. Count each line once; it is covered exactly
+when its execution count is positive. Recompute found/covered summaries from
+these records. Reject duplicates rather than double counting. Function/branch
+metadata is validated as raw input but is not retained in this line-policy report.
 
-### Use descriptive check names within each provider's supported naming
+Consumers and the workflow-inline uploader accept only the strict canonical
+line-only format and require derived summary equality. There is no permissive
+raw mode for them. This needs no extra artifact, LLVM JSON export, or second
+segment-to-line coverage engine; the existing LLVM line records already provide
+the policy input. The CLI and two-file artifact contract are unchanged.
 
-The Actions job ids are implementation identifiers; their visible `name` values
-must explain the responsibility without requiring developers to know Codecov
-terminology. Use `Tests` and `Coverage report`. Keep threshold values in the check
-details and documentation, rather than rename checks whenever a target changes.
+Retain exactly `lcov.info` and `manifest.json`. The manifest has `schema_version`,
+`repository`, `run_id`, `run_attempt`, `event`, `head`, `base`, `merge_base`,
+`report_sha256` and `sources`; each source maps its head path to `sha256` and
+`lines` (the number of source-file lines). It binds the report to repository,
+current run and attempt, event, immutable revisions and source inventory. Non-PR
+base and merge base equal head. Coverage counts are validated from canonical LCOV
+records and summaries rather than duplicated as aggregate manifest fields. Consumers receive
+expected context independently from the event/run and verified checkout, not by
+trusting the manifest to describe itself. Recheck identity, schema, digest,
+inventory, paths and counts before policy. This prevents stale or cross-run data
+from silently deciding the current commit's result.
 
-Codecov allows named project and patch status entries, but its documented status
-contexts retain the provider/type prefixes. Name the entries `total-coverage` and
-`changed-lines`, producing the documented contexts
-`codecov/project/total-coverage` and `codecov/patch/changed-lines`. Disable each
-section's `default` entry explicitly to avoid extra bare `codecov/project` or
-`codecov/patch` assessments alongside the descriptive ones. Do not claim that the
-Codecov configuration can replace its prefix with an arbitrary GitHub check name.
-Verify the actual service-rendered names during rollout.
+### Apply exact inclusive arithmetic in each consumer
 
-This reuses Codecov's existing changed-line assessment; it does not add another
-patch job or a custom status-publishing wrapper just to rename it. Such a wrapper
-would add write permissions, asynchronous polling, and failure handling solely
-for presentation. No extra privileges or duplicate changed-line checks are needed.
-There is no separate local total gate: both percentage decisions belong to the
-named Codecov statuses, as requested by the maintainer.
+For a positive measured-line count, pass exactly when
+`5 * covered >= 4 * measured`, with integer `0 <= covered <= measured`. Exactly
+80% passes; any smaller fraction fails even if a display rounds it to 80%. Show
+covered/measured counts and a readable percentage, but never use formatted output
+as policy input. A zero total denominator is invalid evidence, not N/A.
 
-The named entries, disabled defaults, and 80% targets were accepted by Codecov's
-configuration validator during planning. This verifies configuration validity,
-not live check labels or threshold outcomes.
+Low total coverage cannot suppress changed-line assessment, report retention, or
+an eligible upload. Conversely, a high changed-line score cannot compensate for
+low total coverage. No `continue-on-error` or fabricated status hides a failure.
 
-For PRs with no added or modified executable lines, patch coverage is not
-applicable; accept Codecov's neutral/skipped/no-applicable-lines result instead
-of demanding a numerical patch percentage or inventing 100%. Missing reports,
-missing baseline data, processing delays, and account limitations are distinct
-from that case. Do not fabricate a patch pass when Codecov cannot assess it.
-An eligible code-changing PR with a processed base report is needed to verify
-both pass and fail outcomes; this configuration-only increment cannot prove them
-from a documentation-only PR alone. Do not add unrelated product code just to
-create a diff for the service.
+### Use pinned diff analysis, not its rounded threshold
 
-### Keep the follow-up specifications ordered and documentation current
+Install `diff-cover` 10.6.0 in an isolated CI environment (an optional developer
+tool, not a Rust/runtime dependency). Its explicit TOML configuration requires
+the `toml` extra on Python 3.10; Python 3.11+ supplies the parser in its standard
+library. Generate an explicit Git diff file for
+`merge-base(event base, measured head) -> measured head` and pass it using
+`--diff-file`. Force Git's textual diff with `--text`, keeping `--no-ext-diff` and
+`--no-textconv`, so a `.gitattributes` entry such as `src/lib.rs -diff` cannot
+suppress source hunks and turn uncovered changes into N/A. Request JSON output
+with the pinned version's supported format.
+Do not let defaults, moving refs, or tool configuration add exclusions or alter
+the comparison. Do not use its rounded percentage or `--fail-under` decision.
+The adapter invokes diff-cover with a zero threshold so that only the adapter's
+exact-count decision enforces the 80% policy.
 
-The `code-coverage-ci` capability exists in the pending `configure-codecov`
-change, not yet in `openspec/specs/`. This change depends on that baseline:
-synchronise its additions first, then this follow-up's modifications when
-updating the main specifications. Do not rewrite earlier successful verification
-as evidence for the new policy, or reintroduce automatic targets when finishing
-the original change. No implementation may load assets from `openspec/`.
+The maintained adapter validates the JSON schema, integer covered/measured
+counts and per-file line sets against LCOV and the actual diff. Cross-check
+changed source paths so a skipped or mismatched coverage source cannot turn into
+N/A. Apply the same exact arithmetic to the validated changed measured lines.
+Validate the root and per-source JSON object shapes explicitly so malformed
+structure produces the intended diagnostic and error exit, not an uncaught
+exception.
 
-During implementation, revise README Development and `docs/coverage.md` to explain
-test versus report-pipeline failures, both Codecov 80% targets, low-coverage
-uploads, service/baseline limitations, and patch applicability. Keep the
-token-free shield measuring actual `main`
-coverage, not a static 80% claim. Earlier verification remains historical.
+An otherwise valid PR diff with zero applicable measured executable lines is a
+successful, explicit **not applicable** result, without a numerical 100%. Deleted
+lines do not add executable head lines; additions and renames must map to head
+paths correctly. Main pushes and manual non-PR runs report N/A by event policy,
+after validating their report, not by comparing against an arbitrary revision.
+Missing refs, reports, source mappings or required records are failures, not N/A.
 
-### Correct the input-loss test harness without changing CLI behaviour
+### Keep Codecov for browsing and the shield, not enforcement
 
-Linux validation exposed an existing intermittent terminal test failure. The
-maintainer authorised investigating and fixing it before continuing. The
-`portable-pty` writer sends a newline and end-of-transmission byte when dropped;
-the test intended to disconnect input without sending any answer. That newline
-can accept the current prompt, including completing the format selector, or
-advance to a later prompt before the disconnect is observed.
+Set `coverage.status.project: false` and `coverage.status.patch: false`, retaining
+`main` as the configured branch. Do not add a status-publishing wrapper, duplicate
+Codecov percentage assessments, or an account-feature dependency to local gates.
+Retain the actual token-free main Shields.io image URL and report destination;
+do not hardcode a percentage. Codecov may process source scope differently from
+the LLVM policy report, so identical displayed percentages are not promised.
 
-Use a plain independently owned duplicate of the input terminal's master
-descriptor in this test. It closes without injecting keystrokes. Keep the
-existing nonzero-exit, single diagnostic, and no-files-created assertions at
-both the name prompt and format selector. Add captured output to the exit-status
-assertion for useful failure diagnostics. This is a focused test-harness repair,
-not a CLI behaviour change, test skip, or coverage-driven source refactor. No
-Cargo dependency or foundation/glossary change is needed.
+### Isolate authenticated uploading to main-only data consumption
 
-### Preserve scripted terminal keystrokes between prompt reads
+Only pushes to `main` and manual runs on `main` may enter the separate upload job.
+All PR uploads are disabled, including same-repository, bot, and fork PRs. Grant
+`id-token: write` only to this job; all other jobs remain read-only. Use reviewed
+full SHA action pins. Never introduce `pull_request_target`, a `workflow_run`
+privilege bridge, repository/PR/status write permissions, or stored-token fallback.
 
-The first hosted run after the split passed normal tests but failed the Unicode
-correction test under instrumentation. The expected name was a BOM (U+FEFF);
-the actual name also retained the previously rejected next-line whitespace
-(U+0085). The input-loss repair passed in that run.
+Use a fresh upload runner with no checkout, Cargo, repository scripts, build cache,
+or executable artifact consumption. Download only the explicitly named artifact
+from the current run into a dedicated directory. A small inline workflow-owned
+validator checks the exact allowed data filenames, regular-file types, sizes,
+schema, repository/run/attempt/event/commit context, inventory metadata, and
+report digest, plus canonical-only LCOV structure and derived summary agreement.
+Reject unexpected data, symlinks, identity mismatches and tampering;
+never execute artifact content. The uploader's expected context comes from the
+trusted main event and run, not the artifact itself.
 
-The `console` dependency switches to raw input for each key, then restores the
-previous mode before returning to the prompt library. In the test's default
-canonical (line-buffered) terminal mode, a scripted Backspace arriving between
-reads can be consumed by the terminal rather than delivered to the prompt.
-A separate terminal experiment confirmed that the correction's Backspace byte
-was lost with that baseline and preserved with noncanonical input.
+Use the pinned official Codecov action with OIDC, explicit commit/branch/slug and
+report file, automatic search disabled, integrity checks enabled, and
+`plugins: noop`. Authentication/upload failures remain visible in the upload job.
+Valid below-target main reports still upload because neither gate is its
+dependency. Fork and other PR checks need no upload or credential expansion.
 
-Set `stty -icanon -echo -isig min 1 time 0` in the test session's existing bounded
-shell child before it launches the CLI. This makes scripted input byte-oriented,
-disables terminal echo and signal interpretation, and keeps output newline
-handling unchanged. Fail setup if `stty` fails. The CLI still uses cliclack's
-normal input handling; tests retain their Unicode values, exact expected layer
-manifest content, error assertions, and cleanup. Do not mask the issue with
-delays, retries, filtering input, or weaker assertions. This test-only setup does
-not establish a new production input policy.
+### Keep specifications ordered and documentation focused
 
-GitHub confirmed that report validation and uploading were skipped after the
-instrumented failure. The Codecov assessments are service-generated after an
-eligible upload, not extra Actions jobs. Check their absence separately from
-configuration validity and missing-base comparisons; do not create placeholder
-success statuses to make four checks appear.
+`configure-codecov` introduces `code-coverage-ci` outside the main specifications.
+When synchronisation is separately requested, apply its ADDED requirements first,
+then this change's MODIFIED requirements, including authenticated-upload scope,
+and its additions. Do not change archived assets or load `openspec/` from code,
+tests, or build scripts.
+
+Revise existing explanations instead of appending competing policies. README
+Development stays concise; `docs/coverage.md` explains scope, checks, exact
+arithmetic, N/A, run identity, OIDC and troubleshooting. The publication checklist
+expects Actions-owned gates and main-only OIDC verification while retaining
+anonymous-access, token-free shield and fork-safety checks. Keep historical
+verification separate from new technical evidence and pending hosted/main work.
 
 ## Risks / Trade-offs
 
-- **Two builds consume more runner work** → Keep one platform and run jobs in
-  parallel; do not add raw-profile artifact handling before it is needed.
-- **Codecov processing or a baseline is unavailable** → Leave percentage results
-  explicitly unassessed/pending; do not treat a passing report job as a coverage
-  pass or silently add duplicate local enforcement.
-- **An instrumented test or infrastructure failure also fails coverage** → Keep
-  step names and diagnostics clear; distinct checks do not mean suppressing errors.
-- **Private/fork limits prevent percentage assessment** → Preserve trust
-  boundaries and report the limitation; neither percentage is claimed to be
-  enforced on a run that Codecov could not assess.
+- Extra jobs and duplicate normal/instrumented builds cost runner work; consumers
+  share one data artifact and instrument only once.
+- Cross-job evidence adds validation complexity; test identity, digest, source and
+  path failures rather than trusting self-described artifacts.
+- Changed-line tooling can round results or miss paths; validate integer JSON and
+  line sets against immutable Git/LCOV evidence before applying policy.
+- Service availability can prevent report browsing or a fresh shield; it cannot
+  alter local policy results. Report service failures honestly, without widening
+  permissions, changing billing or substituting a static number.
 
-## Migration Plan
+## Migration and verification
 
-Implement on the existing branch/PR, validate job independence and fixed Codecov
-targets, and observe both Actions checks on an authorised push. Verify Codecov
-comparisons when base and changed-code reports are available. Do not merge or
-change repository settings as part of implementation. Rollback restores the
-single-job/automatic-target configuration in a reviewed change, not by discarding
-unrelated work.
+Implement helpers/fixtures outside `openspec/`, then reconcile their actual CLI
+with the documentation. Validate exact/above/below-80 cases (including values
+displayed as 80), independent gate outcomes, valid N/A, malformed/missing data,
+unavailable refs, wrong run/attempt/event/repository/revisions/digest, source/path
+omissions, duplicate records, invalid counts, additions, renames and deletions.
+Exercise valid raw LLVM grouped summaries that differ from unique line/function
+details, missing/invalid summary pairs, strict canonical tampering, malformed JSON
+object shapes and Git-attribute binary-diff suppression. Run preparation and
+consumers on the actual production report, not only synthetic fixtures.
+Exercise pinned diff-cover against real temporary Git fixtures. Run Python tests,
+Actionlint, formatting, Clippy, strict OpenSpec validation, normal macOS/Linux and
+instrumented Linux suites with bounded terminal waits and child cleanup.
+
+Independently review the exact implementation and trust boundaries. Observe the
+three revised hosted quality checks and retained report on the authorised PR
+candidate. Main OIDC upload, public report access and the main shield require a
+later eligible main run and separate publication readiness; do not claim them from
+PR evidence. No merge, publication, billing or required-check operation is part
+of these implementation tasks. Any rollback must be reviewed and preserve other
+work rather than silently restoring superseded policy.
 
 ## Sources
 
-- [cargo-llvm-cov threshold and report options](https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/README.md)
-- [Codecov project and patch status configuration](https://docs.codecov.com/docs/commit-status)
+- [cargo-llvm-cov 0.9.1 scope and report options](https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/README.md)
+- [LLVM 23.1.1 LCOV line details and summaries](https://github.com/llvm/llvm-project/blob/llvmorg-23.1.1/llvm/tools/llvm-cov/CoverageExporterLcov.cpp)
+- [LLVM 23.1.1 function-group report construction](https://github.com/llvm/llvm-project/blob/llvmorg-23.1.1/llvm/tools/llvm-cov/CoverageReport.cpp)
+- [LLVM 23.1.1 summary maxima and addition](https://github.com/llvm/llvm-project/blob/llvmorg-23.1.1/llvm/tools/llvm-cov/CoverageSummaryInfo.h)
+- [diff-cover 10.6.0 LCOV, diff-file, JSON and percentage behaviour](https://github.com/Bachmann1234/diff_cover/blob/v10.6.0/README.rst)
+- [Git merge-base](https://git-scm.com/docs/git-merge-base)
+- [GitHub artifact transfer between jobs](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-what-your-workflow-does/storing-and-sharing-data-from-a-workflow)
+- [GitHub OIDC security](https://docs.github.com/en/actions/concepts/security/openid-connect)
+- [Codecov action OIDC and supported inputs](https://github.com/codecov/codecov-action#using-oidc)
+- [Codecov disabling project and patch statuses](https://docs.codecov.com/docs/commit-status)

@@ -1,23 +1,48 @@
-## 1. Separate job responsibilities
+## Historical completion record (superseded design)
 
-- [x] 1.1 Add an independent job with id `tests` and display name `Tests` to the existing workflow, using pinned checkout, no persisted credentials, stable Rust, `cargo test --locked`, and only content-read permission; retain existing events, concurrency, and bounded execution without adding path filters or a dependency on coverage.
-- [x] 1.2 Give the separate `coverage` job display name `Coverage report`, retaining its complete instrumented test run, fresh LCOV report, library/CLI validation, pinned tooling, OIDC scope, and fork-upload guard; make report-pipeline failures distinct from tests and Codecov percentage decisions without suppressing instrumented test failures.
+The earlier Codecov-only increment reached **10/12 tasks complete**. Its checked
+work established separate normal tests and instrumented reporting, configured
+named Codecov 80% targets, checked workflow/failure boundaries, ran Linux/macOS
+suites and formatting/Clippy checks, documented that policy, and recorded the
+specification synchronisation order (former tasks 1.1–3.4, 4.1 and 4.4).
 
-## 2. Enforce independent 80% coverage targets
+Former tasks 4.2 and 4.3 remained incomplete: actual named Codecov assessment
+labels and independent live project/patch pass/fail evidence were not verified.
+Those service-policy tasks are superseded, not completed by the revised design.
+See [historical verification](verification.md). Its earlier results do not
+validate the Actions gates below. Active progress counts only the new checklist.
 
-- [x] 2.1 Keep percentage enforcement out of the report job: do not add `--fail-under-lines`, a custom calculator, or another percentage gate. Ensure valid below-target reports still upload, while instrumented-test, report-validation, and upload failures remain failures.
-- [x] 2.2 Configure named Codecov project `total-coverage` and patch `changed-lines` entries with targets of `80%`, zero tolerance, and non-informational results; explicitly disable both `default` entries to avoid duplicate assessments, and retain `main`, the token-free shield, account boundaries, and unchanged branch protection.
+## 1. Revise the active contract and documentation
 
-## 3. Validate results and failure boundaries
+- [x] 1.1 Replace the active proposal/design/delta specifications with three Actions quality policies, exact inclusive arithmetic, immutable comparisons, complete run-bound report evidence, explicit N/A, and isolated main-only authenticated uploading; record the original-additions-before-follow-up-modifications dependency without synchronising or archiving.
+- [x] 1.2 Revise README Development, the focused coverage reference and publication checklist for Actions-owned policy and report-only Codecov; preserve the actual shield and offline runtime behaviour, and review the wording for a first-time reader.
 
-- [x] 3.1 Run Actionlint and Codecov YAML validation; verify job independence, read-only test permissions, scoped coverage OIDC, event coverage, upload guards, and configured failure behaviour.
-- [x] 3.2 Check that both named Codecov targets are exactly `80%`, with zero tolerance and non-informational results, and that no workflow command or duplicate check independently enforces coverage percentages. Verify a failing normal test fails `Tests` without making coverage percentages part of its result.
-- [x] 3.3 Check step ordering and outcomes for valid low coverage, missing/invalid reports, upload failure, cancellation, and fork PRs; confirm low percentages alone do not fail `Coverage report`, valid uploads are retained, and missing service/baseline evidence is never represented as a percentage pass.
-- [x] 3.4 Run normal and instrumented suites on Linux, including terminal tests with bounded waits and child cleanup; inspect the same library/CLI report scope without new production exclusions, and run the existing formatting and Clippy checks.
+## 2. Implement maintained evidence and policy helpers
 
-## 4. Document and verify rollout
+- [x] 2.1 Add report preparation/validation outside `openspec/`: validate raw LLVM syntax/required fields/summary pair bounds without false grouped-detail equality; emit canonical line-only LCOV preserving every unique measured line, with recomputed summaries, immutable-head complete source inventory/library/CLI execution, deliberate duplicate handling, valid paths and independently verifiable run/event/repository/revision/digest metadata. Consumers and uploader accept strict canonical evidence only.
+- [x] 2.2 Add a total consumer that revalidates artifact/context and applies `5 * covered >= 4 * measured` with a positive denominator, useful counts and no display-rounding policy.
+- [x] 2.3 Add a changed-line consumer using pinned diff-cover 10.6.0, explicit immutable merge-base-to-head diff, validated JSON integer counts/line sets and source mapping, exact arithmetic and valid PR/non-PR N/A semantics.
+- [x] 2.4 Add stdlib regression fixtures/tests for exact/above/below 80% (including rounded-to-80), independent gate outcomes, valid N/A, missing/malformed data, raw LLVM grouped summaries/instantiations, missing/invalid summary pairs, canonical-only tamper rejection, JSON object shapes, Git-attribute binary suppression, invalid counts/duplicates, path/source omissions, stale identity/digest, unavailable refs, additions, renames and deletions; include real pinned diff-cover integration using temporary Git fixtures.
 
-- [x] 4.1 Revise README Development and `docs/coverage.md` for `Tests`, `Coverage report`, and the two Codecov-only percentage assessments, including 80% targets, no-executable-change patch results, baseline/service and fork limitations, and low-coverage report retention; review from a first-time reader's perspective without redesigning badges or changing product foundations.
-- [ ] 4.2 On an authorised push to the existing PR, observe `Tests` and `Coverage report` and confirm named project/patch configuration is accepted; verify Codecov's actual rendered labels against the documented contexts `codecov/project/total-coverage` and `codecov/patch/changed-lines`, with no extra default assessments. Record evidence separately from the original integration's verification; do not create another PR or merge automatically.
-- [ ] 4.3 Verify independent Codecov project/patch pass and fail outcomes on eligible reports once a processed base report exists, covering the 80% minimum and high-total/low-patch behaviour where controlled live evidence is available; explicitly leave unavailable evidence pending rather than add unrelated source changes or claim documentation-only diffs prove the changed-line gate.
-- [x] 4.4 Confirm and record the specification dependency for later synchronisation: `configure-codecov`'s additions must precede this follow-up's modifications, whose fixed targets supersede the earlier policy. Preserve historical evidence and leave actual synchronisation/archival to that separately requested workflow.
+## 3. Wire independent workflow jobs and trust boundaries
+
+- [x] 3.1 Keep `Tests` independent/read-only with stable Rust, no persisted checkout credentials, `cargo test --locked` and the explicit Python helper test command; retain events, bounded waits, cleanup and concurrency without path filters.
+- [x] 3.2 Make `Coverage report` a read-only producer with no OIDC or percentage gate; measure immutable PR heads with required history, retain normalized LCOV and run-bound metadata once, and preserve existing cargo-llvm-cov 0.9.1 Linux/default scope without exclusions.
+- [x] 3.3 Add sibling `Total coverage` and `Changed-line coverage` jobs depending only on valid production; independently validate artifact context and keep low-total, normal-test or service outcomes from suppressing changed-line assessment or report retention.
+- [x] 3.4 Isolate uploading to a fresh main-push/manual-main job depending only on the producer, with job-only OIDC, no checkout/Cargo/repository scripts/caches/executable artifacts, explicitly named current-run data, inline strict validation and explicit pinned-uploader inputs/search disabled/integrity checks/plugins noop; forbid all PR uploads and privileged event bridges.
+- [x] 3.5 Disable Codecov project and patch statuses while retaining main report browsing and the actual token-free shield; preserve all non-upload read-only permissions and leave repository settings, billing, visibility and required checks unchanged.
+
+## 4. Validate the exact candidate
+
+- [x] 4.1 Run Python helper regressions, real pinned diff-cover integration and the actual production report through preparation and consumers; verify raw-to-canonical preservation/counts, strict canonical rejection, exact thresholds, sibling outcomes, valid N/A, forced-text source diffs and all malformed/missing/path/source/ref/run/digest failure boundaries.
+- [x] 4.2 Run Actionlint and Codecov YAML validation; inspect actual workflow dependencies, immutable checkout/fetch, permissions, artifact trust, data-only uploader and below-target retention/upload failure behaviour.
+- [x] 4.3 Run formatting, Clippy, normal macOS/Linux and instrumented Linux suites with bounded terminal cleanup; verify unchanged production coverage scope and dynamically complete tracked source records.
+- [x] 4.4 Reconcile documentation with the final helper CLI and workflow contract; reread from a first-time reader's perspective and record only actual validation evidence.
+- [x] 4.5 Run strict OpenSpec validation and diff checks for the revised documentation/specifications; keep historical verification clearly separate and new technical verification truthful.
+- [x] 4.6 Obtain independent review of the exact candidate's arithmetic, diff analysis, artifact/data trust and documentation; resolve findings and rerun affected checks before marking implementation complete.
+
+## 5. Verify hosted rollout separately
+
+- [ ] 5.1 On an authorised ordinary push to the existing PR, observe `Tests`, `Total coverage` and `Changed-line coverage`, plus retained report data and supporting pipeline jobs; verify the measured head/run and record real N/A only when justified.
+- [ ] 5.2 Reconcile hosted results with controlled local pass/fail fixtures and independent gates; do not claim a documentation-only PR proves live positive-denominator changed-line threshold behaviour or introduce unrelated production changes for evidence.
+- [ ] 5.3 After separately cleared publication/merge and an eligible main run, verify the isolated OIDC upload for the actual main revision, processed report, anonymous report access and the unchanged token-free main shield after cache refresh; leave this pending until those prerequisites occur.

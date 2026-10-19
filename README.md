@@ -176,13 +176,14 @@ repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
 
-CI reports normal test results as **Tests** and generates and uploads Rust line
-coverage through **Coverage report**. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
-separately requires at least **80% overall coverage** and **80% coverage of added
-or modified executable lines**. A successful report upload does not mean these
-percentage targets passed; Codecov checks them separately, without a local gate.
-The coverage shield tracks `main`; it may be unavailable while the repository is
-private because its URL deliberately contains no badge-access token.
+CI has three independent Actions quality checks: **Tests**, **Total coverage**,
+and **Changed-line coverage**. Each applicable coverage gate requires at least
+**80%**, using unrounded line counts; a PR with no changed measured executable
+lines reports changed-line coverage as not applicable. **Coverage report** retains
+the shared evidence even below target. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
+provides report browsing and the token-free `main` shield, not percentage gates;
+only main pushes and manual runs on main upload. The shield may be unavailable
+while report access is private.
 
 With the [coverage tools installed](docs/coverage.md#local-coverage), generate a
 report locally without uploading:
@@ -192,8 +193,8 @@ mkdir -p target/coverage
 cargo +stable llvm-cov --locked --workspace --all-targets --lcov --output-path target/coverage/lcov.info
 ```
 
-See [coverage setup and checks](docs/coverage.md) for private-repository setup,
-fork limitations, and troubleshooting.
+See [coverage setup and checks](docs/coverage.md) for helper tests, measurement
+scope, fork behaviour, and troubleshooting.
 
 ## License
 
