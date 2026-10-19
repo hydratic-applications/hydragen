@@ -13,6 +13,10 @@ depend on the current directory's layer manifests.
 - Give a missing add source a short explanation, usage, one example, and a help
   hint. Preserve clap's useful argument names, valid choices, and suggestions for
   other failures rather than replacing them with a generic message.
+- Use one shared diagnostic body: punctuated headline, optional context and
+  correction, usage with an optional example, then command-specific help. Use
+  consistent labels, indentation, and spacing instead of mixing a bespoke body
+  with clap's fully rendered bodies. Omit blocks that add no useful information.
 - Keep argument validation ahead of layer discovery. Explicit help and version
   remain successful plain output, available from any directory without layer
   discovery, schema setup, prompts, or writes.
@@ -40,5 +44,7 @@ None.
 - Agent guidance and the relevant design-question resolution. The foundations'
   existing DX/performance values already support this change; no core belief or
   layer-model revision is needed.
+- A focused maintained diagnostic-style reference and family-wide layout tests,
+  so future commands inherit the structure rather than invent another template.
 - No changes to accepted arguments, layer discovery, input defaults, content
   validation, mutation logic, dependencies, registry scope, or archived changes.

@@ -1,11 +1,59 @@
 //! Presentation-only adaptation of clap errors from the static CLI definition.
 
+mod catalog;
+mod facts;
+
 use std::error::Error as _;
 
 use clap::error::{ContextKind, ContextValue, ErrorFormatter, ErrorKind, RichFormatter};
 use hydragen::diagnostic_text::display;
 
 use crate::presentation::{Presentation, Severity};
+use catalog::{Catalog, Origin};
+
+/// One optional-block model for ordinary, missing-input and opaque diagnostics.
+struct Diagnostic {
+    summary: String,
+    details: Vec<String>,
+    usage: Option<String>,
+    example: Option<&'static str>,
+    help: String,
+}
+
+impl Diagnostic {
+    fn new(summary: String, catalog: &Catalog<'_>, origin: Origin) -> Self {
+        let entry = catalog.entry(origin);
+        Self {
+            summary,
+            details: Vec::new(),
+            usage: entry.map(|entry| entry.usage.clone()),
+            example: None,
+            help: entry.map_or_else(
+                || "hydragen --help".to_owned(),
+                |entry| format!("{} --help", entry.path),
+            ),
+        }
+    }
+
+    fn render(&self, presentation: Presentation) -> String {
+        let mut blocks = vec![self.summary.clone()];
+        if !self.details.is_empty() {
+            blocks.push(self.details.join("\n"));
+        }
+        if let Some(usage) = &self.usage {
+            let mut block = usage.clone();
+            if let Some(example) = self.example {
+                block.push_str(&format!("\nExample: {example}"));
+            }
+            blocks.push(block);
+        }
+        blocks.push(format!("For more information, try '{}'.", self.help));
+        format!(
+            "{}\n",
+            presentation.diagnostic(Severity::Error, &blocks.join("\n\n"))
+        )
+    }
+}
 
 /// The command and its error come from the same built, static, plain-styled CLI.
 /// Only clap-generated Usage/static help can retain layout; data leaves cannot.
@@ -14,25 +62,28 @@ pub fn render(
     command: &clap::Command,
     presentation: Presentation,
 ) -> String {
+    // This catalog is constructed only here: successful parsing and explicit
+    // help/version never pay for it. It reads metadata, never validators or argv.
+    let catalog = Catalog::new(command);
     if error.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
-        let help = command.clone().render_help().ansi().to_string();
-        if error.render().ansi().to_string() == help {
-            return diagnostic(presentation, &format!("A command is required.\n\n{help}"));
+        let origin = catalog.pseudo_help_origin(&error.render().ansi().to_string());
+        if origin != Origin::Unknown
+            && error.source().is_none()
+            && let Some(model) = facts::adapt(&error, &catalog, origin)
+        {
+            return model.render(presentation);
         }
-        return opaque(&error, command, presentation);
+        return opaque(&error, &catalog, Origin::Unknown).render(presentation);
     }
 
-    // The external validation source is private to clap and cannot be rewritten.
-    // Unknown context kinds/shapes must never slip through the rich formatter.
-    if error.source().is_some() || !rich_kind(error.kind()) {
-        return opaque(&error, command, presentation);
-    }
+    // Escape leaves before either the model or the rich-format consistency gate.
+    // Unknown context kinds/shapes cannot become unchecked presentation layout.
     let Some(context) = error
         .context()
         .map(|(kind, value)| safe_context(kind, value).map(|value| (kind, value)))
         .collect::<Option<Vec<_>>>()
     else {
-        return opaque(&error, command, presentation);
+        return opaque(&error, &catalog, Origin::Unknown).render(presentation);
     };
     for (kind, value) in context {
         error.insert(kind, value);
@@ -40,58 +91,21 @@ pub fn render(
 
     // Error::render can bypass RichFormatter for raw/preformatted payloads. There
     // is no public message accessor: compare against the supported formatter,
-    // after sanitising its inputs, before trusting its generated envelope/layout.
+    // after sanitising its inputs. The finished English body is never interpreted
+    // or patched, nor used to identify the error kind or originating command.
     let generated = RichFormatter::format_error(&error).ansi().to_string();
     if error.render().ansi().to_string() != generated {
-        return opaque(&error, command, presentation);
+        return opaque(&error, &catalog, Origin::Unknown).render(presentation);
     }
-    let Some(body) = generated.strip_prefix("error: ") else {
-        return opaque(&error, command, presentation);
-    };
-
-    if missing_add_sources(&error, command) {
-        let usage = command
-            .find_subcommand("add")
-            .expect("missing sources identified from add metadata")
-            .clone()
-            .render_usage();
-        return diagnostic(
-            presentation,
-            &format!(
-                "Add requires at least one source.\n\n{usage}\n\nExample: hydragen add ../shared-config\n\nFor more information, try 'hydragen add --help'."
-            ),
-        );
+    let origin = catalog.resolve(&error);
+    // External validation sources cannot be mutated and are opaque data, not
+    // generated prose. Retain their safe explanation in the same outer model.
+    if error.source().is_none()
+        && let Some(model) = facts::adapt(&error, &catalog, origin)
+    {
+        return model.render(presentation);
     }
-
-    let mut body = body.to_owned();
-    // RichFormatter starts these known kinds with generated prose (or a quote),
-    // never a raw data leaf. Do not case-convert argument/value text.
-    if let Some(first) = body.get_mut(..1) {
-        first.make_ascii_uppercase();
-    }
-    diagnostic(presentation, &body)
-}
-
-fn diagnostic(presentation: Presentation, body: &str) -> String {
-    format!("{}\n", presentation.diagnostic(Severity::Error, body))
-}
-
-fn rich_kind(kind: ErrorKind) -> bool {
-    matches!(
-        kind,
-        ErrorKind::ArgumentConflict
-            | ErrorKind::NoEquals
-            | ErrorKind::InvalidValue
-            | ErrorKind::InvalidSubcommand
-            | ErrorKind::MissingRequiredArgument
-            | ErrorKind::MissingSubcommand
-            | ErrorKind::InvalidUtf8
-            | ErrorKind::TooManyValues
-            | ErrorKind::TooFewValues
-            | ErrorKind::ValueValidation
-            | ErrorKind::WrongNumberOfValues
-            | ErrorKind::UnknownArgument
-    )
+    opaque(&error, &catalog, origin).render(presentation)
 }
 
 fn safe_context(kind: ContextKind, value: &ContextValue) -> Option<ContextValue> {
@@ -148,27 +162,17 @@ fn safe_context(kind: ContextKind, value: &ContextValue) -> Option<ContextValue>
     }
 }
 
-fn missing_add_sources(error: &clap::Error, command: &clap::Command) -> bool {
-    if error.kind() != ErrorKind::MissingRequiredArgument {
-        return false;
-    }
-    let Some(source) = command.find_subcommand("add").and_then(|add| {
-        add.get_arguments()
-            .find(|argument| argument.get_id() == "sources")
-    }) else {
-        return false;
-    };
-    matches!(error.get(ContextKind::InvalidArg), Some(ContextValue::Strings(missing))
-        if missing.as_slice() == [source.to_string()])
-}
-
-fn opaque(error: &clap::Error, command: &clap::Command, presentation: Presentation) -> String {
+fn opaque(error: &clap::Error, catalog: &Catalog<'_>, origin: Origin) -> Diagnostic {
     // Preserve encoded content, including hostile ANSI, then escape it as ONE
     // unstructured leaf. Display on StyledStr would silently strip ANSI instead.
-    let mut body = format!(
-        "Could not parse command-line arguments.\n\n{}",
-        display(error.render().ansi())
+    let mut model = Diagnostic::new(
+        "Could not parse command-line arguments.".into(),
+        catalog,
+        origin,
     );
+    model
+        .details
+        .push(format!("Details: {}", display(error.render().ansi())));
     // A raw payload or unsupported formatter can ignore even known contexts.
     // Preserve every context as opaque data, reading styled content before any
     // ANSI-stripping Display. Debug is only for future non-exhaustive variants.
@@ -187,17 +191,30 @@ fn opaque(error: &clap::Error, command: &clap::Command, presentation: Presentati
             }
             _ => format!("{value:?}"),
         };
-        body.push_str(&format!("\nContext: {kind:?}: {}", display(payload)));
+        let label = match kind {
+            ContextKind::InvalidArg | ContextKind::PriorArg => "Arguments",
+            ContextKind::InvalidSubcommand => "Command",
+            ContextKind::InvalidValue => "Value",
+            ContextKind::ValidValue => "Possible values",
+            ContextKind::ValidSubcommand => "Commands",
+            ContextKind::ActualNumValues => "Values supplied",
+            ContextKind::ExpectedNumValues => "Values required",
+            ContextKind::MinValues => "Minimum values",
+            ContextKind::Suggested
+            | ContextKind::SuggestedArg
+            | ContextKind::SuggestedValue
+            | ContextKind::SuggestedSubcommand
+            | ContextKind::SuggestedCommand => "Tip",
+            _ => "Details",
+        };
+        if !payload.is_empty() {
+            model.details.push(format!("{label}: {}", display(payload)));
+        }
     }
     if let Some(source) = error.source() {
-        body.push_str(&format!("\nCause: {}", display(source)));
+        model.details.push(format!("Cause: {}", display(source)));
     }
-    // This usage is independently generated, not taken from the opaque payload.
-    body.push_str(&format!(
-        "\n\n{}\n\nFor more information, try 'hydragen --help'.",
-        command.clone().render_usage()
-    ));
-    diagnostic(presentation, &body)
+    model
 }
 
 #[cfg(test)]
@@ -252,7 +269,39 @@ mod tests {
     }
 
     #[test]
-    fn rich_errors_keep_choices_and_suggestions_under_shared_headlines() {
+    fn approved_missing_source_and_invalid_format_bodies_share_block_grammar() {
+        for (arguments, expected) in [
+            (
+                vec!["hydragen", "add"],
+                "Error: Add requires at least one source.\n\n  Usage: hydragen add [OPTIONS] <SOURCE>...\n  Example: hydragen add ../shared-config\n\n  For more information, try 'hydragen add --help'.\n",
+            ),
+            (
+                vec!["hydragen", "init", "--format", "yam"],
+                "Error: Invalid value 'yam' for '--format <FORMAT>'.\n\n  Possible values: yaml, yml, toml, json, jsonc\n  Tip: Did you mean 'yaml'?\n\n  Usage: hydragen init [OPTIONS]\n  Example: hydragen init --format yaml\n\n  For more information, try 'hydragen init --help'.\n",
+            ),
+        ] {
+            let (error, command) = failure(&arguments);
+            let text = render(error, &command, plain());
+            assert_eq!(text.replace("\n  \n", "\n\n"), expected);
+        }
+    }
+
+    #[test]
+    fn pseudohelp_uses_command_choices_not_a_second_document_template() {
+        let (error, command) = failure(&["hydragen"]);
+        assert_eq!(
+            error.kind(),
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let text = render(error, &command, plain());
+        assert!(text.contains("Commands: init, add, help"), "{text}");
+        assert!(!text.contains("Options:"));
+        assert!(!text.contains("Build projects from shared layers"));
+        assert!(text.ends_with("For more information, try 'hydragen --help'.\n"));
+    }
+
+    #[test]
+    fn structured_errors_keep_choices_and_suggestions_under_shared_headlines() {
         for (arguments, kind, details) in [
             (
                 vec!["hydragen", "init", "--format", "jsno"],
@@ -262,7 +311,7 @@ mod tests {
                     "--format <FORMAT>",
                     "yaml, yml, toml, json, jsonc",
                     "json",
-                    "tip:",
+                    "Tip:",
                 ],
             ),
             (
@@ -271,14 +320,14 @@ mod tests {
                 vec![
                     "Error: Unexpected argument '--nme'",
                     "--name",
-                    "tip:",
+                    "Tip:",
                     "Usage:",
                 ],
             ),
             (
                 vec!["hydragen", "ad"],
                 ErrorKind::InvalidSubcommand,
-                vec!["Error: Unrecognized subcommand 'ad'", "add", "tip:"],
+                vec!["Error: Unrecognized subcommand 'ad'", "add", "Tip:"],
             ),
             (
                 vec!["hydragen", "init", "--name"],
@@ -346,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn actual_conflicts_use_rich_context_without_new_application_arguments() {
+    fn actual_conflicts_use_structured_context_without_new_application_arguments() {
         let mut command = clap::Command::new("hydragen")
             .bin_name("hydragen")
             .color(clap::ColorChoice::Never)
@@ -393,6 +442,7 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::ValueValidation);
         assert!(error.source().is_some());
         let text = render(error, &command, plain());
+        assert_family(&text);
         assert!(text.starts_with("Error: Could not parse command-line arguments.\n"));
         assert!(text.contains(r"external\x1b[2J\nspoof\u{202e}"), "{text:?}");
         assert!(!text.contains('\x1b'));
@@ -417,6 +467,7 @@ mod tests {
                     error
                 };
                 let text = render(error, &command, plain());
+                assert_family(&text);
                 assert!(
                     text.starts_with("Error: Could not parse command-line arguments."),
                     "{text}"
@@ -427,7 +478,11 @@ mod tests {
                 );
                 assert!(!text.contains('\x1b'));
                 assert!(!text.contains("\nUsage: spoof"));
-                assert!(text.contains("\n  Usage: hydragen"));
+                assert!(
+                    !text.contains("\n  Usage:"),
+                    "raw origin must stay unknown: {text}"
+                );
+                assert!(text.contains("For more information, try 'hydragen --help'."));
             }
         }
     }
@@ -451,15 +506,25 @@ mod tests {
             let mut error = clap::Error::new(ErrorKind::UnknownArgument).with_cmd(&command);
             error.insert(kind, value);
             let text = render(error, &command, plain());
+            assert_family(&text);
             assert!(
                 text.starts_with("Error: Could not parse command-line arguments."),
                 "{text}"
             );
-            assert!(text.contains("Context:"));
+            assert!(!text.contains("Context:"));
+            for internal in [
+                "InvalidArg:",
+                "StyledStr(",
+                "ContextKind",
+                "ActualNumValues:",
+            ] {
+                assert!(!text.contains(internal), "{text}");
+            }
             assert!(text.contains("spoof"));
             assert!(!text.contains('\x1b'));
             assert!(!text.contains("\nspoof"));
-            assert!(text.contains("\n  Usage: hydragen"));
+            assert!(!text.contains("\n  Usage:"));
+            assert!(text.contains("For more information, try 'hydragen --help'."));
         }
     }
 
@@ -495,5 +560,443 @@ mod tests {
             panic!("wrong suggestion shape")
         };
         assert_eq!(values[0].ansi().to_string(), escaped);
+    }
+
+    fn assert_family(text: &str) {
+        let normalized = text.replace("\n  \n", "\n\n");
+        assert!(!normalized.contains("\n\n\n"), "{text}");
+        let blocks = normalized.trim_end().split("\n\n").collect::<Vec<_>>();
+        assert!(blocks[0].starts_with("Error: "), "{text}");
+        assert!(blocks[0].ends_with('.'), "summary punctuation: {text}");
+        assert_eq!(blocks[0].lines().count(), 1);
+        assert!(
+            blocks
+                .last()
+                .unwrap()
+                .starts_with("  For more information, try 'hydragen")
+        );
+        assert!(blocks.last().unwrap().ends_with("--help'."));
+        for line in normalized.lines().skip(1).filter(|line| !line.is_empty()) {
+            assert!(line.starts_with("  "), "base indent: {text}");
+            assert!(!line.contains("[possible values:"));
+            assert!(!line.contains("tip:"));
+        }
+        let mut seen_usage = false;
+        for block in blocks.iter().skip(1).take(blocks.len() - 2) {
+            if block.starts_with("  Usage:") {
+                assert!(!seen_usage);
+                seen_usage = true;
+                let lines = block.lines().collect::<Vec<_>>();
+                assert!(lines.len() <= 2, "at most one example: {text}");
+                if lines.len() == 2 {
+                    assert!(lines[1].starts_with("  Example: hydragen"));
+                }
+            } else {
+                assert!(!seen_usage, "context must precede usage: {text}");
+                assert!(!block.contains("Example:"));
+            }
+        }
+    }
+
+    #[test]
+    fn all_thirteen_known_kinds_use_one_family_contract_from_typed_facts() {
+        use ContextKind as K;
+        use ContextValue as V;
+        use ErrorKind as E;
+        let command = command();
+        let cases = [
+            (
+                E::ArgumentConflict,
+                vec![
+                    (K::InvalidArg, V::String("--left".into())),
+                    (K::PriorArg, V::String("--right".into())),
+                ],
+                vec!["cannot be used with '--right'."],
+            ),
+            (
+                E::NoEquals,
+                vec![(K::InvalidArg, V::String("--value=<VALUE>".into()))],
+                vec!["An equals sign is required"],
+            ),
+            (
+                E::InvalidValue,
+                vec![
+                    (K::InvalidArg, V::String("--format <FORMAT>".into())),
+                    (K::InvalidValue, V::String("yam".into())),
+                    (
+                        K::ValidValue,
+                        V::Strings(vec!["yaml".into(), "json".into()]),
+                    ),
+                    (K::SuggestedValue, V::String("yaml".into())),
+                ],
+                vec!["Possible values: yaml, json", "Tip: Did you mean 'yaml'?"],
+            ),
+            (
+                E::InvalidSubcommand,
+                vec![
+                    (K::InvalidSubcommand, V::String("ad".into())),
+                    (K::SuggestedSubcommand, V::Strings(vec!["add".into()])),
+                ],
+                vec!["Unrecognized subcommand 'ad'.", "Tip: Did you mean 'add'?"],
+            ),
+            (
+                E::MissingRequiredArgument,
+                vec![(
+                    K::InvalidArg,
+                    V::Strings(vec!["<FIRST>".into(), "<SECOND>".into()]),
+                )],
+                vec!["Required arguments: <FIRST>, <SECOND>"],
+            ),
+            (
+                E::MissingSubcommand,
+                vec![
+                    (K::InvalidSubcommand, V::String("hydragen".into())),
+                    (
+                        K::ValidSubcommand,
+                        V::Strings(vec!["init".into(), "add".into()]),
+                    ),
+                ],
+                vec!["requires a subcommand.", "Commands: init, add"],
+            ),
+            (E::InvalidUtf8, vec![], vec!["Invalid UTF-8 was detected"]),
+            (
+                E::TooManyValues,
+                vec![
+                    (K::InvalidArg, V::String("--name <NAME>".into())),
+                    (K::InvalidValue, V::String("extra".into())),
+                ],
+                vec!["Unexpected value 'extra'", "no more values were expected."],
+            ),
+            (
+                E::TooFewValues,
+                vec![
+                    (K::InvalidArg, V::String("--pair <PAIR>...".into())),
+                    (K::MinValues, V::Number(2)),
+                    (K::ActualNumValues, V::Number(1)),
+                ],
+                vec!["At least 2 values are required", "1 value was provided."],
+            ),
+            (
+                E::ValueValidation,
+                vec![
+                    (K::InvalidArg, V::String("--value <VALUE>".into())),
+                    (K::InvalidValue, V::String("bad".into())),
+                ],
+                vec!["Invalid value 'bad' for '--value <VALUE>'."],
+            ),
+            (
+                E::WrongNumberOfValues,
+                vec![
+                    (K::InvalidArg, V::String("--pair <PAIR>...".into())),
+                    (K::ExpectedNumValues, V::Number(2)),
+                    (K::ActualNumValues, V::Number(3)),
+                ],
+                vec!["Expected 2 values", "3 values were provided."],
+            ),
+            (
+                E::UnknownArgument,
+                vec![
+                    (K::InvalidArg, V::String("--nme".into())),
+                    (K::SuggestedArg, V::String("--name".into())),
+                    (
+                        K::Suggested,
+                        V::StyledStrs(vec![
+                            "'init --name' exists".into(),
+                            "to pass '--nme' as a value, use '-- --nme'".into(),
+                        ]),
+                    ),
+                ],
+                vec![
+                    "Unexpected argument '--nme'.",
+                    "Tip: Did you mean '--name'?",
+                    "'init --name' exists.",
+                    "to pass '--nme' as a value, use '-- --nme'.",
+                ],
+            ),
+        ];
+        assert_eq!(cases.len(), 12);
+        for (kind, context, snippets) in cases {
+            let make_error = || {
+                let mut error = clap::Error::new(kind).with_cmd(&command);
+                error.insert(K::Usage, V::StyledStr(command.clone().render_usage()));
+                for (key, value) in &context {
+                    error.insert(*key, value.clone());
+                }
+                error
+            };
+            let catalog = Catalog::new(&command);
+            let error = make_error();
+            assert!(
+                facts::adapt(&error, &catalog, catalog.resolve(&error)).is_some(),
+                "{kind:?} must use the facts adapter, not fallback"
+            );
+            let text = render(error, &command, plain());
+            assert_family(&text);
+            assert!(!text.contains("Could not parse"), "{kind:?}: {text}");
+            for snippet in snippets {
+                assert!(text.contains(snippet), "{kind:?}, {snippet}: {text}");
+            }
+            let styled = render(
+                make_error(),
+                &command,
+                Presentation {
+                    decorated: true,
+                    basic: false,
+                },
+            );
+            assert_eq!(console::strip_ansi_codes(&styled), format!("✕ {text}"));
+            assert!(styled.lines().skip(1).all(|line| !line.contains('\x1b')));
+        }
+        let (error, command) = failure(&["hydragen"]);
+        assert_eq!(error.kind(), E::DisplayHelpOnMissingArgumentOrSubcommand);
+        assert_family(&render(error, &command, plain()));
+    }
+
+    #[test]
+    fn optional_blocks_have_no_filler_and_usage_example_are_always_one_group() {
+        let command = command();
+        let catalog = Catalog::new(&command);
+        let mut model = Diagnostic::new("A problem occurred.".into(), &catalog, Origin::Unknown);
+        let text = model.render(plain());
+        assert_family(&text);
+        assert_eq!(
+            text.replace("\n  \n", "\n\n")
+                .trim_end()
+                .split("\n\n")
+                .count(),
+            2
+        );
+        for label in ["Usage:", "Example:", "Tip:", "Possible values:", "Context:"] {
+            assert!(!text.contains(label));
+        }
+        model.usage = Some("Usage: hydragen [OPTIONS] <COMMAND>".into());
+        model.example = Some("hydragen init --format yaml");
+        model.details = vec![
+            "Possible values: yaml, json".into(),
+            "Tip: Did you mean 'yaml'?".into(),
+        ];
+        let text = model.render(plain());
+        assert_family(&text);
+        assert_eq!(
+            text.replace("\n  \n", "\n\n")
+                .trim_end()
+                .split("\n\n")
+                .count(),
+            4
+        );
+        assert!(text.contains("<COMMAND>\n  Example:"));
+    }
+
+    #[test]
+    fn repeated_use_plural_conflicts_empty_values_and_counts_preserve_their_meaning() {
+        use ContextKind as K;
+        use ContextValue as V;
+        let command = command();
+        for (prior, expected) in [
+            (V::String("--left".into()), "cannot be used multiple times."),
+            (
+                V::Strings(vec!["--one".into(), "--two".into()]),
+                "Conflicting arguments: '--one', '--two'",
+            ),
+            (V::None, "cannot be used with other arguments."),
+        ] {
+            let mut error = clap::Error::new(ErrorKind::ArgumentConflict).with_cmd(&command);
+            error.insert(K::InvalidArg, V::String("--left".into()));
+            error.insert(K::PriorArg, prior);
+            let text = render(error, &command, plain());
+            assert_family(&text);
+            assert!(text.contains(expected), "{text}");
+        }
+        let (error, command) = failure(&["hydragen", "init", "--format"]);
+        let text = render(error, &command, plain());
+        assert_family(&text);
+        assert!(text.starts_with("Error: A value is required for '--format <FORMAT>'."));
+        assert!(text.contains("Possible values: yaml, yml, toml, json, jsonc"));
+        assert!(text.contains("Usage: hydragen init [OPTIONS]"));
+        assert!(text.contains("'hydragen init --help'."));
+    }
+
+    #[test]
+    fn parent_value_error_after_child_selection_keeps_parent_scope_without_replaying_validators() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let validator_calls = Arc::clone(&calls);
+        let mut command = clap::Command::new("hydragen")
+            .bin_name("hydragen")
+            .styles(clap::builder::Styles::plain())
+            .color(clap::ColorChoice::Never)
+            .arg(
+                clap::Arg::new("parent")
+                    .long("parent")
+                    .value_parser(["good"]),
+            )
+            .subcommand(clap::Command::new("child").arg(
+                clap::Arg::new("probe").long("probe").value_parser(
+                    move |value: &str| -> Result<String, String> {
+                        validator_calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(value.to_owned())
+                    },
+                ),
+            ));
+        command.build();
+        let error = command
+            .try_get_matches_from_mut(["hydragen", "--parent", "child", "child", "--probe", "good"])
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidValue);
+        assert!(error.get(ContextKind::Usage).is_none());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "clap parsed the child before rejecting the parent value"
+        );
+        let text = render(error, &command, plain());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "metadata adaptation must not call validators again"
+        );
+        assert_family(&text);
+        assert!(
+            text.contains("Invalid value 'child' for '--parent <parent>'."),
+            "{text}"
+        );
+        assert!(
+            text.contains("Usage: hydragen [OPTIONS] [COMMAND]"),
+            "{text}"
+        );
+        assert!(text.contains("'hydragen --help'."));
+        assert!(!text.contains("hydragen child --help"));
+    }
+
+    #[test]
+    fn ambiguous_global_and_unsupported_origins_offer_only_general_help_without_scoped_examples() {
+        use clap::{Arg, Command};
+        for graph in [
+            Command::new("hydragen")
+                .subcommand(
+                    Command::new("one")
+                        .arg(Arg::new("format").long("format").value_parser(["yaml"])),
+                )
+                .subcommand(
+                    Command::new("two")
+                        .arg(Arg::new("format").long("format").value_parser(["yaml"])),
+                ),
+            Command::new("hydragen")
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .global(true)
+                        .value_parser(["yaml"]),
+                )
+                .subcommand(Command::new("one")),
+            Command::new("hydragen").subcommand(
+                Command::new("one")
+                    .alias("alias")
+                    .arg(Arg::new("format").long("format").value_parser(["yaml"])),
+            ),
+        ] {
+            let mut graph = graph
+                .bin_name("hydragen")
+                .styles(clap::builder::Styles::plain())
+                .color(clap::ColorChoice::Never);
+            graph.build();
+            let error = graph
+                .try_get_matches_from_mut(["hydragen", "one", "--format", "yam"])
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::InvalidValue);
+            assert!(error.get(ContextKind::Usage).is_none());
+            let text = render(error, &graph, plain());
+            assert_family(&text);
+            assert!(text.contains("Possible values: yaml"));
+            assert!(text.contains("'hydragen --help'."));
+            assert!(!text.contains("\n  Usage:"));
+            assert!(!text.contains("Example:"));
+            assert!(!text.contains("one --help"));
+        }
+    }
+
+    #[test]
+    fn real_clap_equals_and_count_constructors_match_the_fact_adapter() {
+        use clap::{Arg, Command};
+        for (argument, arguments, kind, snippets) in [
+            (
+                Arg::new("value").long("value").require_equals(true),
+                vec!["hydragen", "--value", "one"],
+                ErrorKind::NoEquals,
+                vec!["An equals sign is required", "--value=<value>"],
+            ),
+            (
+                Arg::new("value").num_args(1..=2),
+                vec!["hydragen", "one", "two", "three"],
+                ErrorKind::TooManyValues,
+                vec!["Unexpected value 'three'", "no more values were expected."],
+            ),
+            (
+                Arg::new("value").long("value").num_args(3..),
+                vec!["hydragen", "--value", "one"],
+                ErrorKind::TooFewValues,
+                vec!["At least 3 values are required", "1 value was provided."],
+            ),
+            (
+                Arg::new("value").long("value").num_args(2),
+                vec!["hydragen", "--value", "one"],
+                ErrorKind::WrongNumberOfValues,
+                vec!["Expected 2 values", "1 value was provided."],
+            ),
+        ] {
+            let mut command = Command::new("hydragen")
+                .bin_name("hydragen")
+                .styles(clap::builder::Styles::plain())
+                .color(clap::ColorChoice::Never)
+                .arg(argument);
+            command.build();
+            let error = command.try_get_matches_from_mut(arguments).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            let text = render(error, &command, plain());
+            assert_family(&text);
+            assert!(!text.contains("Could not parse"), "{kind:?}: {text}");
+            for snippet in snippets {
+                assert!(text.contains(snippet), "{kind:?}, {snippet}: {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn unexpected_extra_or_mistyped_facts_do_not_silently_disappear() {
+        use ContextKind as K;
+        use ContextValue as V;
+        let command = command();
+        for context in [
+            vec![
+                (K::InvalidArg, V::String("--arg".into())),
+                (K::PriorArg, V::None),
+                (K::ActualNumValues, V::Number(17)),
+            ],
+            vec![
+                (K::InvalidArg, V::Strings(vec!["--wrong-shape".into()])),
+                (K::InvalidSubcommand, V::String("child".into())),
+                (K::PriorArg, V::None),
+            ],
+        ] {
+            let mut error = clap::Error::new(ErrorKind::ArgumentConflict).with_cmd(&command);
+            for (kind, value) in context {
+                error.insert(kind, value);
+            }
+            let text = render(error, &command, plain());
+            assert_family(&text);
+            assert!(
+                text.starts_with("Error: Could not parse command-line arguments."),
+                "{text}"
+            );
+            assert!(!text.contains("ActualNumValues:"));
+            assert!(!text.contains("Context:"));
+            assert!(
+                text.contains("17") || text.contains("--wrong-shape"),
+                "opaque fallback must retain the extra fact: {text}"
+            );
+        }
     }
 }

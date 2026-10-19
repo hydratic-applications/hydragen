@@ -238,6 +238,11 @@ styling controls. Preserve clap's usage-error exit status and standard-error str
 useful argument details, choices, suggestions, and usage/help guidance, without
 branded openings or guided-session frames.
 
+Follow the [CLI diagnostic reference](docs/cli-diagnostics.md) for the shared
+problem, optional context/correction, usage/optional example, and help structure.
+Populate one presentation model from structured clap facts; do not add per-command
+body templates. Review error families together, not only individual snapshots.
+
 Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
 where styled; keep supporting details and recovery guidance in the normal
 foreground. Rejected guided input uses a red cross, frame, and correction text,

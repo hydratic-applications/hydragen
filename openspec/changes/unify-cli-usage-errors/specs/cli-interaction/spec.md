@@ -117,3 +117,55 @@ argument values, filesystem input, or stored data.
 - **WHEN** a diagnostic value includes ordinary Unicode or literal backslashes
 - **THEN** those characters remain understandable and are not repeatedly escaped
 - **AND** valid path arguments still reach operational handling unchanged
+
+### Requirement: Normalize parser diagnostics into one optional-block structure
+
+Parser failures MUST use one shared body renderer, not a bespoke missing-source
+body alongside framework-formatted bodies. Structured clap facts MUST populate a
+presentation model without introducing another argument grammar or interpreting
+human-readable framework messages to identify error meanings or command paths.
+The sole command-path envelope exception MUST be a narrow match of clap-generated
+`Usage: ` metadata against complete trusted canonical command-path boundaries;
+semantic error-prose interpretation and hand-written argv scanning remain forbidden.
+
+The body MUST order a consistently punctuated sentence-case headline, optional
+context/correction, relevant usage with at most one useful example, and a final
+command-specific help hint. Supporting text MUST use a two-space base indent,
+one blank line between blocks, and consistent label capitalization including
+`Possible values:`, `Tip:`, `Usage:`, and `Example:`. Choice lists MUST NOT use a
+separate square-bracket style. Omitted blocks MUST leave no empty labels or filler.
+The shared plain/styled routes MUST preserve the same structure and meaning.
+
+Relevant usage and help MUST refer to the erroring command when its identity is
+unambiguously verified. Current root/init/add failures MUST be covered, including
+value errors for which clap omits Usage context. Unsupported future graph or
+context shapes MUST retain explicit unknown ownership and safe general help,
+without inventing a root origin or a scoped example. Command-context recovery MUST NOT change accepted arguments,
+execute operations, perform layer discovery, or reclassify which parser failure
+occurred. Untrusted fields MUST retain the established display escaping. Unknown
+context/fallback failures MUST preserve safe useful information without exposing
+framework debug names as the ordinary user interface.
+
+Explicit help MUST retain its own plain documentation layout. Operational
+failures MUST retain existing safety/state information and MUST NOT acquire
+irrelevant parser usage/examples merely to fill a template.
+
+#### Scenario: Missing source and invalid format share organization
+
+- **WHEN** bare add and init with an invalid format produce different error facts
+- **THEN** both use the same section order, indentation, punctuation, and label conventions
+- **AND** invalid format shows normal `Possible values:` and `Tip:` lines before usage/example and init-specific help
+- **AND** missing source omits unnecessary context while retaining its useful add example and add-specific help
+
+#### Scenario: Command context is retained for value failures
+
+- **WHEN** a parser error lacks framework-generated usage context
+- **THEN** current supported root/init/add cases still receive the correct command-specific usage/help
+- **AND** a value resembling a command or a later command token cannot redirect the diagnostic context
+- **AND** ambiguous or unsupported future cases retain unknown ownership and safe general help rather than inventing an origin
+
+#### Scenario: Future error kinds follow the shared contract
+
+- **WHEN** another command or parser failure is added
+- **THEN** it uses the same shared layout and family-level style checks
+- **AND** content-specific choices, suggestions, or examples do not introduce another rendering template

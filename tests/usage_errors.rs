@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
+mod usage_body_support;
+use usage_body_support::{CASES, Scope, assert_body, assert_case};
+
 const FILENAMES: [&str; 5] = [
     "layer.yaml",
     "layer.yml",
@@ -96,6 +99,7 @@ fn usage_failure(output: &Output) -> String {
     assert_eq!(stderr.matches("Error:").count(), 1, "{stderr:?}");
     assert!(!stderr.contains('✕'));
     assert_no_operation(&stderr);
+    assert_body(&stderr, None);
     stderr
 }
 
@@ -170,12 +174,11 @@ fn missing_root_command_is_an_error_not_successful_explicit_help() {
         assert!(stderr.contains("Usage: hydragen"), "{stderr}");
         assert!(stderr.contains("init"));
         assert!(stderr.contains("add"));
-        if arguments.is_empty() {
-            assert!(
-                stderr.contains("Commands:"),
-                "root pseudo-help lost its layout: {stderr}"
-            );
-        }
+        assert!(stderr.contains("Commands:"), "{stderr}");
+        assert!(
+            !stderr.contains("Options:"),
+            "missing command must not dump full help: {stderr}"
+        );
     }
     assert!(fs::read_dir(directory.path()).unwrap().next().is_none());
 }
@@ -208,61 +211,166 @@ fn missing_add_source_has_one_actionable_example_not_full_help() {
 #[test]
 fn parser_failures_across_root_init_and_add_retain_clap_context() {
     let directory = tempfile::tempdir().unwrap();
-    for (arguments, expected) in [
-        (vec!["--bogus"], vec!["--bogus", "Usage:", "--help"]),
-        (vec!["inti"], vec!["inti", "init", "similar", "Usage:"]),
-        (
-            vec!["init", "--nme", "rules"],
-            vec!["--nme", "--name", "similar", "Usage:"],
-        ),
-        (
-            vec!["add", "--non-interactiv"],
-            vec!["--non-interactiv", "--non-interactive", "similar", "Usage:"],
-        ),
-        (
-            vec!["add", "--path", "../rules"],
-            vec!["--path", "Usage:", "--help"],
-        ),
-        (
-            vec!["init", "--format", "yam"],
-            vec![
-                "--format", "yam", "yaml", "yml", "toml", "json", "jsonc", "similar",
-            ],
-        ),
-        (
-            vec!["init", "--format", "xml"],
-            vec!["--format", "xml", "yaml", "yml", "toml", "json", "jsonc"],
-        ),
-        (
-            vec!["init", "--name"],
-            vec!["--name", "<NAME>", "value", "--help"],
-        ),
-        (
-            vec!["init", "--author"],
-            vec!["--author", "<AUTHOR>", "value", "--help"],
-        ),
-        (
-            vec!["init", "--description"],
-            vec!["--description", "<DESCRIPTION>", "value", "--help"],
-        ),
-        (
-            vec!["init", "--format"],
-            vec!["--format", "value", "yaml", "jsonc"],
-        ),
-        (
-            vec!["init", "--name", "first", "--name", "second"],
-            vec!["--name", "multiple times", "Usage:"],
-        ),
-    ] {
-        let stderr = usage_failure(&run(directory.path(), &arguments));
-        for phrase in expected {
-            assert!(
-                stderr.contains(phrase),
-                "{arguments:?}: expected {phrase:?}: {stderr}"
-            );
-        }
+    for case in CASES {
+        let stderr = usage_failure(&run(directory.path(), case.arguments));
+        assert_case(&stderr, case);
     }
     assert!(fs::read_dir(directory.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn family_contract_accepts_approved_blocks_and_rejects_the_previous_mixed_templates() {
+    let add = "Error: Add requires at least one source.\n\n  Usage: hydragen add [OPTIONS] <SOURCE>...\n  Example: hydragen add ../shared-config\n\n  For more information, try 'hydragen add --help'.\n";
+    let init = "Error: Invalid value 'yam' for '--format <FORMAT>'.\n\n  Possible values: yaml, yml, toml, json, jsonc\n  Tip: Did you mean 'yaml'?\n\n  Usage: hydragen init [OPTIONS]\n  Example: hydragen init --format yaml\n\n  For more information, try 'hydragen init --help'.\n";
+    assert_body(add, Some(Scope::Add));
+    assert_body(init, Some(Scope::Init));
+    for invalid in [
+        add.replace("source.\n", "source\n"),
+        add.replace("\n  Example:", "\n\n  Example:"),
+        add.replace("\n\n", "\n\n\n"),
+        add.replace("  Usage:", " Usage:"),
+        add.replace("'hydragen add --help'", "'--help'"),
+        add.replace("Example: hydragen add", "Example: hydragen init"),
+        init.replace("Tip:", "tip:"),
+        init.replacen("Error: Invalid", "Error: invalid", 1),
+        init.replace(
+            "  Possible values: yaml, yml, toml, json, jsonc\n  Tip: Did you mean 'yaml'?",
+            "  Tip: Did you mean 'yaml'?\n  Possible values: yaml, yml, toml, json, jsonc",
+        ),
+        init.replace(
+            "Possible values: yaml, yml, toml, json, jsonc",
+            "[possible values: yaml, yml, toml, json, jsonc]",
+        ),
+        init.replace(
+            "Possible values: yaml, yml, toml, json, jsonc",
+            "Possible values:",
+        ),
+        init.replace("'hydragen init --help'", "'hydragen --help'"),
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| assert_body(&invalid, None)).is_err(),
+            "family assertion accepted a mixed/invalid template: {invalid:?}"
+        );
+    }
+}
+
+#[test]
+fn help_and_usage_scope_follow_the_error_not_later_commands_or_argument_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let before = snapshot(directory.path());
+    for (arguments, scope, facts) in [
+        (vec!["--bogus", "init"], Scope::Root, vec!["--bogus"]),
+        (vec!["--nme", "init"], Scope::Root, vec!["--nme"]),
+        (
+            vec!["--non-interactive", "--bogus", "add"],
+            Scope::Root,
+            vec!["--bogus"],
+        ),
+        (vec!["init", "--bogus", "add"], Scope::Init, vec!["--bogus"]),
+        (
+            vec!["init", "--format", "add"],
+            Scope::Init,
+            vec!["'add'", "--format", "Possible values:"],
+        ),
+        (
+            vec!["--non-interactive", "init", "--format", "add"],
+            Scope::Init,
+            vec!["'add'", "--format"],
+        ),
+        (
+            vec!["init", "--non-interactive", "--format", "add"],
+            Scope::Init,
+            vec!["'add'", "--format"],
+        ),
+        (
+            vec!["init", "--format", "add", "--non-interactive"],
+            Scope::Init,
+            vec!["'add'", "--format"],
+        ),
+        (
+            vec!["--non-interactive", "init", "--name"],
+            Scope::Init,
+            vec!["--name"],
+        ),
+        (
+            vec!["init", "--name", "init", "--name", "add"],
+            Scope::Init,
+            vec!["--name"],
+        ),
+        (vec!["add", "--bogus", "init"], Scope::Add, vec!["--bogus"]),
+        (
+            vec!["--non-interactive", "add"],
+            Scope::Add,
+            vec!["at least one source"],
+        ),
+        (
+            vec!["add", "--non-interactive"],
+            Scope::Add,
+            vec!["at least one source"],
+        ),
+    ] {
+        let text = usage_failure(&run(directory.path(), &arguments));
+        assert_body(&text, Some(scope));
+        for fact in facts {
+            assert!(text.contains(fact), "{arguments:?}: {text:?}");
+        }
+        assert_eq!(snapshot(directory.path()), before);
+    }
+}
+
+#[test]
+fn command_words_and_option_separators_still_reach_unchanged_operational_values() {
+    let root = tempfile::tempdir().unwrap();
+    let app = root.path().join("app");
+    fs::create_dir(&app).unwrap();
+    let output = run(
+        &app,
+        &[
+            "init",
+            "--name",
+            "app",
+            "--author",
+            "init",
+            "--description",
+            "add",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let initial: serde_json::Value =
+        serde_json::from_slice(&fs::read(app.join("layer.json")).unwrap()).unwrap();
+    assert_eq!(initial["author"], "init");
+    assert_eq!(initial["description"], "add");
+    for command_word in ["init", "add", "help"] {
+        let target = app.join(command_word);
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("layer.yaml"), format!("name: {command_word}\n")).unwrap();
+    }
+    let output = run(&app, &["add", "--", "./init", "./add", "./help"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let updated: serde_json::Value =
+        serde_json::from_slice(&fs::read(app.join("layer.json")).unwrap()).unwrap();
+    assert_eq!(
+        updated["dependencies"],
+        serde_json::json!(["./init", "./add", "./help"])
+    );
+    let before = snapshot(&app);
+    for word in ["init", "add", "help", "--format"] {
+        let output = run(&app, &["add", "--", word]);
+        assert_eq!(output.status.code(), Some(1), "{word}: {output:?}");
+        let text = safe_text(&output.stderr);
+        assert!(text.contains(word), "argument was not preserved: {text:?}");
+        assert!(
+            text.contains("source argument"),
+            "must be an operational source failure: {text:?}"
+        );
+        assert!(!text.contains("Usage:"));
+        assert!(output.stdout.is_empty());
+        assert_eq!(snapshot(&app), before);
+    }
 }
 
 fn exercise_bypass(directory: &Path) {
@@ -407,7 +515,7 @@ fn untrusted_argument_values_are_escaped_inside_headlines_and_suggestion_tips() 
         );
         if arguments.first().is_some_and(|argument| argument == "add") {
             // clap copies this raw unknown option into its generated -- tip.
-            assert!(stderr.contains("tip:"), "{stderr:?}");
+            assert!(stderr.contains("Tip:"), "{stderr:?}");
             assert!(
                 stderr.matches(escaped).count() >= 2,
                 "suggestion lost raw leaf: {stderr:?}"

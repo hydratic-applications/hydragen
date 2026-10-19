@@ -232,10 +232,14 @@ design everything upfront.
       plain output otherwise, under the existing colour controls. Explicit help
       and version remain plain and successful; usage failures retain clap's stderr
       and nonzero exit status, useful diagnostic context, and concise recovery
-      guidance. All parsing outcomes precede layer discovery, schema preparation,
-      prompts, or writes. This supersedes only the earlier plain-usage-error
-      exception, not the input, session-header, help/version, or stream policies.
-      See the [shared presentation decision](changes/unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
+      guidance. One shared body orders the problem, optional context/correction,
+      usage with an optional example, then command-specific help; review errors as
+      a family rather than approving different templates through isolated
+      snapshots. See the [shared body decision](changes/unify-cli-usage-errors/design.md#render-one-familiar-optional-block-grammar).
+      All parsing outcomes precede layer discovery, schema preparation, prompts,
+      or writes. This supersedes only the earlier plain-usage-error exception,
+      not the input, session-header, help/version, or stream policies. See the
+      [shared presentation decision](changes/unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
       [syntax-first decision](changes/unify-cli-usage-errors/design.md#keep-error-priority-independent-of-layer-state),
       and [policy-history boundary](changes/unify-cli-usage-errors/design.md#record-the-policy-without-rewriting-historical-decisions).
 11. **Performance targets.** What response times and resource limits should startup

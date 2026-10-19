@@ -5,7 +5,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 mod add_pty_support;
-use add_pty_support::{Output, Settings, run};
+use add_pty_support::{Output, Settings, run, run_os};
+mod usage_body_support;
+use usage_body_support::{CASES, assert_body, assert_case};
 
 fn assert_no_session(text: &str) {
     for frame in ['┌', '│', '└', '◇', '◆', '⠀'] {
@@ -38,50 +40,44 @@ fn assert_styled_failure(output: &Output) {
         );
     }
     assert_no_session(&plain);
+    assert_body(&plain, None);
 }
 
 #[test]
-fn root_init_and_add_usage_failures_have_one_red_headline_at_narrow_and_normal_widths() {
+fn parser_error_families_share_body_policy_and_plain_styled_content_at_review_widths() {
     let directory = tempfile::tempdir().unwrap();
-    for width in [40, 80, 100] {
-        for (label, arguments) in [
-            ("root-missing-command", vec![]),
-            ("root-global-only", vec!["--non-interactive"]),
-            ("root-unknown-flag", vec!["--bogus"]),
-            ("root-unknown-command", vec!["inti"]),
-            ("init-unknown-flag", vec!["init", "--nme", "rules"]),
-            ("init-invalid-format", vec!["init", "--format", "yam"]),
-            ("init-missing-value", vec!["init", "--name"]),
-            (
-                "init-conflict",
-                vec!["init", "--name", "one", "--name", "two"],
-            ),
-            ("add-missing-source", vec!["add"]),
-            ("add-unknown-flag", vec!["add", "--path", "../rules"]),
-        ] {
+    for width in [40, 80, 100, 120] {
+        for case in CASES {
             let output = run(
                 directory.path(),
-                &arguments,
+                case.arguments,
                 Settings {
                     width,
                     ..Settings::default()
                 },
             );
-            output.evidence(&format!("usage-{label}-{width}"));
+            output.evidence(&format!("usage-{}-{width}", case.label));
             assert_styled_failure(&output);
-            if label == "add-missing-source" {
-                let plain = output.plain();
-                assert!(plain.starts_with("✕ Error: Add requires at least one source.\n"));
-                assert_eq!(plain.matches("hydragen add ../shared-config").count(), 1);
-                assert!(plain.contains("hydragen add --help"));
-                assert!(!plain.contains("Sources:"));
-                assert!(!plain.contains("Behaviour:"));
-            }
-            if label == "init-invalid-format" {
-                for choice in ["yaml", "yml", "toml", "json", "jsonc", "similar"] {
-                    assert!(output.plain().contains(choice));
-                }
-            }
+            assert_case(&output.plain(), case);
+            let plain = run(
+                directory.path(),
+                case.arguments,
+                Settings {
+                    width,
+                    environment: &[("NO_COLOR", "1")],
+                    ..Settings::default()
+                },
+            );
+            plain.evidence(&format!("usage-{}-{width}-plain", case.label));
+            assert_eq!(plain.status.exit_code(), 2);
+            assert!(!plain.raw.contains('\x1b'));
+            assert_case(&plain.plain(), case);
+            assert_eq!(
+                output.plain().strip_prefix("✕ ").unwrap(),
+                plain.plain(),
+                "decoration changed body content: {}",
+                case.label
+            );
         }
     }
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
@@ -134,6 +130,7 @@ fn shared_colour_gates_win_over_both_force_variables_for_every_command() {
             assert!(output.plain().starts_with("Error:"));
             assert!(!output.plain().contains('✕'));
             assert_no_session(&output.plain());
+            assert_body(&output.plain(), None);
         }
     }
     // Empty NO_COLOR and false CI are not explicit disables.
@@ -199,6 +196,7 @@ fn every_redirected_stream_mask_is_plain_and_usage_errors_stay_on_stderr() {
             assert!(combined.starts_with("Error:"), "{combined:?}");
             assert!(!combined.contains('✕'));
             assert_no_session(&combined);
+            assert_body(&combined.replace('\r', ""), None);
             if streams.split(',').any(|stream| stream == "stderr") {
                 assert!(
                     output.raw.is_empty(),
@@ -378,4 +376,31 @@ fn terminal_parser_security_escapes_raw_controls_but_not_generated_layout_or_hea
                 .collect::<String>()
         ));
     }
+}
+
+#[test]
+fn invalid_utf8_uses_the_same_terminal_body_without_panicking_or_rewriting_argv() {
+    use std::ffi::{OsStr, OsString};
+    use std::os::unix::ffi::OsStringExt;
+    let directory = tempfile::tempdir().unwrap();
+    let invalid = OsString::from_vec(vec![b'.', b'/', 0xff]);
+    for prefix in [
+        vec!["add"],
+        vec!["init", "--name"],
+        vec!["init", "--format"],
+    ] {
+        let arguments = prefix
+            .iter()
+            .map(OsStr::new)
+            .chain(std::iter::once(invalid.as_os_str()));
+        let output = run_os(directory.path(), arguments, Settings::default());
+        assert_styled_failure(&output);
+        assert!(output.plain().contains("UTF-8"));
+        assert!(!output.plain().contains("panicked"));
+        output.evidence(&format!(
+            "usage-invalid-utf8-{}",
+            prefix.join("-").replace("--", "")
+        ));
+    }
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
 }

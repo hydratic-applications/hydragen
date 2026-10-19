@@ -1,5 +1,6 @@
 //! Small one-shot terminal harness: no input or init prompt machinery.
 
+use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
@@ -86,6 +87,14 @@ impl Drop for Session {
 }
 
 pub fn run(directory: &Path, arguments: &[&str], settings: Settings<'_>) -> Output {
+    run_os(directory, arguments.iter().map(OsStr::new), settings)
+}
+
+pub fn run_os<'a>(
+    directory: &Path,
+    arguments: impl IntoIterator<Item = &'a OsStr>,
+    settings: Settings<'_>,
+) -> Output {
     let terminal = TERMINAL.lock().unwrap_or_else(|poison| poison.into_inner());
     let pty = native_pty_system()
         .openpty(PtySize {

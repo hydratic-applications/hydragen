@@ -14,3 +14,11 @@
 
 - [x] 3.1 Replace the current agent-guidance plain-usage exception and record the approved design-question resolution; review relevant documentation and foundations without rewriting archived decisions or expanding scope.
 - [x] 3.2 Run locked tests, formatting, warning-denied clippy, strict change validation, package/build checks, diagnostic-safety regressions, and independent final review; address actionable findings before completion.
+
+## 4. Shared diagnostic body refinement
+
+- [x] 4.1 Confirm exact failed-command context recovery through supported clap APIs, record the refined presentation model/grammar and safety boundaries, and review the bounded execution plan before source changes.
+- [x] 4.2 Replace the mixed custom/framework bodies with one structured body renderer, retaining useful clap facts and safe fallbacks, consistent punctuation/labels/spacing, scoped usage/help, and optional trusted examples.
+- [x] 4.3 Add family-level layout assertions and representative captured/PTY regressions for missing arguments, invalid values, unknown options/commands, conflicts, command context, plain/styled equivalence, and preserved security/operational behaviour.
+- [x] 4.4 Document the shared diagnostic contract in a focused maintained reference and agent guidance, align the active design-question resolution, and review wording from a first-time developer's perspective.
+- [x] 4.5 Run full locked tests, formatting, warning-denied clippy, strict change validation, package/build checks, actual terminal experience review, and independent final review before committing/pushing the refinement.
