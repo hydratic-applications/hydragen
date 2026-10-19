@@ -411,7 +411,7 @@ fn collect_ready_input(default_name: &str, session: &GuidedSession) -> io::Resul
         })
     })();
     finish_input(result, session.cancelled.load(Ordering::Relaxed), || {
-        cliclack::outro_cancel("Initialisation cancelled. No files were changed.")
+        cliclack::outro_cancel("Layer initialisation cancelled. No files were changed.")
     })
 }
 
@@ -420,7 +420,7 @@ struct ReportedCancellation;
 
 impl std::fmt::Display for ReportedCancellation {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Initialisation cancelled. No files were changed.")
+        formatter.write_str("Layer initialisation cancelled. No files were changed.")
     }
 }
 
@@ -901,6 +901,10 @@ mod tests {
         .unwrap_err();
         assert!(delivered);
         assert!(is_reported_cancellation(&error));
+        assert_eq!(
+            error.to_string(),
+            "Layer initialisation cancelled. No files were changed."
+        );
         let error = finish_input::<()>(Err(io::ErrorKind::Interrupted.into()), true, || {
             Err(io::Error::new(io::ErrorKind::BrokenPipe, "footer failed"))
         })

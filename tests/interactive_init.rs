@@ -1630,6 +1630,10 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             session.send(key);
             assert!(!session.finish().success());
             let text = visible_text(&session.stderr);
+            assert!(
+                text.contains("Layer initialisation cancelled. No files were changed."),
+                "{text}"
+            );
             assert_eq!(text.matches("cancelled").count(), 1, "{text}");
             assert_eq!(
                 text.to_lowercase().matches("no files were changed").count(),
