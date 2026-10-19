@@ -29,12 +29,47 @@ design everything upfront.
      and any supplied author or description must be non-blank strings. An
      omitted dependency list and an empty list both mean no dependencies. See the
      [layer manifest decision and draft schema choices](changes/archive/2026-10-16-define-layer-manifest/design.md#decisions).
-     Source locations, reference syntax, and how versioning works (including
-     whether it belongs in the layer manifest) remain open.
+     That increment left source locations and reference/version syntax open;
+     the dependency-declaration decision below resolves the initial subset.
+   - **Dependency-declaration decision:** Use `hydragen add` for local-path batch
+     additions and an ordered `dependencies` list of reference strings. Explicit
+     paths have no version; published declarations use `name@version` with exact
+     SemVer versions only, including optional prerelease/build identifiers. No
+     ranges, tags, implicit versions, or lockfile generation. The initial command
+     verifies local layers and recognises existing published declarations without
+     registry access; adding published layers, publishing, and registry design
+     remain deferred. Names follow an explicit lowercase, npm-inspired policy
+     without silent conversion. See the
+      [reference decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#use-ordered-reference-strings-without-duplicated-names),
+      [exact-version decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#accept-exact-published-declarations-but-defer-published-addition),
+      and [name policy](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#adopt-an-explicit-lowercase-name-policy-through-the-maintained-schema).
+   - **Operational validation decision:** Add verifies the current layer and all
+     direct local dependencies, enforces unique names including the current layer,
+     and verifies a complete new batch before editing. Share those read-only checks
+     with other dependent operations and the future validate command. This does
+     not limit validate's eventual scope or require chain traversal in add. See
+      [direct verification](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#verify-direct-relationships-through-reusable-read-only-operations).
    - **Terminology decision:** Use “layer manifest” in full throughout Hydragen's
      documentation, CLI, code, and tests to distinguish it from other tools'
      manifests. File contents and behavior do not change. See the
      [terminology decision](changes/use-layer-manifest-terminology/design.md).
+   - **Implemented field-order decision:** Guide generated and documented layouts
+     rather than constrain valid input: init keeps identifying metadata in a
+     familiar order, and add appends a missing dependencies field without moving
+     existing fields. Preserve existing field and reference order, with no warnings
+     about placement alone. This improves everyday scanning while retaining
+     source-preserving edits. See the
+      [field-order decision](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#guide-field-order-without-enforcing-it-on-input)
+      and [insertion rules](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#append-a-missing-dependency-field-without-moving-existing-fields).
+     An explicit formatter and placement of future fields remain deferred.
+   - **Approved review safety refinement:** Preserve YAML string meaning and
+     multiline collection/comment layout, not only values compared through the
+     same decoder. Check source-sensitive insertion boundaries, including terminal
+     block-scalar keys with implicit null values, and retain safe ordinary YAML.
+     Use independent source-preservation regressions without requiring one global
+     insertion site. See the [source-facts decision](changes/amend-local-add-review-findings/design.md#guard-the-actual-scanner-scalar-using-bounded-source-facts),
+     [flow-layout decision](changes/amend-local-add-review-findings/design.md#separate-flow-collection-boundaries-from-insertion-layout)
+     and [regression decision](changes/amend-local-add-review-findings/design.md#test-permitted-source-changes-independently).
 3. **Files and tool dependency.** Are shared files committed into a consumer's
    repository, or created or linked by Hydragen when needed? What project layout
    does this require? Can collaborators and continuous integration (CI) build,
@@ -73,6 +108,14 @@ design everything upfront.
      post-write discovery warns about observed duplicates or a failed check
      without undoing successful creation. This keeps overhead low but allows
      concurrent invocations to create different formats in the same directory.
+   - **Dependency-command location decision:** Add searches upward for the nearest
+     occupied supported layer manifest directory, through the filesystem root
+     without a Git boundary; it does not skip invalid selections. Relative paths
+     resolve from that layer manifest's directory and are stored unchanged. This
+     does not change init's location guard or make shared single-directory
+     discovery search ancestors. See the
+      [discovery decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#search-upward-for-the-nearest-layer-manifest)
+      and [relative-path decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#resolve-relative-arguments-from-the-declaring-layer).
 4. **Local changes.** May a consumer edit a shared file in place? How would a local
    exception, a change to the shared source, or a decision to stop sharing be
    distinguished, and what happens to each on the next update? How can a consumer
@@ -92,6 +135,11 @@ design everything upfront.
 6. **Incompatible updates.** What happens when a shared source removes a file,
    changes its structure, or requires consumers to change their code? Who supplies
    and runs migration steps, and how are updates across layers coordinated?
+   - **Published version-change boundary:** Future published add must reject a
+     different version of an already-declared layer rather than overwrite it.
+     An explicit upgrade/version-change workflow is deferred; migration and
+     compatibility handling remain open. See the
+      [published-reference decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#accept-exact-published-declarations-but-defer-published-addition).
 7. **Product boundaries and non-goals.** Which responsibilities should Hydragen
    explicitly leave to existing tools—for example package management, monorepo
    coordination, builds, or Git operations? These exclusions, called non-goals,
@@ -132,6 +180,11 @@ design everything upfront.
      [mode-selection decision](changes/archive/2026-10-16-add-interactive-init/design.md#select-interactive-mode-conservatively),
      and [future-command convention](changes/archive/2026-10-16-add-interactive-init/design.md#keep-the-convention-reusable-without-adding-future-commands).
      This does not select an MCP server or skills as an agent-specific interface.
+   - **Initial add interaction decision:** Require source arguments and no guided
+     flow, in terminals and automation alike. Defer registry-backed search,
+     autocomplete, existence checking, and available-version selection until
+     registry support exists. See the
+      [command boundary](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#separate-adding-a-relationship-from-preparing-its-content).
 10. **Success criteria.** Which real projects and observations should we use to
     assess success? The assessment should cover:
     - Effort to adopt reuse compared with editing directly.
@@ -152,32 +205,32 @@ design everything upfront.
       applies this review to width-aware help, prompt-specific validation feedback,
       and safe recovery advice for occupied layer manifest paths without selecting a visual theme
       or minimum terminal width.
-      The subsequent [visual-identity increment](changes/define-cli-visual-identity/design.md#decisions)
+      The subsequent [visual-identity increment](changes/archive/2026-10-19-define-cli-visual-identity/design.md#decisions)
       implements init's selected dense 16-by-8 braille motif, separate brand and
       operation text, and console-reviewed styling and spacing. Its broader header
       policy establishes multi-step guided or
       long-running foreground sessions once, rather than announcing one-shot
       actions. Use cliclack where interactive input or a guided process is useful,
       independently of the header decision—not as every command's renderer.
-      See the [header policy](changes/define-cli-visual-identity/design.md#use-the-full-header-to-establish-a-session-not-announce-every-invocation)
-      and [cliclack decision](changes/define-cli-visual-identity/design.md#use-cliclack-for-suitable-guided-interactions).
-      The [status decision](changes/define-cli-visual-identity/design.md#share-status-styling-without-coupling-it-to-prompts-or-the-header)
+      See the [header policy](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-the-full-header-to-establish-a-session-not-announce-every-invocation)
+      and [cliclack decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-cliclack-for-suitable-guided-interactions).
+      The [status decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#share-status-styling-without-coupling-it-to-prompts-or-the-header)
       selects consistent green-check success, yellow-triangle warning, and
       red-cross error feedback, including compact flag-only terminal output.
-      [Rejected input and cancellation](changes/define-cli-visual-identity/design.md#use-red-for-rejected-input-and-cancellation)
+      [Rejected input and cancellation](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-red-for-rejected-input-and-cancellation)
       also use red, with rejected input sharing the red-cross error pairing rather
       than a recoloured warning triangle. Placement, wording, and behaviour
       distinguish editable input errors, deliberate stops, and operational failures.
-      The [completion decision](changes/define-cli-visual-identity/design.md#report-init-completion-once-naming-the-layer-manifest-rather-than-its-directory)
+      The [completion decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#report-init-completion-once-naming-the-layer-manifest-rather-than-its-directory)
       selects a single success naming the layer manifest filename; guided feedback
       uses stderr without a duplicate stdout result, while flag-only results use stdout.
-      [Occupied-entry refusals](changes/define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
+      [Occupied-entry refusals](changes/archive/2026-10-19-define-cli-visual-identity/design.md#name-current-directory-collisions-without-repeating-the-absolute-path)
       identify the existing layer manifest and its filename, with one sentence
       explaining that init creates rather than overwrites it. They do not append
       generic recovery advice, assume valid contents, or shorten unrelated paths.
       These revise the earlier contracts through the change's delta
       specifications and aligned project guidance. The
-      [increment policy](changes/define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)
+      [increment policy](changes/archive/2026-10-19-define-cli-visual-identity/design.md#use-a-conservative-presentation-policy-for-this-increment)
       keeps CI and mixed redirected execution plain, honours explicit colour
       disables over force, and uses text-only openings when the motif cannot fit
       or the terminal is basic. Broader font detection and future-command display
@@ -185,7 +238,58 @@ design everything upfront.
       The [name and icon](../docs/brand.md) express the
       generative layer model, simplicity, connected dependencies, and visibility
       into the result; see the
-      [identity decision](changes/define-cli-visual-identity/design.md#preserve-the-meaning-of-the-name-and-icon).
+      [identity decision](changes/archive/2026-10-19-define-cli-visual-identity/design.md#preserve-the-meaning-of-the-name-and-icon).
+    - **Dependency feedback decision:** Use a compact result naming the destination
+      layer and separate counted `Added` and `Already present` name lists. Group
+      independent errors cleanly in source order with actionable details and a
+      plain-output equivalent. Review both terminal and captured output. See the
+      [feedback decision](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#report-actual-additions-and-pre-existing-dependencies-separately).
+      The [single-result refinement](changes/archive/2026-10-19-compact-single-add-results/design.md#select-the-layout-from-verified-outcomes)
+      uses one sentence for one effective requested dependency after deduplication,
+      naming both layers and explicitly identifying no changes when already present.
+      Multiple and mixed results retain the counted groups; operation and styling
+      rules are unchanged.
+      The [informational-status refinement](changes/archive/2026-10-19-add-info-status-style/design.md#classify-the-complete-verified-add-outcome)
+      uses shared blue info styling for all no-change add results, while actual
+      additions retain green success styling. Neutral feedback remains successful
+      stdout output; plain text, grouping and operational behaviour are unchanged.
+    - **Approved usage-error follow-up:** Root and subcommand parser failures use
+      the shared compact red-cross error style in eligible terminals and meaningful
+      plain output otherwise, under the existing colour controls. Explicit help
+      and version remain plain and successful; usage failures retain clap's stderr
+      and nonzero exit status, useful diagnostic context, and concise recovery
+      guidance. One shared body orders the problem, optional context/correction,
+      usage with an optional example, then command-specific help; review errors as
+      a family rather than approving different templates through isolated
+      snapshots. See the [shared body decision](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#render-one-familiar-optional-block-grammar).
+      The [missing-current-layer refinement](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#explain-a-missing-current-layer-without-a-batch-wrapper)
+      reports that prerequisite directly with recovery and no-change information,
+      omitting the invocation path and batch wrapper while preserving useful
+      paths and source groups for other operational failures.
+      All parsing outcomes precede layer discovery, schema preparation, prompts,
+      or writes. This supersedes only the earlier plain-usage-error exception,
+      not the input, session-header, help/version, or stream policies. See the
+      [shared presentation decision](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
+      [syntax-first decision](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#keep-error-priority-independent-of-layer-state),
+      and [policy-history boundary](changes/archive/2026-10-19-unify-cli-usage-errors/design.md#record-the-policy-without-rewriting-historical-decisions).
+    - **CLI-wide diagnostic follow-up:** Extend shared composition beyond parser
+      failures to all current errors: direct single problems, ordered source groups
+      for multiple failures, useful path context and cause-specific recovery, and
+      truthful creation/replacement/reporting state. Guided rejection and
+      cancellation retain their interaction variants. The maintained reference and
+      new-error checklist require family-wide tests and wording review without
+      changing operation or safety rules. See the
+      [shared composition decision](changes/archive/2026-10-19-unify-cli-diagnostics/design.md#compose-structured-facts-once-at-the-cli-boundary)
+      and [new-error contract](changes/archive/2026-10-19-unify-cli-diagnostics/design.md#make-new-errors-join-the-same-contract).
+    - **Approved review reporting clarification:** Completion write/flush errors
+      returned by the established fallible path remain fatal and retain the actual
+      created, updated or unchanged state. Warning/error diagnostic delivery stays
+      best effort; a warning delivery failure does not change completed-write
+      status. Successful output calls do not guarantee receipt, and this increment
+      adds no descriptor checks, terminal reopening or rollback. Library Display
+      and contextual CLI composition remain distinct audiences rather than a
+      wording-deduplication target. See the [reporting boundary](changes/amend-local-add-review-findings/design.md#bound-completion-reporting-without-changing-diagnostic-delivery)
+      and [diagnostic-audience rationale](changes/amend-local-add-review-findings/design.md#correct-diagnostic-facts-without-changing-audiences-or-api-shapes).
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to

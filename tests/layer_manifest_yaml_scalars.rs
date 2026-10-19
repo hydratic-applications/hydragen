@@ -215,6 +215,18 @@ fn yaml_binary_tag_rejection_does_not_change_ordinary_or_explicit_strings() {
                 format!("! '{value}'"),
             ] {
                 for (pointer, key, text) in positions(&scalar) {
+                    // Keep arbitrary-string controls at every non-name position;
+                    // at /name, content rejection must happen after decoding.
+                    if pointer == "/name" {
+                        assert!(
+                            matches!(
+                                read(format, &text),
+                                Err(LayerManifestError::Metadata { .. })
+                            ),
+                            "{text}"
+                        );
+                        continue;
+                    }
                     let document = read(format, &text).unwrap();
                     if key {
                         assert_eq!(document.pointer(pointer).unwrap()[value], "value");
@@ -225,13 +237,13 @@ fn yaml_binary_tag_rejection_does_not_change_ordinary_or_explicit_strings() {
             }
         }
         let prefix = "%TAG !b! tag:yaml.org,2002:s\n---\n";
-        let document = read(format, &format!("{prefix}name: &data !b!tr SGVsbG8=\nauthor: *data\ndescription: *data\nextra:\n  ? *data\n  : /w==")).unwrap();
+        let document = read(format, &format!("{prefix}name: root\nauthor: &data !b!tr SGVsbG8=\ndescription: *data\nextra:\n  ? *data\n  : /w==")).unwrap();
         assert_eq!(
             document,
-            json!({"name":"SGVsbG8=", "author":"SGVsbG8=", "description":"SGVsbG8=", "extra":{"SGVsbG8=":"/w=="}})
+            json!({"name":"root", "author":"SGVsbG8=", "description":"SGVsbG8=", "extra":{"SGVsbG8=":"/w=="}})
         );
-        let document = read(format, "# !!binary SGVsbG8=\nname: |-\n  !!binary SGVsbG8=\nextra: >-\n  !<tag:yaml.org,2002:binary> /w==\n").unwrap();
-        assert_eq!(document["name"], "!!binary SGVsbG8=");
+        let document = read(format, "# !!binary SGVsbG8=\nname: root\nauthor: |-\n  !!binary SGVsbG8=\nextra: >-\n  !<tag:yaml.org,2002:binary> /w==\n").unwrap();
+        assert_eq!(document["author"], "!!binary SGVsbG8=");
         assert_eq!(document["extra"], "!<tag:yaml.org,2002:binary> /w==");
     }
 }
