@@ -97,8 +97,16 @@ design everything upfront.
    coordination, builds, or Git operations? These exclusions, called non-goals,
    have not been agreed. Ordinary packages remain appropriate where they already fit.
 8. **Rust and the CLI.** What benefits motivate the intended Rust implementation,
-   and should this detail remain in the product foundations or move to an
-   implementation document?
+    and should this detail remain in the product foundations or move to an
+    implementation document?
+    - **Compiler-support decision:** Declare a minimum supported Rust version
+      (MSRV) in `Cargo.toml`, verify it alongside current stable in CI, and show a
+      matching dynamic README shield sourced from public `main`. Rust 1.89.0
+      passed a locked build and all 190 Rust tests on Apple Silicon macOS; see the
+      [verification record](changes/declare-rust-msrv/verification.md).
+      The baseline is not an exact development-toolchain pin. See the
+      [MSRV support decision](changes/declare-rust-msrv/design.md#make-cargo-metadata-the-support-contract).
+      Rust's broader motivation and where to explain it remain open.
 9. **Agent interfaces.** Which purpose-built interfaces best support agents, and
    which should come first? Options include an MCP server (Model Context Protocol,
    a standard way for AI applications to use tools) and skills—reusable instructions

@@ -3,6 +3,7 @@
 <p align="center">
   <a href="#hydragen"><img src="https://img.shields.io/badge/status-prototype-orange?style=for-the-badge" alt="Status: prototype" height="22"></a>
   <a href="https://rust-lang.org/"><img src="https://img.shields.io/badge/language-Rust-D34516?style=for-the-badge&amp;logo=rust&amp;logoColor=white" alt="Language: Rust" height="22"></a>
+  <a href="#build-and-run-locally"><img src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fhydratic-applications%2Fhydragen%2Fmain%2FCargo.toml&amp;query=%24.package%5B%27rust-version%27%5D&amp;label=MSRV&amp;style=for-the-badge&amp;color=D34516" alt="Minimum supported Rust version on main" height="22"></a>
   <a href="https://deps.rs/repo/github/hydratic-applications/hydragen"><img src="https://deps.rs/repo/github/hydratic-applications/hydragen/status.svg?style=for-the-badge" alt="Dependency status" height="22"></a>
   <a href="https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main"><img src="https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge&amp;logo=codecov" alt="Code coverage on main" height="22"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=for-the-badge" alt="License: GPL-3.0-or-later" height="22"></a>
@@ -27,8 +28,14 @@ The [name and icon](docs/brand.md) express the project's identity and guiding va
 
 ## Build and run locally
 
-You need a recent stable Rust toolchain and Cargo, available through
-[rustup](https://rustup.rs/). This version was tested with Rust 1.96.0.
+The minimum supported Rust version (MSRV) is **1.89.0** for this checkout's locked
+builds and tests. We recommend current stable Rust and Cargo, available through
+[rustup](https://rustup.rs/); the minimum is not an exact toolchain pin. Running an
+already-built CLI does not require Rust.
+
+The MSRV shield reads `Cargo.toml` from `main`, not necessarily your checkout, and
+updates after normal badge-cache refreshes. For local build requirements, use this
+section and your checkout's [`Cargo.toml`](Cargo.toml).
 
 From this repository's root:
 
@@ -176,14 +183,23 @@ repository boundaries, and file safety. Product requirements and design
 decisions live in [OpenSpec](openspec/); those documents are not build or runtime
 inputs.
 
-CI has three independent Actions quality checks: **Tests**, **Total coverage**,
-and **Changed-line coverage**. Each applicable coverage gate requires at least
-**80%**, using unrounded line counts; a PR with no changed measured executable
+CI reports **Tests** on current stable Rust and **MSRV** on the minimum from
+`Cargo.toml` as separate, independent checks. **Total coverage** and
+**Changed-line coverage** are independent percentage gates; each requires at least
+**80%**, using unrounded line counts. A PR with no changed measured executable
 lines reports changed-line coverage as not applicable. **Coverage report** retains
 the shared evidence even below target. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
 provides report browsing and the token-free `main` shield, not percentage gates;
 only main pushes and manual runs on main upload. The shield may be unavailable
 while report access is private.
+
+To check the MSRV declaration, README guidance, and dynamic shield configuration
+locally without network access, use Python 3.11 or newer:
+
+```sh
+python3 scripts/check_rust_version.py
+python3 -m unittest discover -s tests/rust_version -v
+```
 
 With the [coverage tools installed](docs/coverage.md#local-coverage), generate a
 report locally without uploading:

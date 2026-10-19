@@ -2,6 +2,7 @@
 name = "hydragen"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89.0"
 description = "Build distinct projects from shared layers"
 license = "GPL-3.0-or-later"
 

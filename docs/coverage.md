@@ -2,10 +2,11 @@
 
 Hydragen uses `cargo-llvm-cov` to measure which executable lines its tests exercise.
 It instruments Rust code using LLVM, the compiler infrastructure used by Rust.
-GitHub Actions owns three quality checks: **Tests**, **Total coverage**, and
-**Changed-line coverage**. Each applicable coverage gate requires at least 80%,
-using exact line counts. These checks run for PRs, including forks, pushes to
-`main`, and manual Coverage workflow runs, without depending on Codecov.
+GitHub Actions reports **Tests** on current stable Rust, **Total coverage**, and
+**Changed-line coverage**, plus an independent **MSRV** compiler-compatibility
+check. Each applicable coverage gate requires at least 80%, using exact line
+counts. These checks run for PRs, including forks, pushes to `main`, and manual
+Coverage workflow runs, without depending on Codecov.
 
 The supporting **Coverage report** job produces and retains the shared evidence.
 A separate **Codecov main report** job sends eligible main reports to
@@ -86,10 +87,18 @@ line records and recalculated summaries must agree.
 
 ## What the checks mean
 
-- **Tests** runs `cargo test --locked`, including normal unit, integration,
-  terminal and documentation tests, plus the Python helper tests above using an
-  isolated pinned diff-cover executable. Any test failure fails this check. It
-  has read-only access and no coverage-service or percentage dependency.
+- **Tests** runs `cargo test --locked` on current stable Rust, including normal
+  unit, integration, terminal and documentation tests, plus the Python helper
+  tests above using an isolated pinned diff-cover executable. Any test failure
+  fails this check. It has read-only access and no coverage-service or percentage
+  dependency.
+- **MSRV** independently builds and runs the full Rust test suite with `--locked`
+  on the exact minimum supported Rust version declared in `Cargo.toml`. It also
+  checks that README build guidance and the dynamic MSRV shield configuration
+  agree with their intended sources, using Python 3.11 or newer and the helper's
+  regression tests. It does not measure coverage or require coverage tools. Run
+  these offline checks locally with `python3 scripts/check_rust_version.py` and
+  `python3 -m unittest discover -s tests/rust_version -v`.
 - **Coverage report** runs fresh stable Rust/LLVM instrumentation once, validates
   and normalizes LCOV data, and retains it with identifying metadata. It does not
   enforce a percentage or upload. Instrumented-test, report, validation and
@@ -107,9 +116,11 @@ display text says 80%. For example, 4 of 5 passes, while 7,999 of 10,000 fails.
 High total coverage cannot compensate for poorly tested changes, or vice versa.
 
 The two gate jobs depend only on valid report production, not on one another,
-normal tests or uploading. Low total coverage does not skip changed-line analysis
-or discard the report. If production fails, dependent gates are blocked, not
-coverage passes. An upload or service failure cannot change either local result.
+normal tests, MSRV, or uploading. Low total coverage does not skip changed-line
+analysis or discard the report. If production fails, dependent gates are blocked,
+not coverage passes. An upload or service failure cannot change either local result.
+**Tests** and **MSRV** also have no job dependency on each other, so a failure on
+one compiler does not suppress the other's result.
 
 ### Revisions and report identity
 
