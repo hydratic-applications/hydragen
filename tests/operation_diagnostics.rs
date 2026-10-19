@@ -1,5 +1,8 @@
 mod diagnostic_body_support;
 mod operation_diagnostic_support;
+#[cfg(unix)]
+mod output_failure_support;
+mod permission_support;
 
 #[test]
 fn captured_operations_share_structure_without_flattening_write_state_or_constraints() {
@@ -8,7 +11,24 @@ fn captured_operations_share_structure_without_flattening_write_state_or_constra
             &[][..],
             &[("CI", "1"), ("FORCE_COLOR", "1"), ("CLICOLOR_FORCE", "1")][..],
         ] {
-            let case = operation_diagnostic_support::Case::new(&label);
+            let case = match operation_diagnostic_support::Case::try_new(&label) {
+                Ok(permission_support::Setup::Ready(case)) => {
+                    if matches!(
+                        label.as_str(),
+                        "init-open-permission" | "replacement-create-permission"
+                    ) {
+                        eprintln!(
+                            "CAPABILITY {label}: native create denial verified; running CLI assertions"
+                        );
+                    }
+                    case
+                }
+                Ok(permission_support::Setup::Unsupported(reason)) => {
+                    eprintln!("SKIP {label}: {reason}");
+                    continue;
+                }
+                Err(error) => panic!("{label}: fixture setup failed: {error}"),
+            };
             let output = case.captured(environment);
             assert_eq!(output.status.code(), Some(1), "{label}: {output:?}");
             assert!(output.stdout.is_empty(), "{label}: {output:?}");

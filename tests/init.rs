@@ -6,6 +6,8 @@ use std::sync::{Arc, Barrier};
 use hydragen::LayerManifestFormat;
 use serde_json::{Value, json};
 mod diagnostic_body_support;
+#[cfg(unix)]
+mod output_failure_support;
 mod support;
 use support::tempdir;
 
@@ -216,37 +218,88 @@ fn a_live_input_pipe_is_not_read_or_awaited() {
 #[cfg(unix)]
 #[test]
 fn a_result_output_failure_does_not_claim_the_layer_manifest_was_not_created() {
-    use std::io::Write;
-
     let directory = tempdir().unwrap();
-    // Delay exec until the parent has closed the result pipe's reader. This
-    // deterministically exercises a reporting failure after layer manifest creation.
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            "read -r ready\nexec \"$@\"",
-            "output-failure",
-            env!("CARGO_BIN_EXE_hydragen"),
-            "init",
-            "--name",
-            "example",
-        ])
-        .current_dir(directory.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    drop(child.stdout.take());
-    child.stdin.take().unwrap().write_all(b"ready\n").unwrap();
-    let output = child.wait_with_output().unwrap();
+    fs::write(directory.path().join("keep.txt"), "untouched").unwrap();
+    let capture = output_failure_support::run(
+        directory.path(),
+        &["init", "--name", "example"],
+        output_failure_support::Stream::Stdout,
+        output_failure_support::Delivery::BrokenPipe,
+    )
+    .unwrap();
+    let output = capture.output;
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert_failure(&output, "was already created");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr)
+            .matches("Error:")
+            .count(),
+        1
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Broken pipe"));
     diagnostic_body_support::assert_compact(&String::from_utf8_lossy(&output.stderr));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("No files were changed"));
     assert_eq!(
         read_layer_manifest(directory.path()),
         json!({"name": "example"})
     );
+    assert_eq!(
+        fs::read_to_string(directory.path().join("keep.txt")).unwrap(),
+        "untouched"
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+    assert!(capture.consumed.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_live_result_reader_receives_the_complete_init_report_before_assertions() {
+    let directory = tempdir().unwrap();
+    let capture = output_failure_support::run(
+        directory.path(),
+        &["init", "--name", "example"],
+        output_failure_support::Stream::Stdout,
+        output_failure_support::Delivery::LiveReader,
+    )
+    .unwrap();
+    assert!(capture.output.status.success(), "{:?}", capture.output);
+    assert!(capture.output.stdout.is_empty());
+    assert!(capture.output.stderr.is_empty());
+    assert_eq!(
+        capture.consumed,
+        b"Layer initialised, layer manifest created at: layer.yaml\n"
+    );
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name":"example"})
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_stdout_runtime_acceptance_is_distinct_from_a_returned_broken_pipe() {
+    let directory = tempdir().unwrap();
+    let capture = output_failure_support::run(
+        directory.path(),
+        &["init", "--name", "example"],
+        output_failure_support::Stream::Stdout,
+        output_failure_support::Delivery::ClosedDescriptor,
+    )
+    .unwrap();
+    assert_eq!(
+        capture.output.status.code(),
+        Some(0),
+        "{:?}",
+        capture.output
+    );
+    assert!(capture.output.stdout.is_empty());
+    assert!(capture.output.stderr.is_empty());
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name":"example"})
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
 fn read_layer_manifest(directory: &Path) -> Value {
@@ -491,6 +544,7 @@ fn captured_help_uses_the_unknown_width_fallback_and_stays_plain() {
 fn copied_help_examples_keep_their_shell_arguments() {
     let parent = tempdir().unwrap();
     let output = command(parent.path())
+        .env_remove("COLUMNS")
         .args(["init", "--help"])
         .output()
         .unwrap();

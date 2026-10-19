@@ -43,11 +43,15 @@ fn assert_status<'a>(text: &'a str, icon: &str, label: &str) -> Vec<Vec<&'a str>
     let mut blocks = vec![vec![lines[0]]];
     let mut after_blank = false;
     for line in &lines[1..] {
-        if line.trim().is_empty() {
+        if line.is_empty() {
             assert!(!after_blank, "more than one blank line: {text:?}");
             after_blank = true;
             continue;
         }
+        assert!(
+            !line.chars().all(char::is_whitespace),
+            "separator must be literally empty: {text:?}"
+        );
         assert!(
             line.starts_with("  "),
             "two-space supporting indent: {line:?}"

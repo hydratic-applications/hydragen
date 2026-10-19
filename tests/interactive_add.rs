@@ -6,12 +6,27 @@ use std::path::PathBuf;
 mod add_diagnostic_support;
 mod add_pty_support;
 mod diagnostic_body_support;
+mod permission_support;
 use add_pty_support::{Output, Settings, run};
 
 #[test]
 fn verification_family_at_review_widths_uses_same_public_contract_as_captured_output() {
     for label in add_diagnostic_support::CASES {
-        let case = add_diagnostic_support::Case::new(label);
+        let case = match add_diagnostic_support::Case::try_new(label) {
+            Ok(permission_support::Setup::Ready(case)) => {
+                if *label == "permission-denied" {
+                    eprintln!(
+                        "CAPABILITY {label}: native read denial verified; running terminal assertions"
+                    );
+                }
+                case
+            }
+            Ok(permission_support::Setup::Unsupported(reason)) => {
+                eprintln!("SKIP {label}: {reason}");
+                continue;
+            }
+            Err(error) => panic!("{label}: fixture setup failed: {error}"),
+        };
         let args = case
             .arguments
             .iter()
@@ -507,9 +522,9 @@ fn missing_current_layer_is_concise_in_styled_and_plain_terminals() {
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join("keep.txt"), "unchanged").unwrap();
     let expected = concat!(
-        "Error: No layer manifest found in this directory or its parents.\n  \n",
+        "Error: No layer manifest found in this directory or its parents.\n\n",
         "  Tip: Run this command from an existing layer directory, or run\n",
-        "  'hydragen init' in the directory you want to use as a layer.\n  \n",
+        "  'hydragen init' in the directory you want to use as a layer.\n\n",
         "  No files were changed.\n"
     );
     for width in [40, 80, 120] {

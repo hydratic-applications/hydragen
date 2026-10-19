@@ -163,7 +163,7 @@ fn current_directory_duplicate_warnings_and_missing_paths_are_safe() {
     assert!(stderr.contains(r"./missing\x1b[2J\n"), "{stderr:?}");
     assert_eq!(stderr.matches("Warning:").count(), 1);
     assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
-    assert!(stderr.contains("layer.yaml, layer.json.\n  \n  layer.yaml takes priority"));
+    assert!(stderr.contains("layer.yaml, layer.json.\n\n  layer.yaml takes priority"));
     assert!(stderr.contains("Tip: Layer manifests are not merged"));
     assert!(
         !stderr.contains("Paths are relative"),

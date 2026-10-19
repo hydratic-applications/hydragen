@@ -490,7 +490,7 @@ fn layer_manifest(
             ));
             model.details.push(
                 if matches!(origin, SourceOrigin::Current) {
-                    "The selected current layer manifest must be a regular file, not a symlink."
+                    "The selected current layer manifest is not a regular file."
                 } else {
                     "The selected path must be a regular file (or a symlink to one)."
                 }
@@ -1006,8 +1006,47 @@ mod tests {
                 path: "/work/current/layer.yaml".into(),
             })),
         );
-        assert!(text.contains("must be a regular file, not a symlink"));
+        assert!(text.contains("The selected current layer manifest is not a regular file."));
+        assert!(!text.contains("symlink"));
         assert!(!text.contains("or a symlink to one"));
+    }
+
+    #[test]
+    fn actual_current_directory_occupant_has_neutral_cause_without_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let app = root.join("app");
+        std::fs::create_dir(&app).unwrap();
+        let selected = app.join("layer.yaml");
+        std::fs::create_dir(&selected).unwrap();
+        std::fs::write(app.join("layer.yml"), "name: lower-priority\n").unwrap();
+        std::fs::write(root.join("layer.yaml"), "name: parent\n").unwrap();
+
+        let failure = hydragen::dependencies::prepare_add(&app, &[]).unwrap_err();
+        assert!(matches!(
+            failure.errors.as_slice(),
+            [DependencyFailure {
+                origin: SourceOrigin::Current,
+                error: DependencyError::LayerManifest(error),
+            }] if matches!(error.as_ref(), LayerManifestError::NotRegular { path } if path == &selected)
+        ));
+        let model = diagnostic(&failure, &app);
+        assert_family(&model);
+        let text = model.body();
+        assert!(text.contains(&format!("'{}'", display(selected.display()))));
+        assert!(text.contains("The selected current layer manifest is not a regular file."));
+        assert!(!text.contains("symlink"));
+        assert!(text.contains("Lower-priority files and parent layers are not fallbacks."));
+        assert_eq!(std::fs::read_dir(&app).unwrap().count(), 2);
+        assert!(selected.is_dir());
+        assert_eq!(
+            std::fs::read_to_string(app.join("layer.yml")).unwrap(),
+            "name: lower-priority\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("layer.yaml")).unwrap(),
+            "name: parent\n"
+        );
     }
 
     #[test]
@@ -1301,7 +1340,7 @@ mod tests {
             ),
             (
                 MetadataError::NotString { field: "author" },
-                "null is not omission",
+                "Metadata field 'author' must be a string.",
                 "Set 'author' to a string",
             ),
             (
@@ -1339,6 +1378,75 @@ mod tests {
                 assert!(text.contains(&format!("Tip: {tip}")), "{text}");
                 assert!(!text.contains("hydragen init"));
                 assert!(!text.contains("--name"));
+            }
+        }
+    }
+
+    #[test]
+    fn parsed_non_string_metadata_keeps_neutral_causes_and_conditional_omission_advice() {
+        use hydragen::layer_manifest::{parse_source, validate_document};
+        use serde_json::json;
+
+        let omitted = validate_document(&json!({"name": "app"})).unwrap();
+        assert_eq!(omitted.author, None);
+        assert_eq!(omitted.description, None);
+        for (literal, value) in [
+            ("null", json!(null)),
+            ("true", json!(true)),
+            ("123", json!(123)),
+            ("[]", json!([])),
+            ("{}", json!({})),
+        ] {
+            assert!(validate_document(&json!({"name": "app", "extra": value})).is_ok());
+            for field in ["name", "author", "description", "$schema"] {
+                for format in LayerManifestFormat::ALL {
+                    if format == LayerManifestFormat::Toml && value.is_null() {
+                        continue; // TOML has no null value.
+                    }
+                    let mut document = json!({"name": "app"});
+                    document[field] = value.clone();
+                    let source = if format == LayerManifestFormat::Toml {
+                        if field == "name" {
+                            format!("name = {literal}\n")
+                        } else {
+                            format!("name = 'app'\n'{field}' = {literal}\n")
+                        }
+                    } else {
+                        document.to_string()
+                    };
+                    let path = Path::new("/work/dependency").join(format.filename());
+                    let error = parse_source(&path, format, source).unwrap_err();
+                    let LayerManifestError::Metadata {
+                        path: affected,
+                        source,
+                    } = &error
+                    else {
+                        panic!("expected metadata error for {format} {field}={literal}: {error}");
+                    };
+                    assert_eq!(affected, &path);
+                    assert_eq!(source, &MetadataError::NotString { field });
+                    assert_eq!(
+                        source.to_string(),
+                        format!("Metadata field '{field}' must be a string.")
+                    );
+                    let error = Arc::new(error);
+                    for origin in [
+                        SourceOrigin::Current,
+                        existing(0, "../stored"),
+                        argument(0, "../source"),
+                    ] {
+                        let text = body(origin, DependencyError::LayerManifest(Arc::clone(&error)));
+                        assert!(text.contains(&format!("'{}'", display(path.display()))));
+                        assert!(
+                            text.contains(&format!("Metadata field '{field}' must be a string."))
+                        );
+                        assert!(text.contains(&format!(
+                            "Tip: Set '{field}' to a string, or omit it only if it is optional."
+                        )));
+                        assert!(!text.contains("null"), "{text}");
+                        assert_eq!(text.matches("No files were changed.").count(), 1);
+                    }
+                }
             }
         }
     }

@@ -23,6 +23,7 @@ pub const CASES: &[&str] = &[
     "metadata-object",
     "metadata-required",
     "metadata-type",
+    "metadata-type-number",
     "metadata-blank",
     "metadata-name",
     "schema-location",
@@ -64,6 +65,8 @@ pub const CASES: &[&str] = &[
 
 pub struct Case {
     pub label: &'static str,
+    #[cfg(unix)]
+    permission_guard: Option<super::permission_support::PermissionGuard>,
     pub root: tempfile::TempDir,
     pub app: PathBuf,
     pub invocation: PathBuf,
@@ -90,13 +93,16 @@ struct Snapshot {
 }
 
 impl Case {
-    pub fn new(label: &'static str) -> Self {
+    pub fn try_new(label: &'static str) -> std::io::Result<super::permission_support::Setup<Self>> {
+        use super::permission_support::Setup;
         let root = tempfile::tempdir().unwrap();
         let app = root.path().join("app");
         fs::create_dir(&app).unwrap();
         fs::write(app.join("layer.yaml"), "name: app\n").unwrap();
         let mut case = Self {
             label,
+            #[cfg(unix)]
+            permission_guard: None,
             root,
             invocation: app.clone(),
             app,
@@ -127,7 +133,7 @@ impl Case {
                 case.facts
                     .push(format!("in '{reference}' to initialise it as a layer."));
                 if label == "missing-manifest" {
-                    case.exact = Some("Error: No layer manifest found in '../layer-b'.\n  \n  Tip: Choose an existing layer directory, or run 'hydragen init'\n  in '../layer-b' to initialise it as a layer.\n  \n  No files were changed.\n".into());
+                    case.exact = Some("Error: No layer manifest found in '../layer-b'.\n\n  Tip: Choose an existing layer directory, or run 'hydragen init'\n  in '../layer-b' to initialise it as a layer.\n\n  No files were changed.\n".into());
                     case.absent.push(case.root.path().display().to_string());
                 }
             }
@@ -288,8 +294,13 @@ impl Case {
                 case.absent.push(case.root.path().display().to_string());
                 case.absent.push("hydragen init".into());
             }
-            "metadata-object" | "metadata-required" | "metadata-type" | "metadata-blank"
-            | "metadata-name" | "schema-location" => {
+            "metadata-object"
+            | "metadata-required"
+            | "metadata-type"
+            | "metadata-type-number"
+            | "metadata-blank"
+            | "metadata-name"
+            | "schema-location" => {
                 let (source, facts) = match label {
                     "metadata-object" => ("[]", strings(&["one object/mapping document"])),
                     "metadata-required" => (
@@ -299,11 +310,15 @@ impl Case {
                             "Add the required 'name' field",
                         ]),
                     ),
-                    "metadata-type" => (
-                        "name: rules\nauthor: null\n",
+                    "metadata-type" | "metadata-type-number" => (
+                        if label == "metadata-type" {
+                            "name: rules\nauthor: null\n"
+                        } else {
+                            "name: rules\nauthor: 42\n"
+                        },
                         strings(&[
                             "Metadata field 'author' must be a string",
-                            "null is not omission",
+                            "omit it only if it is optional",
                         ]),
                     ),
                     "metadata-blank" => (
@@ -329,6 +344,9 @@ impl Case {
                     .push("Invalid layer manifest '../rules/layer.yaml'.".into());
                 case.absent.extend(strings(&["hydragen init", "--name"]));
                 case.absent.push(case.root.path().display().to_string());
+                if label == "metadata-type-number" {
+                    case.absent.push("null".into());
+                }
             }
             "current-decode" => {
                 case.current("[");
@@ -354,7 +372,8 @@ impl Case {
                 if label == "current-nonregular" {
                     case.facts
                         .push(fs::canonicalize(&path).unwrap().display().to_string());
-                    case.facts.push("regular file, not a symlink".into());
+                    case.facts
+                        .push("The selected current layer manifest is not a regular file.".into());
                     case.absent.push("../rules".into());
                 } else {
                     case.facts.extend(strings(&[
@@ -365,6 +384,7 @@ impl Case {
                 case.facts
                     .push("Lower-priority files and parent layers are not fallbacks.".into());
                 case.absent.push("hydragen init".into());
+                case.absent.push("is a symlink".into());
             }
             "existing-missing-directory" | "existing-missing-manifest" | "existing-decode" => {
                 case.current("name: app\ndependencies: [../stored]\n");
@@ -616,11 +636,13 @@ impl Case {
         // readable fixture bytes, inode or mtime, or leave a staging sibling.
         #[cfg(unix)]
         if let Some(path) = &case.unreadable {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+            match super::permission_support::deny_read(path)? {
+                Setup::Ready(guard) => case.permission_guard = Some(guard),
+                Setup::Unsupported(reason) => return Ok(Setup::Unsupported(reason)),
+            }
         }
         case.snapshot(case.root.path().to_path_buf());
-        case
+        Ok(Setup::Ready(case))
     }
 
     fn layer(&self, directory: &str, name: &str) {
@@ -785,16 +807,6 @@ impl Case {
                     before.path
                 );
             }
-        }
-    }
-}
-
-impl Drop for Case {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        if let Some(path) = &self.unreadable {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
         }
     }
 }

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 mod add_diagnostic_support;
 mod diagnostic_body_support;
+mod permission_support;
 
 struct Running(Child);
 impl Drop for Running {
@@ -18,8 +19,8 @@ fn universal_compact_rules_do_not_force_parser_sections_or_a_no_change_claim() {
     for text in [
         "Error: The operation failed.\n",
         "Error: Could not read './escaped\\nError: text'.\n",
-        "Error: Completion output failed.\n  \n  The layer manifest was already updated.\n",
-        "Error: Dependency checks failed (2 errors).\n  \n  Source '../a'\n    Could not read the file.\n    Tip: Check access permissions.\n  \n  Existing dependency '../b'\n    Invalid layer name.\n",
+        "Error: Completion output failed.\n\n  The layer manifest was already updated.\n",
+        "Error: Dependency checks failed (2 errors).\n\n  Source '../a'\n    Could not read the file.\n    Tip: Check access permissions.\n\n  Existing dependency '../b'\n    Invalid layer name.\n",
     ] {
         diagnostic_body_support::assert_compact(text);
     }
@@ -41,7 +42,21 @@ fn universal_compact_rules_do_not_force_parser_sections_or_a_no_change_claim() {
 #[test]
 fn captured_verification_family_retains_facts_structure_and_exact_no_write_state() {
     for label in add_diagnostic_support::CASES {
-        let case = add_diagnostic_support::Case::new(label);
+        let case = match add_diagnostic_support::Case::try_new(label) {
+            Ok(permission_support::Setup::Ready(case)) => {
+                if *label == "permission-denied" {
+                    eprintln!(
+                        "CAPABILITY {label}: native read denial verified; running CLI assertions"
+                    );
+                }
+                case
+            }
+            Ok(permission_support::Setup::Unsupported(reason)) => {
+                eprintln!("SKIP {label}: {reason}");
+                continue;
+            }
+            Err(error) => panic!("{label}: fixture setup failed: {error}"),
+        };
         let stdout = tempfile::NamedTempFile::new().unwrap();
         let stderr = tempfile::NamedTempFile::new().unwrap();
         let mut child = Running(

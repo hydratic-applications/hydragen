@@ -493,9 +493,9 @@ fn valid_add_syntax_alone_reaches_missing_current_layer_discovery() {
         assert_eq!(
             stderr,
             concat!(
-                "Error: No layer manifest found in this directory or its parents.\n  \n",
+                "Error: No layer manifest found in this directory or its parents.\n\n",
                 "  Tip: Run this command from an existing layer directory, or run\n",
-                "  'hydragen init' in the directory you want to use as a layer.\n  \n",
+                "  'hydragen init' in the directory you want to use as a layer.\n\n",
                 "  No files were changed.\n"
             )
         );

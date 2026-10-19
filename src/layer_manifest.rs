@@ -229,10 +229,9 @@ impl fmt::Display for MetadataError {
             Self::MissingField { field } => {
                 write!(formatter, "Missing required metadata field '{field}'.")
             }
-            Self::NotString { field } => write!(
-                formatter,
-                "Metadata field '{field}' must be a string; null is not omission."
-            ),
+            Self::NotString { field } => {
+                write!(formatter, "Metadata field '{field}' must be a string.")
+            }
             Self::Blank { field } => write!(
                 formatter,
                 "Metadata field '{field}' must contain at least one non-whitespace character."

@@ -7,6 +7,8 @@ use hydragen::LayerManifestFormat;
 use serde_json::json;
 
 mod diagnostic_body_support;
+#[cfg(unix)]
+mod output_failure_support;
 
 struct Fixture {
     _root: tempfile::TempDir,
@@ -661,39 +663,65 @@ fn invalid_layer_names_are_content_errors_without_init_flag_guidance() {
 #[cfg(unix)]
 #[test]
 fn warning_delivery_is_best_effort_and_cannot_turn_completed_add_into_failure() {
-    use std::os::fd::OwnedFd;
-    use std::os::unix::net::UnixStream;
-    let fixture = Fixture::new();
-    let rules = fixture.layer("rules", "rules");
-    fs::write(rules.join("layer.json"), "{}").unwrap();
-    fixture.current(LayerManifestFormat::Yaml, "name: app\n");
-    let stdout = tempfile::NamedTempFile::new().unwrap();
-    let (reader, writer) = UnixStream::pair().unwrap();
-    drop(reader);
-    let mut child = Running(
-        Command::new(env!("CARGO_BIN_EXE_hydragen"))
-            .current_dir(&fixture.app)
-            .args(["add", "../rules"])
-            .stdin(Stdio::null())
-            .stdout(stdout.reopen().unwrap())
-            .stderr(Stdio::from(OwnedFd::from(writer)))
-            .spawn()
-            .unwrap(),
-    );
-    assert!(wait(&mut child).success());
-    assert!(
-        fs::read_to_string(stdout.path())
-            .unwrap()
-            .starts_with("Added rules to app.")
-    );
-    assert_eq!(
-        hydragen::discover(&fixture.app)
-            .unwrap()
-            .load()
-            .unwrap()
-            .document["dependencies"],
-        json!(["../rules"])
-    );
+    for delivery in [
+        output_failure_support::Delivery::BrokenPipe,
+        output_failure_support::Delivery::LiveReader,
+    ] {
+        let fixture = Fixture::new();
+        let rules = fixture.layer("rules", "rules");
+        let dependency_before = fs::read(rules.join("layer.yaml")).unwrap();
+        fs::write(rules.join("layer.json"), "{}").unwrap();
+        fixture.current(LayerManifestFormat::Yaml, "name: app\n");
+        fs::write(fixture.app.join("keep.txt"), "unrelated content").unwrap();
+        let capture = output_failure_support::run(
+            &fixture.app,
+            &["add", "../rules"],
+            output_failure_support::Stream::Stderr,
+            delivery,
+        )
+        .unwrap();
+        assert_eq!(
+            capture.output.status.code(),
+            Some(0),
+            "{:?}",
+            capture.output
+        );
+        assert_eq!(capture.output.stdout, b"Added rules to app.\n");
+        assert!(capture.output.stderr.is_empty());
+        if matches!(delivery, output_failure_support::Delivery::BrokenPipe) {
+            assert!(capture.consumed.is_empty());
+        } else {
+            let warning = text(&capture.consumed);
+            assert_eq!(warning.matches("Warning:").count(), 1, "{warning}");
+            assert!(warning.contains("layer.yaml takes priority"), "{warning}");
+            assert!(
+                warning.contains("Layer manifests are not merged"),
+                "{warning}"
+            );
+        }
+        assert_eq!(
+            hydragen::discover(&fixture.app)
+                .unwrap()
+                .load()
+                .unwrap()
+                .document["dependencies"],
+            json!(["../rules"])
+        );
+        assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 2);
+        assert_eq!(
+            fs::read_to_string(fixture.app.join("keep.txt")).unwrap(),
+            "unrelated content"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.app.join("layer.yaml")).unwrap(),
+            "name: app\ndependencies: [\"../rules\"]\n"
+        );
+        assert_eq!(
+            fs::read(rules.join("layer.yaml")).unwrap(),
+            dependency_before
+        );
+        assert_eq!(fs::read_to_string(rules.join("layer.json")).unwrap(), "{}");
+    }
 }
 
 #[cfg(unix)]
@@ -755,47 +783,121 @@ fn symlinked_current_is_refused_but_dependency_links_and_directory_aliases_are_r
 
 #[cfg(unix)]
 #[test]
-fn closed_stdout_reports_already_updated_after_actual_child_replacement() {
-    use std::os::fd::OwnedFd;
-    use std::os::unix::net::UnixStream;
+fn broken_stdout_reports_actual_updated_or_unchanged_state() {
     for noop in [false, true] {
-        let fixture = Fixture::new();
-        fixture.layer("rules", "rules");
-        fixture.current(
-            LayerManifestFormat::Yaml,
-            if noop {
-                "name: app\ndependencies: [../rules]\n"
-            } else {
-                "name: app\n"
-            },
+        let capture = completion_case(noop, output_failure_support::Delivery::BrokenPipe);
+        assert_eq!(
+            capture.output.status.code(),
+            Some(1),
+            "{:?}",
+            capture.output
         );
-        let (reader, writer) = UnixStream::pair().unwrap();
-        drop(reader);
-        let stderr = tempfile::NamedTempFile::new().unwrap();
-        let mut child = Running(
-            Command::new(env!("CARGO_BIN_EXE_hydragen"))
-                .current_dir(&fixture.app)
-                .args(["add", "../rules"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::from(OwnedFd::from(writer)))
-                .stderr(stderr.reopen().unwrap())
-                .spawn()
-                .unwrap(),
-        );
-        assert!(!wait(&mut child).success());
-        let error = fs::read_to_string(stderr.path()).unwrap();
+        let error = text(&capture.output.stderr);
         assert_eq!(error.matches("Error:").count(), 1, "{error}");
+        assert!(error.contains("Broken pipe"), "{error}");
         assert!(error.contains("Completion output failed"));
         assert_eq!(error.contains("was already updated"), !noop);
         assert_eq!(error.contains("was not updated"), noop);
         assert!(!error.contains("No files were changed"));
+        assert!(capture.output.stdout.is_empty());
+        assert!(capture.consumed.is_empty());
+    }
+}
+
+#[cfg(unix)]
+fn completion_case(
+    noop: bool,
+    delivery: output_failure_support::Delivery,
+) -> output_failure_support::Capture {
+    use std::os::unix::fs::MetadataExt;
+    let fixture = Fixture::new();
+    let dependency = fixture.layer("rules", "rules").join("layer.yaml");
+    let dependency_before = fs::read(&dependency).unwrap();
+    let path = fixture.current(
+        LayerManifestFormat::Yaml,
+        if noop {
+            "name: app\ndependencies: [../rules]\n"
+        } else {
+            "name: app\n"
+        },
+    );
+    fs::write(fixture.app.join("keep.txt"), "unrelated content").unwrap();
+    let original = fs::read(&path).unwrap();
+    let before = fs::metadata(&path).unwrap();
+    let capture = output_failure_support::run(
+        &fixture.app,
+        &["add", "../rules"],
+        output_failure_support::Stream::Stdout,
+        delivery,
+    )
+    .unwrap();
+    assert_eq!(
+        hydragen::discover(&fixture.app)
+            .unwrap()
+            .load()
+            .unwrap()
+            .document["dependencies"],
+        json!(["../rules"])
+    );
+    if noop {
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
         assert_eq!(
-            hydragen::discover(&fixture.app)
-                .unwrap()
-                .load()
-                .unwrap()
-                .document["dependencies"],
-            json!(["../rules"])
+            fs::metadata(&path).unwrap().modified().unwrap(),
+            before.modified().unwrap()
         );
+    } else {
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "name: app\ndependencies: [\"../rules\"]\n"
+        );
+        assert_ne!(fs::metadata(&path).unwrap().ino(), before.ino());
+    }
+    assert_eq!(
+        fs::read_to_string(fixture.app.join("keep.txt")).unwrap(),
+        "unrelated content"
+    );
+    assert_eq!(fs::read(&dependency).unwrap(), dependency_before);
+    assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 2);
+    capture
+}
+
+#[cfg(unix)]
+#[test]
+fn live_stdout_reader_is_a_successful_complete_report_negative_control() {
+    for noop in [false, true] {
+        let capture = completion_case(noop, output_failure_support::Delivery::LiveReader);
+        assert_eq!(
+            capture.output.status.code(),
+            Some(0),
+            "{:?}",
+            capture.output
+        );
+        assert!(capture.output.stdout.is_empty());
+        assert!(capture.output.stderr.is_empty());
+        assert_eq!(
+            capture.consumed,
+            if noop {
+                b"No changes needed: rules is already a dependency of app.\n".as_slice()
+            } else {
+                b"Added rules to app.\n".as_slice()
+            }
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_stdout_runtime_acceptance_preserves_update_and_noop_state() {
+    for noop in [false, true] {
+        let capture = completion_case(noop, output_failure_support::Delivery::ClosedDescriptor);
+        assert_eq!(
+            capture.output.status.code(),
+            Some(0),
+            "{:?}",
+            capture.output
+        );
+        assert!(capture.output.stdout.is_empty());
+        assert!(capture.output.stderr.is_empty());
     }
 }

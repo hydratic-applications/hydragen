@@ -130,7 +130,7 @@ mod tests {
             basic: false,
         });
         assert_eq!(
-            plain.replace("\n  \n", "\n\n"),
+            plain,
             concat!(
                 "Error: Dependency checks failed (2 errors).\n\n",
                 "  Paths are relative to '/work/app'.\n\n",

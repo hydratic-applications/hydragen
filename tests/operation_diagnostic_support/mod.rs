@@ -75,11 +75,14 @@ enum State {
 
 pub struct Case {
     pub label: String,
+    #[cfg(unix)]
+    permission_guard: Option<super::permission_support::PermissionGuard>,
     root: tempfile::TempDir,
     pub app: PathBuf,
     pub arguments: Vec<String>,
     pub shell_prelude: Option<String>,
-    _output_pipe: Option<tempfile::TempDir>,
+    #[cfg(unix)]
+    output_failure: bool,
     #[allow(dead_code)]
     pub terminal_eligible: bool,
     state: State,
@@ -87,7 +90,6 @@ pub struct Case {
     facts: Vec<String>,
     absent: Vec<String>,
     snapshot: Vec<Entry>,
-    restore_permissions: Option<fs::Permissions>,
 }
 
 struct Entry {
@@ -103,18 +105,32 @@ struct Entry {
 }
 
 impl Case {
+    // Non-permission callers must not silently turn an unsupported fixture into
+    // success. Family consumers use try_new and handle each outcome explicitly.
+    #[allow(dead_code)]
     pub fn new(label: &str) -> Self {
+        match Self::try_new(label).expect("operation fixture setup failed") {
+            super::permission_support::Setup::Ready(case) => case,
+            super::permission_support::Setup::Unsupported(reason) => panic!("{label}: {reason}"),
+        }
+    }
+
+    pub fn try_new(label: &str) -> std::io::Result<super::permission_support::Setup<Self>> {
+        use super::permission_support::Setup;
         let root = tempfile::tempdir().unwrap();
         let app = root.path().join("app");
         fs::create_dir(&app).unwrap();
         fs::write(app.join("keep.txt"), "untouched user content\n").unwrap();
         let mut case = Self {
             label: label.into(),
+            #[cfg(unix)]
+            permission_guard: None,
             root,
             app,
             arguments: vec!["init".into(), "--name".into(), "app".into()],
             shell_prelude: None,
-            _output_pipe: None,
+            #[cfg(unix)]
+            output_failure: false,
             terminal_eligible: true,
             state: State::Unchanged,
             summary: String::new(),
@@ -125,7 +141,6 @@ impl Case {
                 "For more information,".into(),
             ],
             snapshot: Vec::new(),
-            restore_permissions: None,
         };
         if let Some(rest) = label.strip_prefix("occupied-") {
             let (extension, kind) = rest.split_once('-').unwrap();
@@ -277,7 +292,6 @@ impl Case {
                 }
                 #[cfg(unix)]
                 "init-open-permission" | "replacement-create-permission" => {
-                    use std::os::unix::fs::PermissionsExt;
                     if label == "replacement-create-permission" {
                         case.add_fixture("name: app\n");
                         case.summary = format!(
@@ -308,8 +322,10 @@ impl Case {
                             "Check access permissions",
                         ]));
                     }
-                    case.restore_permissions = Some(fs::metadata(&case.app).unwrap().permissions());
-                    fs::set_permissions(&case.app, fs::Permissions::from_mode(0o555)).unwrap();
+                    match super::permission_support::deny_create(&case.app)? {
+                        Setup::Ready(guard) => case.permission_guard = Some(guard),
+                        Setup::Unsupported(reason) => return Ok(Setup::Unsupported(reason)),
+                    }
                 }
                 #[cfg(unix)]
                 "init-write-empty" => {
@@ -343,18 +359,9 @@ impl Case {
                 }
                 #[cfg(unix)]
                 "init-completion" | "add-completion" | "add-noop-completion" => {
-                    // Keep fd 1 valid so runtime descriptor repair cannot turn
-                    // this into successful /dev/null output. Open a real FIFO,
-                    // stop and reap its sole reader before exec, then unlink it.
-                    // No sleeps, application flags or injected error protocol.
-                    let pipe = tempfile::tempdir().unwrap();
-                    let fifo = pipe.path().join("stdout");
-                    let quoted =
-                        format!("'{}'", fifo.display().to_string().replace('\'', "'\"'\"'"));
-                    case.shell_prelude = Some(format!(
-                        "mkfifo {quoted}\ncat {quoted} >/dev/null &\nreader=$!\nexec 1>{quoted}\nkill \"$reader\"\nwait \"$reader\" 2>/dev/null\nrm {quoted}\ntrap '' PIPE"
-                    ));
-                    case._output_pipe = Some(pipe);
+                    // This inherently redirected case uses the same bounded
+                    // private-reader runner in captured and terminal consumers.
+                    case.output_failure = true;
                     case.terminal_eligible = false;
                     case.facts
                         .extend(strings(&["output destination", "was already"]));
@@ -394,7 +401,7 @@ impl Case {
             }
         }
         case.snapshot = snapshot(case.root.path());
-        case
+        Ok(Setup::Ready(case))
     }
 
     fn add_fixture(&mut self, source: &str) {
@@ -551,6 +558,23 @@ impl Case {
 
     #[allow(dead_code)]
     pub fn captured(&self, environment: &[(&str, &str)]) -> Output {
+        #[cfg(unix)]
+        if self.output_failure {
+            let arguments = self
+                .arguments
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            return super::output_failure_support::run_environment(
+                &self.app,
+                &arguments,
+                super::output_failure_support::Stream::Stdout,
+                super::output_failure_support::Delivery::BrokenPipe,
+                environment,
+            )
+            .expect("bounded completion-output fixture failed")
+            .output;
+        }
         let stdout = tempfile::NamedTempFile::new().unwrap();
         let stderr = tempfile::NamedTempFile::new().unwrap();
         let mut command = if let Some(prelude) = &self.shell_prelude {
@@ -629,14 +653,6 @@ impl Case {
                 stdout: fs::read(stdout.path()).unwrap(),
                 stderr: fs::read(stderr.path()).unwrap(),
             }
-        }
-    }
-}
-
-impl Drop for Case {
-    fn drop(&mut self) {
-        if let Some(permissions) = &self.restore_permissions {
-            let _ = fs::set_permissions(&self.app, permissions.clone());
         }
     }
 }

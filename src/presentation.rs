@@ -139,7 +139,10 @@ impl Presentation {
             headline
         };
         for line in lines {
-            output.push_str("\n  ");
+            output.push('\n');
+            if !line.is_empty() {
+                output.push_str("  ");
+            }
             output.push_str(line);
         }
         output
@@ -530,6 +533,28 @@ mod tests {
         assert_eq!(console::strip_ansi_codes(&styled), format!("ℹ {plain}"));
         assert!(!styled.contains("Info:"));
         assert!(!styled.contains('✓'));
+    }
+
+    #[test]
+    fn diagnostic_block_separators_are_empty_without_trimming_supporting_text() {
+        let message = "Headline.\n\nRecovery with trailing spaces  \n\n  Group detail.";
+        for (severity, label, icon) in [
+            (Severity::Info, "", "ℹ "),
+            (Severity::Warning, "Warning: ", "▲ "),
+            (Severity::Error, "Error: ", "✕ "),
+        ] {
+            let plain = presentation(false).diagnostic(severity, message);
+            assert_eq!(
+                plain,
+                format!(
+                    "{label}Headline.\n\n  Recovery with trailing spaces  \n\n    Group detail."
+                )
+            );
+            let styled = presentation(true).diagnostic(severity, message);
+            assert_eq!(console::strip_ansi_codes(&styled), format!("{icon}{plain}"));
+            assert!(styled.lines().skip(1).all(|line| !line.contains('\x1b')));
+            assert_eq!(plain.lines().filter(|line| line.is_empty()).count(), 2);
+        }
     }
 
     #[test]

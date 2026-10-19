@@ -567,7 +567,7 @@ mod tests {
         let error = finish_output(path, "Completed", |message| {
             writes += 1;
             assert_eq!(message, "Completed");
-            Err(io::Error::from_raw_os_error(32))
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
         })
         .unwrap_err();
         assert_eq!(writes, 1);
@@ -587,12 +587,37 @@ mod tests {
         };
         assert_eq!(affected, path);
         assert_eq!(*channel, CompletionChannel::Output);
-        assert_eq!(source.raw_os_error(), Some(32));
+        assert_eq!(source.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(source.raw_os_error(), None);
         let text = crate::diagnostics::error_message(&error);
         assert!(text.starts_with("Could not report initialisation completion."));
         assert!(text.contains("'/project/layer.yaml' was already created"));
         assert!(!text.contains("No files were changed"));
         assert!(!is_reported_cancellation(&error));
+    }
+
+    #[test]
+    fn flag_completion_failure_preserves_a_native_error_code_without_assuming_its_kind() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = std::fs::File::open(directory.path().join("missing")).unwrap_err();
+        let code = source.raw_os_error();
+        let kind = source.kind();
+        assert!(code.is_some());
+        let error = finish_output(Path::new("/project/layer.yaml"), "Completed", |_| {
+            Err(source)
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), kind);
+        let context = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<CliIoError>()
+            .unwrap();
+        let CliIoError::InitCompletion { source, .. } = context else {
+            panic!("expected completion context")
+        };
+        assert_eq!(source.raw_os_error(), code);
+        assert_eq!(source.kind(), kind);
     }
 
     #[test]

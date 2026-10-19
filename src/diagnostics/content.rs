@@ -58,7 +58,7 @@ pub(super) fn metadata_details(source: &MetadataError, model: &mut Diagnostic) {
             format!("Add the required '{}' field to the selected layer manifest.", display(field)),
         ),
         MetadataError::NotString { field } => (
-            format!("Metadata field '{}' must be a string; null is not omission.", display(field)),
+            format!("Metadata field '{}' must be a string.", display(field)),
             format!("Set '{}' to a string, or omit it only if it is optional.", display(field)),
         ),
         MetadataError::Blank { field } => (

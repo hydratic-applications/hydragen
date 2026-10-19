@@ -256,7 +256,7 @@ mod tests {
         ] {
             let (error, command) = failure(&arguments);
             let text = render(error, &command, plain());
-            assert_eq!(text.replace("\n  \n", "\n\n"), expected);
+            assert_eq!(text, expected);
         }
     }
 
@@ -537,9 +537,18 @@ mod tests {
     }
 
     fn assert_family(text: &str) {
-        let normalized = text.replace("\n  \n", "\n\n");
-        assert!(!normalized.contains("\n\n\n"), "{text}");
-        let blocks = normalized.trim_end().split("\n\n").collect::<Vec<_>>();
+        assert!(!text.contains("\n\n\n"), "{text}");
+        for line in text.lines() {
+            assert!(
+                line.is_empty() || !line.chars().all(char::is_whitespace),
+                "separator must be literally empty: {text:?}"
+            );
+        }
+        let blocks = text
+            .strip_suffix('\n')
+            .expect("one final newline")
+            .split("\n\n")
+            .collect::<Vec<_>>();
         assert!(blocks[0].starts_with("Error: "), "{text}");
         assert!(blocks[0].ends_with('.'), "summary punctuation: {text}");
         assert_eq!(blocks[0].lines().count(), 1);
@@ -550,7 +559,7 @@ mod tests {
                 .starts_with("  For more information, try 'hydragen")
         );
         assert!(blocks.last().unwrap().ends_with("--help'."));
-        for line in normalized.lines().skip(1).filter(|line| !line.is_empty()) {
+        for line in text.lines().skip(1).filter(|line| !line.is_empty()) {
             assert!(line.starts_with("  "), "base indent: {text}");
             assert!(!line.contains("[possible values:"));
             assert!(!line.contains("tip:"));
@@ -734,13 +743,7 @@ mod tests {
             Diagnostic::for_usage("A problem occurred.".into(), &catalog, Origin::Unknown);
         let text = model.render(plain());
         assert_family(&text);
-        assert_eq!(
-            text.replace("\n  \n", "\n\n")
-                .trim_end()
-                .split("\n\n")
-                .count(),
-            2
-        );
+        assert_eq!(text.strip_suffix('\n').unwrap().split("\n\n").count(), 2);
         for label in ["Usage:", "Example:", "Tip:", "Possible values:", "Context:"] {
             assert!(!text.contains(label));
         }
@@ -752,13 +755,7 @@ mod tests {
         ];
         let text = model.render(plain());
         assert_family(&text);
-        assert_eq!(
-            text.replace("\n  \n", "\n\n")
-                .trim_end()
-                .split("\n\n")
-                .count(),
-            4
-        );
+        assert_eq!(text.strip_suffix('\n').unwrap().split("\n\n").count(), 4);
         assert!(text.contains("<COMMAND>\n  Example:"));
     }
 
