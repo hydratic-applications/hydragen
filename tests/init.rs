@@ -849,10 +849,12 @@ fn write_failures_report_the_path_without_false_success() {
     let directory = tempdir().unwrap();
     // Limit only the child process. Ignoring SIGXFSZ makes write return an error
     // instead of killing the CLI, so this exercises its real write-error branch.
+    // This child cannot save a coverage file either. Discard only its profiling
+    // output rather than mixing LLVM's own write error into the CLI diagnostic.
     let output = Command::new("/bin/sh")
         .args([
             "-c",
-            "trap '' XFSZ\nulimit -f 0\nexec \"$1\" init --name example",
+            "export LLVM_PROFILE_FILE=/dev/null\ntrap '' XFSZ\nulimit -f 0\nexec \"$1\" init --name example",
             "write-failure",
             env!("CARGO_BIN_EXE_hydragen"),
         ])
@@ -860,6 +862,7 @@ fn write_failures_report_the_path_without_false_success() {
         .stdin(Stdio::null())
         .output()
         .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert_failure(&output, "write layer manifest");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("layer.yaml"));

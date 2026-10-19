@@ -330,7 +330,12 @@ impl Case {
                 #[cfg(unix)]
                 "init-write-empty" => {
                     case.state = State::Partial;
-                    case.shell_prelude = Some("trap '' XFSZ\nulimit -f 0".into());
+                    // This child deliberately forbids regular-file writes,
+                    // including LLVM profiles. Keep profiler output separate
+                    // from the unchanged CLI diagnostic assertions.
+                    case.shell_prelude = Some(
+                        "export LLVM_PROFILE_FILE=/dev/null\ntrap '' XFSZ\nulimit -f 0".into(),
+                    );
                     case.summary = format!("Could not write layer manifest '{}'.", case.selected());
                     case.facts.extend(strings(&[
                         "Cause: File too large",

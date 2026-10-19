@@ -48,3 +48,9 @@
 - [x] 7.2 Renew schema fingerprint, validation/classification and offline-boundary checks, full locked Rust/Python validation, formatting/clippy/strict specs, packaging and fresh offline independence against the merged tree.
 - [x] 7.3 Obtain independent merged-result/final evidence review; update the current integration boundary and limitations without rewriting prior measured observations.
 - [x] 7.4 Commit, ordinary-push and refresh PR #7, verify matching remote head and actual mergeability/check state; keep the PR open and amendment unarchived.
+
+## 8. Coverage instrumentation and deliberate write-failure fixtures
+
+- [x] 8.1 Inspect the failing hosted report job and reproduce its LLVM profile-write error under the zero-byte child file limit on Linux.
+- [x] 8.2 Isolate profiling output only for the two intentionally file-write-limited fixtures, preserving real CLI failure/state assertions and all coverage policies; document the unavailable child counters.
+- [x] 8.3 Validate instrumented and ordinary tests, confirm coverage policy is unchanged and prepare the focused correction for delivery; distinguish local results from hosted checks.
