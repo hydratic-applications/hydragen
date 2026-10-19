@@ -83,12 +83,12 @@ fn stored_missing_reference_escapes_heading_and_path_without_losing_layout() {
     let escaped = r"./missing\x1b[2J\x1b[Hforged-success\r\n\t\x7f\u{85}\u{202e}\u{2028}";
     assert!(
         stderr.contains(&format!(
-            "\n  1. existing dependency 1 ('{escaped}')\n     Could not"
+            "\n  Existing dependency '{escaped}'\n    Could not"
         )),
         "{stderr:?}"
     );
     assert_eq!(stderr.matches(escaped).count(), 2, "{stderr:?}");
-    assert!(stderr.contains("\n  2. source argument 1 ('../new')\n"));
+    assert!(stderr.contains("\n  Source '../new'\n"));
     assert!(stderr.ends_with("\n  No files were changed.\n"));
     assert!(output.stdout.is_empty());
     assert_eq!(
@@ -160,8 +160,12 @@ fn current_directory_duplicate_warnings_and_missing_paths_are_safe() {
     assert!(stderr.contains(r"./missing\x1b[2J\n"), "{stderr:?}");
     assert_eq!(stderr.matches("Warning:").count(), 1);
     assert!(stderr.find("Warning:").unwrap() < stderr.find("Error:").unwrap());
-    assert!(stderr.contains("layer.yaml, layer.json.\n  layer.yaml takes priority"));
-    assert!(stderr.contains("\n  Local paths resolve from the declaring layer directory:"));
+    assert!(stderr.contains("layer.yaml, layer.json.\n  \n  layer.yaml takes priority"));
+    assert!(stderr.contains("Tip: Layer manifests are not merged"));
+    assert!(
+        !stderr.contains("Paths are relative"),
+        "same-directory base is redundant: {stderr}"
+    );
 }
 
 #[cfg(unix)]
@@ -178,11 +182,11 @@ fn conflict_origins_and_both_directories_are_safe() {
     assert!(!output.status.success());
     let stderr = safe_text(&output.stderr);
     assert!(
-        stderr.contains("\n     Conflicting source: source argument 1 ('../first\\x1b[H\\n')\n"),
+        stderr.contains("\n  Conflicting source: Source '../first\\x1b[H\\n'\n"),
         "{stderr:?}"
     );
-    assert!(stderr.contains("\n     Earlier source path:"));
-    assert!(stderr.contains("\n     Requested source path:"));
+    assert!(stderr.contains("\n  Earlier source path:"));
+    assert!(stderr.contains("\n  Requested source path:"));
     assert!(stderr.contains(r"second\r\t\u{9b}2J"));
 }
 
@@ -304,7 +308,7 @@ fn init_directory_default_errors_are_safe_without_changing_name_validation() {
     assert!(!output.status.success());
     let stderr = safe_text(&output.stderr);
     assert!(stderr.contains(r"bad\x1b[H\r\n\t"), "{stderr:?}");
-    assert!(stderr.contains("Supply --name explicitly."));
+    assert!(stderr.contains("Supply --name explicitly with a valid layer name"));
     assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
     let output = run(&directory, &["init", "--name", "valid", "--format", "json"]);
     assert!(

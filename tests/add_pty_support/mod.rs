@@ -17,6 +17,8 @@ pub struct Settings<'a> {
     pub width: u16,
     pub environment: &'a [(&'a str, &'a str)],
     pub redirect: Option<(&'a str, &'a Path)>,
+    /// Trusted fixture setup in the shell, never an application fault seam.
+    pub shell_prelude: Option<&'a str>,
 }
 
 impl Default for Settings<'_> {
@@ -25,6 +27,7 @@ impl Default for Settings<'_> {
             width: 80,
             environment: &[],
             redirect: None,
+            shell_prelude: None,
         }
     }
 }
@@ -48,6 +51,7 @@ impl Output {
     pub fn evidence(&self, label: &str) {
         if let Some(directory) = std::env::var_os("HYDRAGEN_USAGE_EVIDENCE")
             .or_else(|| std::env::var_os("HYDRAGEN_ADD_EVIDENCE"))
+            .or_else(|| std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE"))
         {
             let directory = Path::new(&directory);
             std::fs::create_dir_all(directory).unwrap();
@@ -105,8 +109,9 @@ pub fn run_os<'a>(
         })
         .unwrap();
     let mut command = CommandBuilder::new("/bin/sh");
-    command.args([
-        "-c",
+    let script = format!(
+        "{}\n{}",
+        settings.shell_prelude.unwrap_or(""),
         "case \"$REDIRECT\" in
 stdin) exec \"$@\" </dev/null;;
 stdout) exec \"$@\" >\"$CAPTURE\";;
@@ -116,7 +121,11 @@ stdin,stderr) exec \"$@\" </dev/null 2>\"$CAPTURE\";;
 stdout,stderr) exec \"$@\" >\"$CAPTURE\" 2>&1;;
 stdin,stdout,stderr) exec \"$@\" </dev/null >\"$CAPTURE\" 2>&1;;
 *) exec \"$@\";;
-esac",
+esac"
+    );
+    command.args([
+        "-c",
+        &script,
         "add-terminal",
         env!("CARGO_BIN_EXE_hydragen"),
     ]);

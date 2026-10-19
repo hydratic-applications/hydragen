@@ -238,13 +238,20 @@ styling controls. Preserve clap's usage-error exit status and standard-error str
 useful argument details, choices, suggestions, and usage/help guidance, without
 branded openings or guided-session frames.
 
-Follow the [CLI diagnostic reference](docs/cli-diagnostics.md) for the shared
-problem, optional context/correction, usage/optional example, and help structure.
-Populate one presentation model from structured clap facts; do not add per-command
-body templates. Review error families together, not only individual snapshots.
-For add's missing current layer, describe the directory/parent search without the
-invocation path or a numbered batch wrapper; retain the recovery tip and accurate
-no-files-changed result. Keep actionable paths and source groups for other failures.
+Follow the [CLI diagnostic reference](docs/cli-diagnostics.md) for all current and
+future errors, not only parser failures. Use shared compact composition from typed
+facts, or the supported guided variant; do not interpret English error strings or
+add per-command body templates. When adding an error, check its concrete problem,
+affected source and base, useful cause/recovery, known write state, escaped display
+data, representative family test and human wording review against the reference's
+[new-error checklist](docs/cli-diagnostics.md#new-error-checklist).
+Single failures are direct; multiple dependency failures use ordered source labels
+and a failure count, without redundant numbering. Prefer original reference
+spelling with base context when needed, retaining actionable file, field, conflict
+and staging/cleanup paths. For a missing current layer, retain the directory/parent
+search, recovery and accurate no-change result without the invocation path.
+Review families together in captured and bounded actual-terminal output; shared
+layout and passing snapshots alone do not establish clear, useful wording.
 
 Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
 where styled; keep supporting details and recovery guidance in the normal
@@ -355,9 +362,10 @@ manifest path by default. Use separate counted `Added` and `Already present` nam
 lists, omitting empty groups and unrequested dependencies. `Already present` means
 present before invocation; repeated new sources belong only under `Added`.
 All-repeat success reports no changes needed. Keep per-group first-appearance
-order, shared plain/styled status rules, and stderr warnings/errors. Render
-source-specific failure groups in order with actionable diagnostic paths and
-deduplicated warnings before dependent failures.
+order, shared plain/styled status rules, and stderr warnings/errors. Present
+failures through the diagnostic reference's direct-single or ordered-source-group
+structure, preserving actionable path context and deduplicated warnings before
+dependent failures.
 
 Published references require exact SemVer, including optional prerelease/build
 identifiers, not ranges, tags, or implicit versions. Adding published dependencies,

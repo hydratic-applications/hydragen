@@ -5,6 +5,7 @@ use std::sync::{Arc, Barrier};
 
 use hydragen::LayerManifestFormat;
 use serde_json::{Value, json};
+mod diagnostic_body_support;
 mod support;
 use support::tempdir;
 
@@ -50,8 +51,12 @@ fn assert_occupied_layer_manifest(output: &Output) {
     assert_failure(output, "This directory already has a layer manifest (");
     let stderr = String::from_utf8_lossy(&output.stderr);
     let refusal = stderr.split_once("Error: ").unwrap().1;
-    assert_eq!(refusal.lines().count(), 2, "{stderr}");
-    let advice = refusal.lines().nth(1).unwrap().trim();
+    assert_eq!(refusal.lines().count(), 3, "{stderr}");
+    assert!(
+        refusal.lines().nth(1).unwrap().trim().is_empty(),
+        "{stderr}"
+    );
+    let advice = refusal.lines().nth(2).unwrap().trim();
     assert_eq!(
         advice,
         "Initialisation creates a new layer manifest; it won’t overwrite an existing one."
@@ -215,7 +220,8 @@ fn a_result_output_failure_does_not_claim_the_layer_manifest_was_not_created() {
     drop(child.stdout.take());
     child.stdin.take().unwrap().write_all(b"ready\n").unwrap();
     let output = child.wait_with_output().unwrap();
-    assert_failure(&output, "was created");
+    assert_failure(&output, "was already created");
+    diagnostic_body_support::assert_compact(&String::from_utf8_lossy(&output.stderr));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("No files were changed"));
     assert_eq!(
         read_layer_manifest(directory.path()),
@@ -783,7 +789,9 @@ fn write_failures_report_the_path_without_false_success() {
     assert_failure(&output, "write layer manifest");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("layer.yaml"));
-    assert!(stderr.contains("partial file may remain"));
+    assert!(stderr.contains("An empty or partially written layer manifest may remain"));
+    assert!(!stderr.contains("No files were changed"));
+    diagnostic_body_support::assert_compact(&stderr);
     assert_eq!(fs::read(directory.path().join("layer.yaml")).unwrap(), b"");
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
@@ -965,10 +973,14 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
                 invalid.path(),
                 &["--format", format.extension(), field, "\u{85}"],
             );
-            assert_failure(
-                &output,
-                &format!("{field} must contain at least one non-whitespace character."),
+            assert_failure(&output, &format!("Invalid value for '{field}'."));
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                error.contains("The value must contain at least one non-whitespace character.")
             );
+            assert_eq!(error.contains("omit this optional flag"), field != "--name");
+            assert_eq!(error.matches("No files were changed.").count(), 1);
+            diagnostic_body_support::assert_compact(&error);
             assert_eq!(fs::read_dir(invalid.path()).unwrap().count(), 0);
         }
     }

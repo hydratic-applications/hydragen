@@ -10,6 +10,7 @@ use hydragen::diagnostic_text::display;
 use hydragen::layer_manifest::schema;
 use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
 
+use crate::diagnostics::{CliIoError, CompletionChannel};
 use crate::presentation::{self, Presentation};
 
 struct InitTheme {
@@ -253,11 +254,14 @@ fn validate_answer(field: &'static str, value: &str, optional: bool) -> Result<(
 
 fn answer_error_message(error: InitError, optional: bool) -> String {
     match error {
-        InitError::InvalidName { guidance } => format!("Name is invalid. {guidance}"),
+        InitError::InvalidName { guidance } => format!("Name is invalid. {}", display(guidance)),
         InitError::InvalidMetadata { field } if optional => {
-            format!("Enter a non-blank {field}, or clear the field and press Enter to skip.")
+            format!(
+                "Enter a non-blank {}, or clear the field and press Enter to skip.",
+                display(field)
+            )
         }
-        InitError::InvalidMetadata { field } => format!("Enter a non-blank {field}."),
+        InitError::InvalidMetadata { field } => format!("Enter a non-blank {}.", display(field)),
         other => other.to_string(),
     }
 }
@@ -327,13 +331,11 @@ fn directory_name_validating(
     validate: impl FnOnce(&'static str, &str) -> Result<(), InitError>,
 ) -> io::Result<String> {
     let unusable = || {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "Could not derive a valid UTF-8 layer name from directory '{}'. Supply --name explicitly.",
-                display(directory.display())
-            ),
-        )
+        CliIoError::DirectoryName {
+            directory: directory.to_owned(),
+            source: None,
+        }
+        .into_io()
     };
     let name = directory
         .file_name()
@@ -341,21 +343,15 @@ fn directory_name_validating(
         .ok_or_else(unusable)?;
     match validate("name", name) {
         Ok(()) => Ok(name.to_owned()),
-        Err(InitError::InvalidMetadata { .. }) => Err(unusable()),
-        Err(error @ InitError::InvalidName { .. }) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "Could not use directory '{}' as the layer name: {error} Supply --name explicitly.",
-                display(directory.display())
-            ),
-        )),
-        Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "Could not use directory '{}' as the layer name: {error}. Supply --name explicitly.",
-                display(directory.display())
-            ),
-        )),
+        Err(
+            error @ (InitError::InvalidMetadata { .. }
+            | InitError::InvalidName { .. }
+            | InitError::Schema(schema::Error::Content(_))),
+        ) => Err(CliIoError::DirectoryName {
+            directory: directory.to_owned(),
+            source: Some(error),
+        }
+        .into_io()),
         Err(error) => Err(io::Error::other(error)),
     }
 }
@@ -446,16 +442,17 @@ fn finish_input<T>(
         // Cliclack's public API cannot distinguish a bare Interrupted from a
         // terminal write of that same kind after rendering Cancel. Do not infer
         // cancellation from Interrupted alone or discard OS/custom error causes.
-        if cancelled && error.kind() == io::ErrorKind::Interrupted
-            && error.raw_os_error().is_none() && error.get_ref().is_none() {
+        if cancelled
+            && error.kind() == io::ErrorKind::Interrupted
+            && error.raw_os_error().is_none()
+            && error.get_ref().is_none()
+        {
             return match report() {
                 Ok(()) => io::Error::new(io::ErrorKind::Interrupted, ReportedCancellation),
-                Err(failure) => io::Error::new(failure.kind(), format!(
-                    "Initialisation was cancelled, but cancellation feedback failed: {failure}. No files were changed."
-                )),
+                Err(source) => CliIoError::CancellationFeedback { source }.into_io(),
             };
         }
-        io::Error::new(error.kind(), format!("Could not collect initialisation input: {error}. No files were changed."))
+        CliIoError::Input { source: error }.into_io()
     })
 }
 
@@ -468,15 +465,8 @@ pub fn finish(mode: Mode, layer_manifest: &Path, presentation: Presentation) -> 
     if mode == Mode::Guided {
         finish_guided(layer_manifest, &message, |message| cliclack::outro(message))
     } else {
-        writeln!(io::stdout().lock(), "{message}").map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!(
-                    "Layer manifest '{}' was created, but reporting its completion failed: {}",
-                    display(layer_manifest.display()),
-                    display(error)
-                ),
-            )
+        finish_output(layer_manifest, &message, |message| {
+            writeln!(io::stdout().lock(), "{message}")
         })
     }
 }
@@ -486,15 +476,28 @@ fn finish_guided(
     message: &str,
     outro: impl FnOnce(&str) -> io::Result<()>,
 ) -> io::Result<()> {
-    outro(message).map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!(
-                "Layer manifest '{}' was created, but terminal feedback failed: {}",
-                display(layer_manifest.display()),
-                display(error)
-            ),
-        )
+    outro(message).map_err(|source| {
+        CliIoError::InitCompletion {
+            path: layer_manifest.to_owned(),
+            channel: CompletionChannel::Terminal,
+            source,
+        }
+        .into_io()
+    })
+}
+
+fn finish_output(
+    layer_manifest: &Path,
+    message: &str,
+    write: impl FnOnce(&str) -> io::Result<()>,
+) -> io::Result<()> {
+    write(message).map_err(|source| {
+        CliIoError::InitCompletion {
+            path: layer_manifest.to_owned(),
+            channel: CompletionChannel::Output,
+            source,
+        }
+        .into_io()
     })
 }
 
@@ -524,10 +527,13 @@ mod tests {
             })
             .unwrap_err();
             assert_eq!(error.kind(), kind);
-            assert_eq!(
-                error.to_string(),
-                "Layer manifest '/project/shared-rules/layer.jsonc' was created, but terminal feedback failed: outro delivery failed"
-            );
+            let text = crate::diagnostics::error_message(&error);
+            assert!(text.starts_with("Could not deliver initialisation terminal feedback."));
+            assert!(text.contains("Cause: outro delivery failed"));
+            assert!(text.contains(
+                "Layer manifest '/project/shared-rules/layer.jsonc' was already created"
+            ));
+            assert_eq!(text, error.to_string());
             assert!(!error.to_string().contains("No files were changed"));
             assert!(!is_reported_cancellation(&error));
         }
@@ -543,11 +549,87 @@ mod tests {
         })
         .unwrap_err();
         let message = error.to_string();
-        assert!(!message.chars().any(char::is_control), "{message:?}");
+        assert!(
+            !message.chars().any(|ch| ch.is_control() && ch != '\n'),
+            "{message:?}"
+        );
         assert_eq!(message.matches(escaped).count(), 2, "{message:?}");
-        assert!(message.contains("was created, but terminal feedback failed"));
+        assert!(message.contains("was already created"));
+        assert!(message.contains("Could not deliver initialisation terminal feedback"));
         assert!(!message.contains("No files were changed"));
         assert!(!is_reported_cancellation(&error));
+    }
+
+    #[test]
+    fn flag_completion_failure_retains_created_state_without_adding_a_flush_or_retry() {
+        let path = Path::new("/project/layer.yaml");
+        let mut writes = 0;
+        let error = finish_output(path, "Completed", |message| {
+            writes += 1;
+            assert_eq!(message, "Completed");
+            Err(io::Error::from_raw_os_error(32))
+        })
+        .unwrap_err();
+        assert_eq!(writes, 1);
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        let context = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<CliIoError>()
+            .unwrap();
+        let CliIoError::InitCompletion {
+            path: affected,
+            channel,
+            source,
+        } = context
+        else {
+            panic!("expected typed completion");
+        };
+        assert_eq!(affected, path);
+        assert_eq!(*channel, CompletionChannel::Output);
+        assert_eq!(source.raw_os_error(), Some(32));
+        let text = crate::diagnostics::error_message(&error);
+        assert!(text.starts_with("Could not report initialisation completion."));
+        assert!(text.contains("'/project/layer.yaml' was already created"));
+        assert!(!text.contains("No files were changed"));
+        assert!(!is_reported_cancellation(&error));
+    }
+
+    #[test]
+    fn input_and_cancellation_feedback_failures_retain_typed_original_causes_and_escape_data() {
+        let raw = "failure\x1b[2J\n\r\t\u{202e}";
+        for cancelled in [false, true] {
+            let error = if cancelled {
+                finish_input::<()>(Err(io::ErrorKind::Interrupted.into()), true, || {
+                    Err(io::Error::new(io::ErrorKind::BrokenPipe, raw))
+                })
+            } else {
+                finish_input::<()>(
+                    Err(io::Error::new(io::ErrorKind::UnexpectedEof, raw)),
+                    false,
+                    || panic!("not cancelled"),
+                )
+            }
+            .unwrap_err();
+            let context = error
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<CliIoError>()
+                .unwrap();
+            let source = match context {
+                CliIoError::Input { source } if !cancelled => source,
+                CliIoError::CancellationFeedback { source } if cancelled => source,
+                other => panic!("unexpected context: {other:?}"),
+            };
+            assert_eq!(source.to_string(), raw);
+            assert_eq!(source.kind(), error.kind());
+            let body = crate::diagnostics::error_message(&error);
+            assert!(body.contains(&display(raw).to_string()));
+            assert!(!body.contains('\x1b'));
+            assert!(!body.contains('\u{202e}'));
+            assert_eq!(body.matches("No files were changed.").count(), 1);
+            assert!(!is_reported_cancellation(&error));
+        }
     }
 
     #[test]
@@ -824,11 +906,8 @@ mod tests {
         })
         .unwrap_err();
         assert!(!is_reported_cancellation(&error));
-        assert!(
-            error
-                .to_string()
-                .contains("cancellation feedback failed: footer failed")
-        );
+        assert!(error.to_string().contains("cancellation feedback failed."));
+        assert!(error.to_string().contains("Cause: footer failed"));
         assert!(error.to_string().contains("No files were changed"));
     }
 

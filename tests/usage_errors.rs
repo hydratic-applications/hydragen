@@ -364,7 +364,7 @@ fn command_words_and_option_separators_still_reach_unchanged_operational_values(
         let text = safe_text(&output.stderr);
         assert!(text.contains(word), "argument was not preserved: {text:?}");
         assert!(
-            text.contains("source argument"),
+            text.starts_with(&format!("Error: Invalid source reference '{word}'.\n")),
             "must be an operational source failure: {text:?}"
         );
         assert!(!text.contains("Usage:"));

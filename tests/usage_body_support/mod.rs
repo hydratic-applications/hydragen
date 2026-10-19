@@ -1,5 +1,8 @@
 //! One public-output contract, shared by captured and actual-terminal tests.
 
+#[path = "../diagnostic_body_support/mod.rs"]
+mod diagnostic_body_support;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Root,
@@ -156,56 +159,13 @@ pub const CASES: &[Case] = &[
 /// Accept a normalised LF transcript, with or without the decorative cross.
 /// This checks the grammar itself, not a separate snapshot for every error kind.
 pub fn assert_body(text: &str, expected_scope: Option<Scope>) {
-    assert!(text.ends_with('\n'), "missing final newline: {text:?}");
+    let blocks = diagnostic_body_support::assert_compact(text);
     let lines = text.lines().collect::<Vec<_>>();
-    let headline = lines[0].strip_prefix("✕ ").unwrap_or(lines[0]);
-    let summary = headline
-        .strip_prefix("Error: ")
-        .expect("one error headline");
-    // A leading quoted identifier retains its spelling and case; sentence case
-    // applies to generated prose, not to 'hydragen' or a supplied argument.
-    assert!(
-        summary.chars().next().unwrap().is_uppercase() || summary.starts_with('\''),
-        "{text:?}"
-    );
-    assert!(
-        summary.ends_with('.'),
-        "summary is not punctuated: {text:?}"
-    );
-    assert!(
-        !summary.ends_with(".."),
-        "summary punctuation repeated: {text:?}"
-    );
-    assert_eq!(text.matches("Error:").count(), 1, "{text:?}");
-
-    let mut blocks = vec![vec![lines[0]]];
-    let mut after_blank = false;
     for line in &lines[1..] {
         if line.trim().is_empty() {
-            assert!(!after_blank, "more than one blank line: {text:?}");
-            after_blank = true;
             continue;
         }
-        assert!(
-            line.starts_with("  "),
-            "supporting text needs two-space base indent: {line:?}"
-        );
-        assert!(!line.contains('\t'), "tab indentation: {line:?}");
-        if after_blank {
-            blocks.push(Vec::new());
-            after_blank = false;
-        }
-        blocks.last_mut().unwrap().push(line);
         let content = line.trim_start();
-        for obsolete in [
-            "tip:",
-            "possible values:",
-            "[possible values:",
-            "[Possible values:",
-            "Examples:",
-        ] {
-            assert!(!content.starts_with(obsolete), "old body label: {line:?}");
-        }
         for label in ["Possible values:", "Tip:", "Usage:", "Example:"] {
             if let Some(value) = content.strip_prefix(label) {
                 assert!(!value.trim().is_empty(), "empty placeholder: {line:?}");
@@ -219,15 +179,9 @@ pub fn assert_body(text: &str, expected_scope: Option<Scope>) {
             );
         }
     }
-    assert!(!after_blank, "trailing blank block: {text:?}");
     assert!(
         matches!(blocks.len(), 3 | 4),
         "expected headline, optional details, usage/example, footer: {blocks:?}"
-    );
-    assert_eq!(
-        blocks[0].len(),
-        1,
-        "summary must be its own block: {text:?}"
     );
     let usage_block = &blocks[blocks.len() - 2];
     assert!(

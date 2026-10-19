@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 use hydragen::LayerManifestFormat;
 use serde_json::json;
 
+mod diagnostic_body_support;
+
 struct Fixture {
     _root: tempfile::TempDir,
     app: PathBuf,
@@ -284,15 +286,15 @@ fn independent_failures_are_grouped_in_source_order_with_base_and_no_partial_upd
     assert!(output.stdout.is_empty());
     let error = text(&output.stderr);
     assert!(
-        error.starts_with("Error: Could not add dependencies (4 errors).\n"),
+        error.starts_with("Error: Dependency checks failed (4 errors).\n"),
         "{error}"
     );
     let mut previous = 0;
     for phrase in [
-        "source argument 2 ('../missing')",
-        "source argument 3 ('../invalid')",
-        "source argument 4 ('bare-name')",
-        "source argument 5 ('shared@1.2.0')",
+        "Source '../missing'",
+        "Source '../invalid'",
+        "Source 'bare-name'",
+        "Source 'shared@1.2.0'",
     ] {
         let index = error
             .find(phrase)
@@ -300,13 +302,23 @@ fn independent_failures_are_grouped_in_source_order_with_base_and_no_partial_upd
         assert!(index > previous);
         previous = index;
     }
+    diagnostic_body_support::assert_verification(
+        &error,
+        4,
+        &[
+            "Source '../missing'",
+            "Source '../invalid'",
+            "Source 'bare-name'",
+            "Source 'shared@1.2.0'",
+        ],
+    );
     assert!(
-        error.contains(
-            &fs::canonicalize(&fixture.app)
-                .unwrap()
-                .display()
-                .to_string()
-        )
+        !error.contains("Paths are relative"),
+        "same-directory base is noise: {error}"
+    );
+    assert!(
+        !error.contains(&invalid.display().to_string()),
+        "known selection should use supplied spelling: {error}"
     );
     assert!(error.contains("./ or ../"));
     assert!(error.contains("Adding published layers is not supported yet"));
@@ -329,15 +341,18 @@ fn existing_failures_and_conflicts_identify_their_sources_without_upgrade_advice
         let output = fixture.run(&["add", "../rules", "../conflict"]);
         assert!(!output.status.success());
         let error = text(&output.stderr);
-        assert!(error.contains("existing dependency 1"), "{error}");
-        assert!(error.contains("source argument 2 ('../conflict')"));
-        assert!(error.contains("Conflicting source: the current layer"));
+        assert!(
+            error.contains(&format!("Existing dependency '{existing}'")),
+            "{error}"
+        );
+        assert!(error.contains("Source '../conflict'"));
+        assert!(error.contains("Conflicting source: Current layer"));
         assert!(error.contains("Current layer path:"));
         assert!(error.contains("Requested source path:"));
         if existing == "../missing" {
             assert!(
-                error.find("existing dependency 1").unwrap()
-                    < error.find("source argument 2").unwrap()
+                error.find("Existing dependency '../missing'").unwrap()
+                    < error.find("Source '../conflict'").unwrap()
             );
         } else {
             assert!(error.contains("existing declarations are not replaced"));
@@ -373,7 +388,16 @@ fn discovery_warnings_are_once_per_directory_before_selected_failure_without_fal
         if malformed {
             assert!(error.rfind("Warning:").unwrap() < error.find("Error:").unwrap());
             assert!(output.stdout.is_empty());
-            assert_eq!(error.matches("source argument").count(), 3);
+            diagnostic_body_support::assert_verification(
+                &error[error.find("Error:").unwrap()..],
+                4,
+                &[
+                    "Existing dependency '../rules'",
+                    "Source '../rules' (argument 1)",
+                    &format!("Source '{}'", rules.display()),
+                    "Source '../rules' (argument 3)",
+                ],
+            );
         }
         assert!(!text(&output.stdout).contains("ignored"));
     }
@@ -572,6 +596,23 @@ fn symlinked_current_is_refused_but_dependency_links_and_directory_aliases_are_r
             .document["dependencies"],
         json!(["../rules-link"])
     );
+    let path = fixture.app.join("layer.yaml");
+    let before = fs::metadata(&path).unwrap();
+    let original = fs::read(&path).unwrap();
+    let repeated = fixture.run(&["add", "../rules", "../rules-link", rules.to_str().unwrap()]);
+    assert!(repeated.status.success(), "{}", text(&repeated.stderr));
+    assert_eq!(
+        text(&repeated.stdout),
+        "No changes needed for app.\n\nAlready present (1)\n  rules\n"
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert_eq!(
+        fs::metadata(&path).unwrap().modified().unwrap(),
+        before.modified().unwrap()
+    );
+    use std::os::unix::fs::MetadataExt;
+    assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
+    assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 1);
 }
 
 #[cfg(unix)]

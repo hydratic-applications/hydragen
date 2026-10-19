@@ -1,52 +1,49 @@
 # CLI diagnostics
 
-This reference defines how Hydragen presents command-line errors. A familiar
-structure helps developers find the problem and the next useful action, even when
-different errors need different information. Parser failures reject command
-syntax before an operation runs. Operational failures occur after syntax is
-accepted, such as a layer manifest write failing. Root and subcommand parser
-failures use the shared body below; operational failures share the visual
-principles while retaining useful source grouping and safety information.
+This reference governs all current and future Hydragen CLI errors: make clear what
+failed, what to do next, and whether work completed. Parser failures reject syntax
+before an operation runs; operational failures concern accepted commands, such as
+loading or writing a layer manifest. Both use shared compact composition. Guided
+field rejection and cancellation retain cliclack interaction, not compact layout.
 
 ## Shared body structure
 
-Render parser failures in this order:
+Compose useful blocks in this order, omitting those the failure does not need:
 
 1. **Problem:** One sentence-case, punctuated `Error:` headline explaining what
-   prevented the command from running.
-2. **Context and correction, when useful:** Argument details, choices, or a
-   suggestion that helps resolve the problem. Use consistent labels, including
-   `Possible values:` and `Tip:`. Do not enclose a choice list in square brackets.
-3. **Usage and optional example:** Relevant `Usage:` followed immediately by at
-   most one useful `Example:`. Keep these lines in the same block. An example
-   should demonstrate a valid next command, not fill space or execute a correction.
-4. **Help:** A final `For more information, try 'hydragen ... --help'.` hint for the
-   verified erroring command.
+   failed. A single failure leads directly with its concrete problem and affected
+   source when useful, without a generic count or numbered wrapper.
+2. **Useful context and correction:** Argument details, cause, field/file location,
+   resolution base, choices or suggestion. Use consistent labels, including
+   `Possible values:` and `Tip:` for correction. Do not bracket choice lists.
+3. **Ordered source groups, for multiple dependency failures:** Use the headline
+   `Dependency checks failed (N errors).` and source-labelled groups in established
+   failure order. Count failures, not new additions. Distinguish supplied sources,
+   existing declarations and the current layer. Omit redundant numbering; include
+   occurrence positions only to distinguish otherwise identical labels.
+4. **Syntax guidance, for parser failures:** Relevant `Usage:` followed immediately
+   by at most one useful `Example:` in the same block, then a separate final
+   `For more information, try 'hydragen ... --help'.` hint. An example demonstrates
+   a valid next command, not an executed correction. Omit irrelevant syntax
+   guidance from operational failures.
+5. **Known operation state:** Report what was or was not written when relevant,
+   once for the whole report. See [mutation and reporting state](#mutation-and-reporting-state).
 
-Use a two-space base indent for supporting lines and exactly one blank line
-between blocks. Lines within a block are consecutive. Keep labels capitalized as
-shown and generated summaries consistently punctuated. Preserve the spelling and
-case of quoted arguments and values; sentence case is not permission to change
-user data.
-
-Optional blocks do not require every error to contain identical information.
-Omit unhelpful context and filler examples without leaving empty labels or extra
-blank lines. Root missing-command errors use command choices within this same
-structure, not a separate full-help body.
+Indent supporting lines two spaces and source-group content two more. Use one
+blank line between blocks and consecutive lines within them. Keep labels
+capitalized as shown and summaries punctuated. Preserve quoted spelling and case;
+sentence case does not permit changing user data. Omit unhelpful context, repeated
+paths and filler without empty labels or extra gaps. Root missing-command errors
+use command choices, not a full-help body.
 
 ## Examples
 
-These illustrative terminal transcripts show the approved structure. In an
-eligible terminal, only the `✕ Error:` headline is red; the supporting text stays
-in the normal foreground. The code blocks show the symbol without embedding
-terminal colour codes (ANSI sequences). Plain output omits the `✕` and colour
-codes, retaining `Error:` and the same wording, indentation, block order, and
-spacing. These are the existing presentation rules, not a separate colour policy
-for usage errors.
+These terminal transcripts show the approved structure without embedding colour
+codes (ANSI sequences). In eligible terminals, only the `✕ Error:` headline is red;
+supporting text stays in the normal foreground. Plain output omits the icon and
+colour, preserving `Error:`, wording, indentation, block order and spacing.
 
 ### Missing add source
-
-For `hydragen add`, the problem is clear without a context block:
 
 ```text
 ✕ Error: Add requires at least one source.
@@ -58,8 +55,6 @@ For `hydragen add`, the problem is clear without a context block:
 ```
 
 ### Invalid init format
-
-For `hydragen init --format yam`, choices and a suggestion help correct the value:
 
 ```text
 ✕ Error: Invalid value 'yam' for '--format <FORMAT>'.
@@ -73,45 +68,109 @@ For `hydragen init --format yam`, choices and a suggestion help correct the valu
   For more information, try 'hydragen init --help'.
 ```
 
+### Missing dependency layer manifest
+
+Here `../layer-b` is an existing directory with no supported layer manifest:
+
+```text
+✕ Error: No layer manifest found in '../layer-b'.
+
+  Tip: Choose an existing layer directory, or run 'hydragen init'
+  in '../layer-b' to initialise it as a layer.
+
+  No files were changed.
+```
+
 ## Operational prerequisites and paths
 
-Lead with the concrete prerequisite that prevents an operation from running.
 For add's missing current layer, use `No layer manifest found in this directory
 or its parents.`, then the tip `Run this command from an existing layer directory,
 or run 'hydragen init' in the directory you want to use as a layer.` and the
 no-files-changed result in separate blocks. Split the tip before `'hydragen init'`
-so the command and its explanation stay together. Do not wrap this failure in a
-generic counted headline or numbered current-layer group.
+so the command and explanation stay together. Omit a generic counted/numbered
+wrapper, absolute invocation path and separate search paragraph: the headline
+already explains the search without identifying a file to fix.
 
-Omit the absolute invocation path and a separate search paragraph here: the
-headline explains the search scope without identifying a particular file to fix.
-Keep paths when they identify invalid, unreadable, or conflicting files or sources.
-This exception does not remove other dependency failure groups or their details.
+Prefer original supplied or stored references when they identify sources clearly;
+keep paths to invalid, unreadable or conflicting files. Relative dependency paths
+resolve from the declaring layer manifest's directory, not the invocation
+directory. Show `Paths are relative to '<base>'.` only when the base is not already
+evident or known to equal invocation. Use available context, never extra filesystem
+work for formatting; unknown alias identity calls for conservative base context,
+not assumed equality.
+
+Reference spelling is not identity: different paths can resolve to one directory.
+For two existing declarations with known equal identities, retain both labels and
+necessary occurrence positions, then state `Both declarations refer to the same
+layer directory.` rather than printing the same absolute path twice. Genuine
+different-directory conflicts retain both relevant identity paths; unknown
+identity is not equality. Keep precise file/field and line/column locations,
+current-file symlink refusal paths, and destination/staging/cleanup paths where
+needed. Do not blindly use basenames or edit opaque causes to shorten paths.
+
+## Recovery and interaction variants
+
+Recovery must address the known cause. A missing layer manifest in an existing
+directory can warrant init advice; a missing directory, invalid existing content,
+permission failure or internal schema setup failure cannot. Occupied init paths
+need the filename and the explanation that init creates rather than overwrites a
+layer manifest, not assumptions about valid contents or generic recovery prose.
+Correct invalid selected contents, not a fallback file. Internal setup failures
+must not blame valid input or ask users to retry it. Retain relevant flags, decoder
+locations and schema-derived constraints. For known invalid stored dependency
+references, explain the stored choices, including exact-version published
+declarations. Do not confuse that with add's separate refusal to add published
+dependencies.
+
+Guided rejection keeps supported cliclack handling: name the field, explain the
+schema-appropriate correction without flag terminology, and retain clear-and-Enter
+instructions for skipping optional fields. Keep retry and no-early-write rules.
+Deliberate cancellation produces one red cancellation report, a nonzero exit and
+accurate no-change information; unexpected interrupted I/O remains an error.
+Review adjacent warnings for consistent terms, labels and safe display. Retain
+stderr and deduplication, and warn before dependent failures; do not add parser
+help, branding or a new success style.
+
+## Mutation and reporting state
+
+Use typed facts and control flow, never English message matching, to distinguish:
+
+- **Before creation or editing:** Verification/edit refusal can report no changes.
+  An init pre-creation failure means this invocation did not create the target,
+  not that the target is absent; an occupied file may already exist.
+- **Failed new-file write:** Exclusive creation succeeded, so an empty or partial
+  newly created file may remain. Identify it; do not claim no files changed.
+- **Failed replacement:** The destination was not replaced, but staging may remain.
+  Retain the primary failure, any secondary cleanup failure and exact staging path.
+  Advise inspection before removal, not blind deletion or a blanket no-change claim.
+- **Completed creation or replacement:** Report created or updated state accurately;
+  subsequent warnings do not undo completion.
+- **Failed completion reporting:** Say the layer manifest was already created or
+  updated and preserve the delivery cause. If the operation was a no-op, say it
+  remained unchanged instead. Do not claim cancellation or apply a universal
+  no-files-changed footer.
 
 ## Command context and shared rendering
 
-Keep clap responsible for argument grammar, validation, choices, and suggestions.
-Adapt its structured diagnostic facts into one presentation model: a record of
-the summary, details, usage, optional example, and help target. Render that model
-once. Do not identify errors by matching English messages, patch rendered
-English with regular expressions, scan arguments with a second parser, or create
-per-command body templates. Optional trusted examples are command content, not a
-reason for command-specific layout code.
+Keep clap responsible for argument grammar, validation, choices and suggestions.
+Adapt structured clap and operational facts into one compact model; shared
+composition owns layout. Match known typed variants exhaustively where practical.
+Keep opaque external/unexpected causes as useful escaped data, not syntax or
+layout instructions. Do not match English messages, regex-patch prose, introduce a
+second parser or per-command body templates. Trusted examples are command content,
+not a reason for command-specific layout.
 
-Use the verified erroring command's complete path for usage and help:
-`hydragen --help`, `hydragen init --help`, or `hydragen add --help`. Current root,
-init, and add failures must retain that context, including value failures for
-which clap does not supply usage. Generate canonical usage from trusted command
-definitions rather than guessed argument text. A narrow mapping of clap's fixed
-generated `Usage: ` envelope to complete known command paths is allowed; this does
-not permit interpreting error prose or replaying argument parsing.
+Use verified command paths for parser usage and help: `hydragen --help`,
+`hydragen init --help`, or `hydragen add --help`, including value failures where
+clap supplies no usage. Generate usage from trusted command definitions, not
+guessed argument text. A narrow mapping of clap's fixed generated `Usage: `
+envelope to complete known command paths is allowed, not interpreting error prose
+or replaying argument parsing.
 
-If a future command layout or diagnostic cannot identify which command failed,
-keep the erroring command unknown. Retain safe useful details and offer general
-`hydragen --help` without claiming the error originated at root. Omit unverified
-command-specific usage or examples rather than inventing a repair. Generic
-fallback errors use the same outer structure when diagnostic facts cannot be
-safely interpreted; framework debug field names are not the ordinary interface.
+If a parser failure's command is unknown, preserve that uncertainty: retain safe useful
+details and general `hydragen --help` without claiming root ownership. Omit
+unverified command-specific usage/examples rather than inventing a repair. Safe
+fallbacks use shared composition, not framework debug field names as the interface.
 
 ## Presentation and safety boundaries
 
@@ -119,49 +178,62 @@ safely interpreted; framework debug field names are not the ordinary interface.
   terminals, CI is disabled, `TERM` is not `dumb`, and no explicit colour disable
   applies. A nonempty `NO_COLOR` or `CLICOLOR=0` disables styling. Forced colour
   cannot override these gates; `--non-interactive` controls questions, not eligible
-  styling. Do not add branding or guided-session frames to parser failures.
-- Preserve clap's usage-error status, ordinarily 2, and standard-error output.
-  Supported explicit help and version remain plain successful standard output,
-  with status 0 and no error headline. Help keeps its separate, width-aware
-  documentation layout rather than adopting the error-body structure.
+  styling. Do not add branding or guided-session frames to compact failures.
+- Keep warnings/errors on stderr and existing exit statuses, including clap's
+  usage-error status (ordinarily 2). Explicit help/version stay plain stdout with
+  status 0 and no error headline; help retains its separate width-aware layout.
 - Handle rejected invocations, help, and version before operational dispatch,
   current-directory resolution, layer manifest discovery or loading, schema
   preparation, prompts, or writes. Do not inspect project state to decide which
   syntax error to report. Add remains argument-only in every environment.
-- Escape untrusted argument, value, and suggestion text for display before
-  composing layout. Controls must become visible text, not terminal actions or
-  invented diagnostic lines. Keep trusted generated layout separate from data;
-  preserve useful opaque fallback explanations safely. Display changes must not
-  normalize accepted arguments, alter paths or stored data, or rerun validators.
-- Operational failures keep dependency failure groups, actionable paths,
-  cancellation behaviour, and accurate write-state information. Never imply that
-  no files changed after a completed write or replacement. Do not add irrelevant
-  `Usage:` or `Example:` blocks to filesystem errors just to fill this structure.
+- Escape untrusted arguments, paths, values, causes and suggestions before layout.
+  Controls become visible text, not terminal actions or invented diagnostic lines.
+  Keep trusted layout separate from data. Display must not normalise or sanitise
+  accepted values, alter paths or storage, rerun validation, or change filesystem
+  behaviour.
+
+## New-error checklist
+
+When adding an error or known variant:
+
+- Supply a concrete typed problem, affected source/file/field and relevant base.
+- Preserve useful causes and provide cause-specific recovery when it helps.
+- Identify known operation state; do not infer mutation from error wording. When
+  reusing an adapter, do not assume the operation phase of its earlier callers.
+- Escape untrusted data at the display boundary, preserving accepted values.
+- Use shared composition or the supported guided variant, with a safe unexpected
+  fallback rather than a panic or silently missing detail.
+- Add a representative family fixture with behavioural assertions, then review
+  its wording beside related errors. Shared layout cannot guarantee clear prose.
 
 ## Tests and experience review
 
-Review diagnostics as a family, not only as isolated snapshots. Cover missing
-arguments, invalid values, unknown options and commands, conflicts, and generic
-fallbacks across root and subcommands. Assert the common section order,
-sentence-case punctuated summaries, two-space base indent, single block gaps,
-consistent labels, consecutive usage/example lines, optional-block omission, and
-correct command-specific help. Different error facts must not conceal different
-body templates.
+Review root/init/add families: parser arguments, values, options, commands,
+conflicts and fallbacks; init inputs, defaults and prerequisites; loading, schema
+and encoding; add verification; editing, creation, replacement and cleanup; guided
+input and cancellation; and completion reporting. Keep universal style, security
+and state assertions separate from parser-only usage/example/help checks. Assert
+shared order, punctuated sentence case, indentation, single block gaps, labels and
+useful omissions; retain parser usage/example adjacency and help target. Do not
+conceal competing body templates.
 
-Compare styled and plain output for equal structure and meaning, with colour only
-on the eligible headline. Check CI, every redirected-stream combination, dumb
-terminals, explicit colour disables against force, and `--non-interactive`.
-Include hostile diagnostic values and copied suggestions to prove controls cannot
-escape the display boundary, ordinary Unicode and literal backslashes survive,
-and accepted argument values stay unchanged. Exercise known command ownership and
-ambiguous fallback separately; a token resembling a command must not redirect
-the help target.
+Cover single/multiple failures, existing versus supplied sources, ambiguous
+occurrences, nested invocation bases, same-identity aliases, genuine conflicts and
+current versus dependency symlinks. Exercise rare state, I/O, reporting and cleanup
+failures through deterministic test seams, not unreliable real-disk failures.
 
-Use both captured output and bounded real-terminal tests, with child-process
-cleanup. Check exit status, output stream, absence of prompts or writes, and plain
-help/version. Combine hostile layer manifest cases with a call-order review to
-verify parsing returns before project access; silence alone does not prove that
-no discovery occurred. Preserve existing operational safety assertions.
+Compare styled/plain structure and meaning, with colour only on eligible headlines.
+Check CI, every redirected-stream combination, dumb terminals, explicit colour
+disables against force, and `--non-interactive`. Hostile values and suggestions
+must remain inert; ordinary Unicode, backslashes and accepted values must survive.
+Test known command ownership and ambiguous fallback separately: a command-like
+token must not redirect help.
+
+Use captured output and bounded actual-terminal tests with child-process cleanup.
+Check status, streams, prompts or their absence, and file state, including no-write,
+no-op and partial/completed writes. Combine hostile layer manifest cases with a
+call-order review: silence alone does not prove parsing preceded project access.
+Preserve operational safety assertions.
 
 Inspect representative errors together at normal and narrow terminal widths.
 Assess beauty, enjoyment, functionality, and ease of use explicitly: the hierarchy

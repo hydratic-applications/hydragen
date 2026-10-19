@@ -215,11 +215,21 @@ pub struct CreatedLayerManifest {
     pub observation: Result<LayerManifestDiscovery, LayerManifestError>,
 }
 
+/// What this invocation did before creation failed, not whether a target exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InitCreationState {
+    /// This invocation did not successfully create the target. Another entry may exist.
+    NotCreated,
+    /// Exclusive creation succeeded, but writing failed; an empty or partial file may remain.
+    PossiblyPartial,
+}
+
 /// Creation failed. A collision may retain discovery for diagnostics, never retry.
 #[derive(Debug)]
 pub struct InitCreationError {
     pub error: InitError,
     pub discovery: Option<LayerManifestDiscovery>,
+    pub state: InitCreationState,
 }
 
 impl fmt::Display for InitCreationError {
@@ -235,10 +245,13 @@ impl std::error::Error for InitCreationError {
 }
 
 impl From<InitError> for InitCreationError {
+    /// For failures before successful exclusive creation only. Post-create write
+    /// failures must explicitly retain `PossiblyPartial` instead of using this conversion.
     fn from(error: InitError) -> Self {
         Self {
             error,
             discovery: None,
+            state: InitCreationState::NotCreated,
         }
     }
 }
@@ -259,6 +272,18 @@ fn create_init_observing(
     format: LayerManifestFormat,
     observe: impl FnOnce(&Path) -> Result<LayerManifestDiscovery, LayerManifestError>,
 ) -> Result<CreatedLayerManifest, InitCreationError> {
+    create_init_writing(prepared, metadata, format, observe, |file, bytes| {
+        file.write_all(bytes)
+    })
+}
+
+fn create_init_writing(
+    prepared: PreparedInit,
+    metadata: &Metadata,
+    format: LayerManifestFormat,
+    observe: impl FnOnce(&Path) -> Result<LayerManifestDiscovery, LayerManifestError>,
+    write: impl FnOnce(&mut fs::File, &[u8]) -> io::Result<()>,
+) -> Result<CreatedLayerManifest, InitCreationError> {
     metadata.validate()?;
     let bytes = encode_metadata(metadata, format).map_err(InitError::Encoding)?;
     let path = prepared.directory.join(format.filename());
@@ -272,6 +297,7 @@ fn create_init_observing(
                 InitCreationError {
                     error: InitError::ExistingLayerManifest { path: path.clone() },
                     discovery: observe(&prepared.directory).ok(),
+                    state: InitCreationState::NotCreated,
                 }
             } else {
                 InitError::Io {
@@ -283,10 +309,14 @@ fn create_init_observing(
             });
         }
     };
-    file.write_all(&bytes).map_err(|source| InitError::Io {
-        action: "write layer manifest (a partial file may remain)",
-        path: path.clone(),
-        source,
+    write(&mut file, &bytes).map_err(|source| InitCreationError {
+        error: InitError::Io {
+            action: "write layer manifest (a partial file may remain)",
+            path: path.clone(),
+            source,
+        },
+        discovery: None,
+        state: InitCreationState::PossiblyPartial,
     })?;
     Ok(CreatedLayerManifest {
         path,
@@ -353,6 +383,121 @@ mod tests {
             name: "example".into(),
             author: None,
             description: None,
+        }
+    }
+
+    #[test]
+    fn post_create_write_failure_retains_partial_bytes_state_cause_and_skips_observation() {
+        for count in [0, 5] {
+            let root = tempfile::tempdir().unwrap();
+            let prepared = inspect_init(root.path()).unwrap().prepare().unwrap();
+            let path = prepared.directory().join("layer.yaml");
+            let expected = encode_metadata(&metadata(), LayerManifestFormat::Yaml).unwrap();
+            let failure = create_init_writing(
+                prepared,
+                &metadata(),
+                LayerManifestFormat::Yaml,
+                |_| panic!("must not observe after a failed write"),
+                |file, bytes| {
+                    file.write_all(&bytes[..count])?;
+                    Err(io::Error::other("injected write failure"))
+                },
+            )
+            .unwrap_err();
+            assert_eq!(failure.state, InitCreationState::PossiblyPartial);
+            assert!(failure.discovery.is_none());
+            assert_eq!(fs::read(&path).unwrap(), expected[..count]);
+            assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+            let InitError::Io {
+                path: affected,
+                source,
+                ..
+            } = &failure.error
+            else {
+                panic!("expected write error");
+            };
+            assert_eq!(affected, &path);
+            assert_eq!(source.kind(), io::ErrorKind::Other);
+            assert_eq!(source.to_string(), "injected write failure");
+            assert_eq!(failure.to_string(), failure.error.to_string());
+            assert!(
+                std::error::Error::source(&failure)
+                    .unwrap()
+                    .is::<InitError>()
+            );
+        }
+    }
+
+    #[test]
+    fn pre_create_validation_open_and_collision_failures_do_not_claim_creation() {
+        let root = tempfile::tempdir().unwrap();
+        let prepared = inspect_init(root.path()).unwrap().prepare().unwrap();
+        let invalid = Metadata {
+            name: "".into(),
+            ..metadata()
+        };
+        let failure = create_init_writing(
+            prepared,
+            &invalid,
+            LayerManifestFormat::Yaml,
+            |_| panic!("no observation before creation"),
+            |_, _| panic!("no write before validation"),
+        )
+        .unwrap_err();
+        assert_eq!(failure.state, InitCreationState::NotCreated);
+        assert!(!root.path().join("layer.yaml").exists());
+        let prepared = inspect_init(root.path()).unwrap().prepare().unwrap();
+        let path = prepared.directory().join("layer.yaml");
+        fs::write(&path, "keep").unwrap();
+        let failure = create_init_writing(
+            prepared,
+            &metadata(),
+            LayerManifestFormat::Yaml,
+            discover,
+            |_, _| panic!("collision must not write"),
+        )
+        .unwrap_err();
+        assert_eq!(failure.state, InitCreationState::NotCreated);
+        assert!(failure.discovery.is_some());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "keep");
+        let missing = root.path().join("missing");
+        let failure = create_init_writing(
+            PreparedInit {
+                directory: missing.clone(),
+            },
+            &metadata(),
+            LayerManifestFormat::Yaml,
+            |_| panic!("failed open must not observe"),
+            |_, _| panic!("failed open must not write"),
+        )
+        .unwrap_err();
+        assert_eq!(failure.state, InitCreationState::NotCreated);
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn pre_creation_conversion_retains_encoding_and_setup_causes_without_guessing_from_text() {
+        for error in [
+            InitError::Encoding(EncodeError::Serialization {
+                format: LayerManifestFormat::Yaml,
+                message: "encoding failure".into(),
+            }),
+            InitError::Schema(layer_manifest::schema::Error::Setup {
+                message: "setup failure".into(),
+                detail: None,
+            }),
+            InitError::Io {
+                action: "opaque pre-creation action",
+                path: "/diagnostic-only/layer.yaml".into(),
+                source: io::Error::other("underlying failure"),
+            },
+        ] {
+            let original = error.to_string();
+            let error = InitCreationError::from(error);
+            assert_eq!(error.state, InitCreationState::NotCreated);
+            assert!(error.discovery.is_none());
+            assert_eq!(error.to_string(), original);
+            assert!(std::error::Error::source(&error).unwrap().is::<InitError>());
         }
     }
 
@@ -571,6 +716,7 @@ mod tests {
             failure.error,
             InitError::ExistingLayerManifest { .. }
         ));
+        assert_eq!(failure.state, InitCreationState::NotCreated);
         assert!(failure.discovery.is_none());
         assert_eq!(fs::read_to_string(path).unwrap(), "keep");
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);

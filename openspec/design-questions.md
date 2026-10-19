@@ -246,6 +246,15 @@ design everything upfront.
       [shared presentation decision](changes/unify-cli-usage-errors/design.md#apply-existing-visual-and-security-rules-at-shared-boundaries),
       [syntax-first decision](changes/unify-cli-usage-errors/design.md#keep-error-priority-independent-of-layer-state),
       and [policy-history boundary](changes/unify-cli-usage-errors/design.md#record-the-policy-without-rewriting-historical-decisions).
+    - **CLI-wide diagnostic follow-up:** Extend shared composition beyond parser
+      failures to all current errors: direct single problems, ordered source groups
+      for multiple failures, useful path context and cause-specific recovery, and
+      truthful creation/replacement/reporting state. Guided rejection and
+      cancellation retain their interaction variants. The maintained reference and
+      new-error checklist require family-wide tests and wording review without
+      changing operation or safety rules. See the
+      [shared composition decision](changes/unify-cli-diagnostics/design.md#compose-structured-facts-once-at-the-cli-boundary)
+      and [new-error contract](changes/unify-cli-diagnostics/design.md#make-new-errors-join-the-same-contract).
 11. **Performance targets.** What response times and resource limits should startup
     and common operations meet, and for what project sizes?
 12. **Patch structure.** What internal structure should `.patch` files use to

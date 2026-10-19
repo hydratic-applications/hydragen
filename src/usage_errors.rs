@@ -8,50 +8,24 @@ use std::error::Error as _;
 use clap::error::{ContextKind, ContextValue, ErrorFormatter, ErrorKind, RichFormatter};
 use hydragen::diagnostic_text::display;
 
-use crate::presentation::{Presentation, Severity};
+use crate::diagnostic_body::Diagnostic;
+use crate::presentation::Presentation;
 use catalog::{Catalog, Origin};
 
-/// One optional-block model for ordinary, missing-input and opaque diagnostics.
-struct Diagnostic {
-    summary: String,
-    details: Vec<String>,
-    usage: Option<String>,
-    example: Option<&'static str>,
-    help: String,
-}
-
 impl Diagnostic {
-    fn new(summary: String, catalog: &Catalog<'_>, origin: Origin) -> Self {
+    fn for_usage(summary: String, catalog: &Catalog<'_>, origin: Origin) -> Self {
         let entry = catalog.entry(origin);
         Self {
             summary,
             details: Vec::new(),
             usage: entry.map(|entry| entry.usage.clone()),
             example: None,
-            help: entry.map_or_else(
+            help: Some(entry.map_or_else(
                 || "hydragen --help".to_owned(),
                 |entry| format!("{} --help", entry.path),
-            ),
+            )),
+            ..Self::default()
         }
-    }
-
-    fn render(&self, presentation: Presentation) -> String {
-        let mut blocks = vec![self.summary.clone()];
-        if !self.details.is_empty() {
-            blocks.push(self.details.join("\n"));
-        }
-        if let Some(usage) = &self.usage {
-            let mut block = usage.clone();
-            if let Some(example) = self.example {
-                block.push_str(&format!("\nExample: {example}"));
-            }
-            blocks.push(block);
-        }
-        blocks.push(format!("For more information, try '{}'.", self.help));
-        format!(
-            "{}\n",
-            presentation.diagnostic(Severity::Error, &blocks.join("\n\n"))
-        )
     }
 }
 
@@ -165,7 +139,7 @@ fn safe_context(kind: ContextKind, value: &ContextValue) -> Option<ContextValue>
 fn opaque(error: &clap::Error, catalog: &Catalog<'_>, origin: Origin) -> Diagnostic {
     // Preserve encoded content, including hostile ANSI, then escape it as ONE
     // unstructured leaf. Display on StyledStr would silently strip ANSI instead.
-    let mut model = Diagnostic::new(
+    let mut model = Diagnostic::for_usage(
         "Could not parse command-line arguments.".into(),
         catalog,
         origin,
@@ -756,7 +730,8 @@ mod tests {
     fn optional_blocks_have_no_filler_and_usage_example_are_always_one_group() {
         let command = command();
         let catalog = Catalog::new(&command);
-        let mut model = Diagnostic::new("A problem occurred.".into(), &catalog, Origin::Unknown);
+        let mut model =
+            Diagnostic::for_usage("A problem occurred.".into(), &catalog, Origin::Unknown);
         let text = model.render(plain());
         assert_family(&text);
         assert_eq!(

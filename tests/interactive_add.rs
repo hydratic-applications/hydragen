@@ -3,8 +3,117 @@
 use std::fs;
 use std::path::PathBuf;
 
+mod add_diagnostic_support;
 mod add_pty_support;
+mod diagnostic_body_support;
 use add_pty_support::{Output, Settings, run};
+
+#[test]
+fn verification_family_at_review_widths_uses_same_public_contract_as_captured_output() {
+    for label in add_diagnostic_support::CASES {
+        let case = add_diagnostic_support::Case::new(label);
+        let args = case
+            .arguments
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        for width in [40, 80, 100, 120] {
+            for (mode, environment) in [("styled", &[][..]), ("plain", &[("NO_COLOR", "1")][..])] {
+                let output = run(
+                    &case.invocation,
+                    &args,
+                    Settings {
+                        width,
+                        environment,
+                        ..Settings::default()
+                    },
+                );
+                assert_eq!(output.status.exit_code(), 1, "{label}: {}", output.plain());
+                if mode == "styled" {
+                    assert!(
+                        output.raw.lines().next().unwrap().contains("\x1b[31m"),
+                        "{}",
+                        output.raw
+                    );
+                    assert!(output.plain().starts_with("✕ Error:"));
+                } else {
+                    assert!(!output.raw.contains('\x1b'), "{}", output.raw);
+                    assert!(output.plain().starts_with("Error:"));
+                }
+                assert!(
+                    output
+                        .raw
+                        .lines()
+                        .skip(1)
+                        .all(|line| !line.contains('\x1b')),
+                    "details must remain neutral: {}",
+                    output.raw
+                );
+                case.assert_diagnostic(&output.plain());
+                output.evidence(&format!("phase2-{label}-{mode}-{width}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn terminal_alias_noop_preserves_stored_reference_inode_mtime_and_symlink_targets() {
+    use std::os::unix::fs::{MetadataExt, symlink};
+    let fixture = Fixture::new();
+    fixture.layer("rules", "rules");
+    let rules = fixture.root.path().join("rules");
+    let target = fixture.root.path().join("rules-source.yaml");
+    fs::rename(rules.join("layer.yaml"), &target).unwrap();
+    symlink(&target, rules.join("layer.yaml")).unwrap();
+    symlink(&rules, fixture.root.path().join("rules-link")).unwrap();
+    let path = fixture.app.join("layer.yaml");
+    let original = "name: app\ndependencies: [../rules-link]\n";
+    fs::write(&path, original).unwrap();
+    let before = fs::metadata(&path).unwrap();
+    let target_before = fs::metadata(&target).unwrap();
+    for width in [40, 80, 100, 120] {
+        for (mode, environment) in [("styled", &[][..]), ("plain", &[("NO_COLOR", "1")][..])] {
+            let output = fixture.run(
+                &["add", "../rules", "../rules-link", rules.to_str().unwrap()],
+                Settings {
+                    width,
+                    environment,
+                    ..Settings::default()
+                },
+            );
+            assert!(output.status.success(), "{}", output.plain());
+            let expected = "No changes needed for app.\n\nAlready present (1)\n  rules\n";
+            assert_eq!(
+                output.plain(),
+                if mode == "styled" {
+                    format!("✓ {expected}")
+                } else {
+                    expected.into()
+                }
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+            assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
+            assert_eq!(
+                fs::metadata(&path).unwrap().modified().unwrap(),
+                before.modified().unwrap()
+            );
+            assert_eq!(fs::read_to_string(&target).unwrap(), "name: \"rules\"\n");
+            assert_eq!(fs::metadata(&target).unwrap().ino(), target_before.ino());
+            assert_eq!(
+                fs::metadata(&target).unwrap().modified().unwrap(),
+                target_before.modified().unwrap()
+            );
+            assert!(
+                fs::symlink_metadata(rules.join("layer.yaml"))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            assert_eq!(fs::read_dir(&fixture.app).unwrap().count(), 1);
+            output.evidence(&format!("phase2-alias-noop-{mode}-{width}"));
+        }
+    }
+}
 
 struct Fixture {
     root: tempfile::TempDir,
@@ -188,7 +297,7 @@ fn all_terminal_errors_are_grouped_in_order_and_only_the_headline_is_red() {
     assert!(output.raw.contains("\x1b[31m"), "{}", output.raw);
     let plain = output.plain();
     assert!(
-        plain.starts_with("✕ Error: Could not add dependencies (4 errors).\n"),
+        plain.starts_with("✕ Error: Dependency checks failed (4 errors).\n"),
         "{plain}"
     );
     for line in output.raw.lines().skip(1) {
@@ -196,16 +305,26 @@ fn all_terminal_errors_are_grouped_in_order_and_only_the_headline_is_red() {
     }
     let mut last = 0;
     for phrase in [
-        "source argument 1",
-        "source argument 2",
-        "source argument 3",
-        "source argument 4",
+        "Source '../missing'",
+        "Source '../bad'",
+        "Source 'bare-name'",
+        "Source 'rules@1.2.0'",
     ] {
         let index = plain.find(phrase).unwrap();
         assert!(index > last);
         last = index;
     }
-    assert!(plain.contains("declaring layer directory:"));
+    diagnostic_body_support::assert_verification(
+        &plain,
+        4,
+        &[
+            "Source '../missing'",
+            "Source '../bad'",
+            "Source 'bare-name'",
+            "Source 'rules@1.2.0'",
+        ],
+    );
+    assert!(!plain.contains("Paths are relative"));
     assert!(plain.contains("No files were changed"));
     assert!(plain.contains("Invalid source reference."));
     assert!(!plain.contains("oneOf"));
@@ -275,7 +394,7 @@ fn mixed_stream_redirection_stays_plain_despite_force_and_does_not_prompt() {
         let file = fs::read_to_string(&capture).unwrap_or_default();
         let combined = format!("{}{file}", output.raw);
         assert!(!combined.contains('\x1b'));
-        assert!(combined.contains("Error: Could not add dependencies"));
+        assert!(combined.contains("Error: Could not resolve local directory '../missing'."));
     }
 }
 
@@ -359,7 +478,7 @@ fn narrow_terminals_and_long_scoped_names_keep_counts_and_full_names() {
         assert!(
             output
                 .plain()
-                .contains("Conflicting source: existing dependency 1 ('../rules')")
+                .contains("Conflicting source: Existing dependency '../rules'")
         );
         assert!(output.plain().contains(&existing_label));
         assert!(output.plain().contains(&requested_label));

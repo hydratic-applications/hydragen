@@ -1,3 +1,4 @@
+mod diagnostic_body;
 mod diagnostics;
 mod interaction;
 mod presentation;
@@ -124,10 +125,7 @@ fn main() -> ExitCode {
                     "{}",
                     presentation.diagnostic(
                         presentation::Severity::Error,
-                        &match error.downcast_ref::<diagnostics::AddCommandError>() {
-                            Some(error) => error.to_string(),
-                            None => diagnostics::init_error_message(error.as_ref()),
-                        }
+                        &diagnostics::error_message(error.as_ref())
                     )
                 );
             }
@@ -177,8 +175,7 @@ where
 }
 
 fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn Error>> {
-    // Add has its own operational errors. Keep init's cancellation and flag-specific
-    // diagnostic adaptation unchanged.
+    // Keep command-specific control flow and carry typed facts to shared composition.
     if let Command::Add(arguments) = cli.command {
         let directory =
             std::env::current_dir().map_err(diagnostics::AddCommandError::CurrentDirectory)?;
@@ -190,15 +187,8 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
         )
         .map_err(Into::into);
     }
-    let directory = std::env::current_dir().map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!(
-                "Could not determine the current directory: {}",
-                hydragen::diagnostic_text::display(error)
-            ),
-        )
-    })?;
+    let directory = std::env::current_dir()
+        .map_err(|source| diagnostics::CliIoError::CurrentDirectory { source }.into_io())?;
     match cli.command {
         Command::Init(arguments) => {
             let input_flags = arguments.name.is_some()
@@ -258,7 +248,10 @@ fn run_add(
         for discovery in &failure.discoveries {
             diagnostics::warn_duplicates(discovery, presentation);
         }
-        AddCommandError::Verification(failure)
+        AddCommandError::Verification {
+            failure,
+            invocation: directory.to_owned(),
+        }
     })?;
     for discovery in plan.discoveries() {
         diagnostics::warn_duplicates(discovery, presentation);
@@ -511,6 +504,59 @@ mod tests {
                 assert_eq!(std::fs::read_dir(&app).unwrap().count(), 1);
             }
         }
+    }
+
+    #[test]
+    fn add_verification_carries_invocation_context_without_changing_the_library_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app");
+        let nested = app.join("nested");
+        let target = root.path().join("layer-b");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(app.join("layer.yaml"), "name: app\n").unwrap();
+        let mut output = Vec::new();
+        let error = run_add(
+            &nested,
+            &["../layer-b".into()],
+            presentation::Presentation {
+                decorated: false,
+                basic: false,
+            },
+            &mut output,
+        )
+        .unwrap_err();
+        let diagnostics::AddCommandError::Verification {
+            failure,
+            invocation,
+        } = &error
+        else {
+            panic!("unexpected error: {error}");
+        };
+        assert_eq!(invocation, &nested);
+        assert_eq!(
+            failure.directory.as_deref(),
+            Some(app.canonicalize().unwrap().as_path())
+        );
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<hydragen::dependencies::AddFailure>()
+                .is_some()
+        );
+        let text = error.to_string();
+        assert!(text.starts_with("No layer manifest found in '../layer-b'."));
+        assert!(text.contains(&format!(
+            "Paths are relative to '{}'.",
+            hydragen::diagnostic_text::display(failure.directory.as_ref().unwrap().display())
+        )));
+        assert!(output.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(app.join("layer.yaml")).unwrap(),
+            "name: app\n"
+        );
+        assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
     }
 
     #[test]

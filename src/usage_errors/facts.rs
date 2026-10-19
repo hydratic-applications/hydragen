@@ -169,7 +169,7 @@ pub(super) fn adapt(
     if !fields.complete() {
         return None;
     }
-    let mut model = Diagnostic::new(summary, catalog, origin);
+    let mut model = Diagnostic::for_usage(summary, catalog, origin);
     model.details = details;
     model.example = recovery.map(|content| content.example);
     Some(model)
