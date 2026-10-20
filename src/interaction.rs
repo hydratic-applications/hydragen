@@ -9,9 +9,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use hydragen::diagnostic_text::display;
 use hydragen::layer_manifest::schema;
-use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
+use hydragen::{
+    Author, AuthorObject, InitError, LayerManifestFormat, Metadata, validate_metadata_value,
+};
 
-use crate::author_discovery::{AuthorProvenanceKind, Choice, Preparation};
+use crate::author_discovery::{AuthorProvenanceKind, Choice, ContactChoice, Preparation};
 use crate::diagnostics::{CliIoError, CompletionChannel};
 use crate::presentation::{self, Presentation};
 
@@ -413,6 +415,12 @@ impl Mode {
 fn validate_answer(field: &'static str, value: &str, optional: bool) -> Result<(), InitError> {
     if optional && value.is_empty() {
         Ok(())
+    } else if field == "author" {
+        hydragen::author::interpret(value)
+            .map(|_| ())
+            .map_err(InitError::from)
+    } else if field.starts_with("author.") {
+        schema::validate_field(field, value).map_err(InitError::from)
     } else {
         validate_metadata_value(field, value)
     }
@@ -453,7 +461,32 @@ impl PromptValidation {
             Err(error @ (InitError::InvalidMetadata { .. } | InitError::InvalidName { .. })) => {
                 Err(answer_error_message(error, optional))
             }
-            Err(error @ InitError::Schema(schema::Error::Content(_))) => Err(error.to_string()),
+            Err(InitError::Schema(schema::Error::Content(violation))) => {
+                let field = match violation.instance_path.as_str() {
+                    "/author/name" => "author",
+                    "/author/email" => "author email",
+                    "/author/url" => "author URL",
+                    _ => return Err(violation.to_string()),
+                };
+                let correction = match &violation.kind {
+                    schema::ViolationKind::NonBlank => format!("Enter a non-blank {field}"),
+                    schema::ViolationKind::Format { format } if format == "email" => {
+                        format!("Enter a valid {field} address, such as alex@example.com")
+                    }
+                    schema::ViolationKind::Format { format } if format == "uri" => {
+                        format!("Enter a valid {field} with an explicit scheme, such as 'https:'")
+                    }
+                    schema::ViolationKind::Format { format } => {
+                        format!("Enter a valid {field} in {} format", display(format))
+                    }
+                    _ => format!("Correct {field}: {violation}"),
+                };
+                Err(if optional {
+                    format!("{correction}, or clear the field and press Enter to skip.")
+                } else {
+                    format!("{correction}.")
+                })
+            }
             Err(error) => {
                 *self.0.borrow_mut() = Some(error);
                 Ok(())
@@ -577,7 +610,7 @@ fn collect_ready_input(
         Ok(InitInput {
             metadata: Metadata {
                 name,
-                author,
+                author: author.map(Author::Object),
                 description,
             },
             format,
@@ -600,9 +633,53 @@ fn author_initial(choices: &[Choice]) -> AuthorAction {
         .map_or(AuthorAction::EnterAnother, AuthorAction::Candidate)
 }
 
-fn collect_author(choices: &[Choice], session: &GuidedSession) -> io::Result<Option<String>> {
+fn collect_author(choices: &[Choice], session: &GuidedSession) -> io::Result<Option<AuthorObject>> {
+    let (mut author, group) = match select_author(choices, session)? {
+        SelectedAuthor::Omitted => return Ok(None),
+        SelectedAuthor::Group(index) => {
+            (AuthorObject::new(choices[index].name.clone()), Some(index))
+        }
+        SelectedAuthor::Custom(author) => (author, None),
+    };
+    if author.email.is_none() {
+        author.email = collect_contact(
+            "author.email",
+            "Author email",
+            "Enter another email",
+            group.map_or(&[], |index| choices[index].emails.as_slice()),
+            session,
+        )?;
+    }
+    if author.url.is_none() {
+        author.url = collect_contact(
+            "author.url",
+            "Author URL",
+            "Enter another URL",
+            group.map_or(&[], |index| choices[index].urls.as_slice()),
+            session,
+        )?;
+    }
+    Ok(Some(author))
+}
+
+enum SelectedAuthor {
+    Omitted,
+    // Snapshot identity survives selection; custom text must never regain it by name.
+    Group(usize),
+    Custom(AuthorObject),
+}
+
+fn custom_author() -> io::Result<SelectedAuthor> {
+    optional_input("author", "Author")?.map_or(Ok(SelectedAuthor::Omitted), |value| {
+        hydragen::author::interpret(&value)
+            .map(SelectedAuthor::Custom)
+            .map_err(io::Error::other)
+    })
+}
+
+fn select_author(choices: &[Choice], session: &GuidedSession) -> io::Result<SelectedAuthor> {
     if choices.is_empty() {
-        return optional_input("author", "Author");
+        return custom_author();
     }
     let initial = author_initial(choices);
     let mut rows: Vec<_> = choices
@@ -638,8 +715,54 @@ fn collect_author(choices: &[Choice], session: &GuidedSession) -> io::Result<Opt
         selector.interact()?
     };
     match action {
-        AuthorAction::Candidate(index) => Ok(Some(choices[index].name.clone())),
-        AuthorAction::EnterAnother => optional_input("author", "Author"),
+        AuthorAction::Candidate(index) => Ok(SelectedAuthor::Group(index)),
+        AuthorAction::EnterAnother => custom_author(),
+        AuthorAction::Skip => Ok(SelectedAuthor::Omitted),
+    }
+}
+
+fn collect_contact(
+    field: &'static str,
+    label: &str,
+    custom: &str,
+    choices: &[ContactChoice],
+    session: &GuidedSession,
+) -> io::Result<Option<String>> {
+    if choices.is_empty() {
+        return optional_input(field, label);
+    }
+    let initial = AuthorAction::Candidate(0);
+    let mut rows: Vec<_> = choices
+        .iter()
+        .enumerate()
+        .map(|(index, choice)| {
+            (
+                choice.value.clone(),
+                choice.hint.clone(),
+                AuthorAction::Candidate(index),
+            )
+        })
+        .collect();
+    rows.push((custom.into(), String::new(), AuthorAction::EnterAnother));
+    rows.push(("Skip".into(), String::new(), AuthorAction::Skip));
+    let mut selector = cliclack::select(format!("{label} (optional)"))
+        .max_rows(7)
+        .initial_value(initial);
+    for (label, hint, action) in &rows {
+        selector = selector.item(*action, label, hint);
+    }
+    let action = {
+        *session.author.lock().unwrap() = Some(AuthorSelectorTheme {
+            rows,
+            kinds: choices.iter().map(|choice| choice.kind).collect(),
+            selected: initial,
+        });
+        let _scope = AuthorThemeScope(&session.author);
+        selector.interact()?
+    };
+    match action {
+        AuthorAction::Candidate(index) => Ok(Some(choices[index].value.clone())),
+        AuthorAction::EnterAnother => optional_input(field, label),
         AuthorAction::Skip => Ok(None),
     }
 }
@@ -1002,6 +1125,42 @@ mod tests {
     }
 
     #[test]
+    fn nested_author_feedback_uses_structured_rules_and_optional_recovery_not_flags() {
+        for (field, value, label, rule) in [
+            ("author", "Alex <bad>", "author email", "email address"),
+            (
+                "author",
+                "Alex (https://bad host)",
+                "author URL",
+                "explicit scheme",
+            ),
+            ("author.email", "bad", "author email", "email address"),
+            (
+                "author.url",
+                "relative/path",
+                "author URL",
+                "explicit scheme",
+            ),
+            ("author.email", " ", "author email", "non-blank"),
+            ("author.url", " ", "author URL", "non-blank"),
+        ] {
+            let message = PromptValidation::default()
+                .check(validate_answer(field, value, true), true)
+                .unwrap_err();
+            for fact in [label, rule, "clear the field and press Enter to skip"] {
+                assert!(message.contains(fact), "{message}");
+            }
+            assert!(!message.contains("--author"));
+            if rule != "non-blank" {
+                assert!(!message.contains("non-blank"));
+            }
+        }
+        for field in ["author.email", "author.url"] {
+            assert!(validate_answer(field, "", true).is_ok());
+        }
+    }
+
+    #[test]
     fn generic_schema_content_feedback_keeps_its_rule_and_can_retry() {
         let validation = PromptValidation::default();
         let error = schema::validate(&serde_json::json!({"name": 42})).unwrap_err();
@@ -1247,12 +1406,18 @@ mod tests {
                 hint: "membership".into(),
                 eligible: false,
                 kind: AuthorProvenanceKind::Organisation,
+                emails: Vec::new(),
+                urls: Vec::new(),
+                records: Vec::new(),
             },
             Choice {
                 name: "Declared organisation".into(),
                 hint: "project".into(),
                 eligible: true,
                 kind: AuthorProvenanceKind::Unspecified,
+                emails: Vec::new(),
+                urls: Vec::new(),
+                records: Vec::new(),
             },
         ];
         assert_eq!(author_initial(&choices), AuthorAction::Candidate(1));

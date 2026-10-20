@@ -413,6 +413,28 @@ fn file_metadata_rules_are_the_same_for_every_format() {
             for field in ["name", "author", "description"] {
                 let mut document = json!({"name":"example"});
                 document[field] = Value::Null;
+                if field == "author" {
+                    let Err(LayerManifestError::Metadata {
+                        source:
+                            MetadataError::Schema(hydragen::layer_manifest::schema::Error::Content(
+                                violation,
+                            )),
+                        ..
+                    }) = read(format, document.to_string())
+                    else {
+                        panic!("expected string/object author type failure");
+                    };
+                    assert_eq!(violation.instance_path, "/author");
+                    assert_eq!(
+                        violation.kind,
+                        hydragen::layer_manifest::schema::ViolationKind::Type
+                    );
+                    assert!(
+                        violation.message.contains("string")
+                            && violation.message.contains("object")
+                    );
+                    continue;
+                }
                 assert!(
                     matches!(read(format, document.to_string()), Err(LayerManifestError::Metadata { source: MetadataError::NotString { field: invalid }, .. }) if invalid == field)
                 );
@@ -546,7 +568,10 @@ fn ordinary_yaml_strings_tags_aliases_comments_and_additional_data() {
         let loaded = read(format, text).unwrap();
         assert_eq!(loaded.metadata.name, "example");
         assert_eq!(loaded.document["copy"], "  配置 🦀  ");
-        assert_eq!(loaded.metadata.author.as_deref(), Some("  配置 🦀  "));
+        assert_eq!(
+            loaded.metadata.author.as_ref().map(hydragen::Author::name),
+            Some("  配置 🦀  ")
+        );
         assert_eq!(
             loaded.metadata.description.as_deref(),
             Some("first line\nsecond line\n")
@@ -732,7 +757,8 @@ fn toml_rejects_native_datetime_and_nonfinite_at_any_depth_with_guidance() {
             .unwrap()
             .metadata
             .author
-            .as_deref(),
+            .as_ref()
+            .map(hydragen::Author::name),
             Some(value)
         );
     }
@@ -813,7 +839,7 @@ fn every_codec_optional_combination_is_minimal_ordered_and_round_trips() {
         for author in [None, Some("Example team".to_owned())] {
             for description in [None, Some("Shared rules".to_owned())] {
                 let metadata = Metadata {
-                    author: author.clone(),
+                    author: author.clone().map(Into::into),
                     description: description.clone(),
                     ..metadata()
                 };

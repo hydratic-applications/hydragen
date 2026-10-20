@@ -14,6 +14,33 @@ mod operations;
 
 pub(crate) use io_context::{CliIoError, CompletionChannel};
 
+#[derive(Debug)]
+pub enum AuthorInputError {
+    Invalid {
+        flag: &'static str,
+        source: hydragen::layer_manifest::schema::Error,
+    },
+    Conflict {
+        flag: &'static str,
+        field: &'static str,
+    },
+}
+
+impl fmt::Display for AuthorInputError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&operations::author_input(self).body())
+    }
+}
+
+impl std::error::Error for AuthorInputError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Invalid { source, .. } => Some(source),
+            Self::Conflict { .. } => None,
+        }
+    }
+}
+
 /// The state of the layer manifest when completion reporting starts, not an
 /// inference from the error text or a fresh filesystem observation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -16,9 +16,19 @@ const SCHEMA: &str = include_str!("../../schemas/layer-manifest.schema.json");
 // An in-memory resource identifier, not a published URL or a layer manifest property.
 const SCHEMA_URI: &str = "urn:hydragen:layer-manifest";
 const FIELDS: [&str; 4] = ["name", "author", "description", "$schema"];
+const AUTHOR_FIELDS: [(&str, &str); 3] = [
+    ("author.name", "authorName"),
+    ("author.email", "authorEmail"),
+    ("author.url", "authorUrl"),
+];
 const NONBLANK_PATTERN_PATH: &str = "/$defs/nonBlankString/pattern";
 const NONBLANK_APPROVAL_PATH: &str = "/$defs/nonBlankString/x-hydragen-nonblank-pattern-sha256";
-const DEFINITIONS: [&str; 7] = [
+const DEFINITIONS: [&str; 12] = [
+    "author",
+    "authorObject",
+    "authorName",
+    "authorEmail",
+    "authorUrl",
     "layerNameSyntax",
     "layerName",
     "exactVersionSuffix",
@@ -56,6 +66,7 @@ pub enum ViolationKind {
     NonBlank,
     Name { guidance: String },
     Type,
+    Format { format: String },
     Required { property: String },
     Other,
 }
@@ -107,6 +118,9 @@ impl Violation {
                 }
             }
             ValidationErrorKind::Type { .. } => ViolationKind::Type,
+            ValidationErrorKind::Format { format } => ViolationKind::Format {
+                format: format.to_string(),
+            },
             ValidationErrorKind::Required {
                 property: Value::String(property),
             } => ViolationKind::Required {
@@ -114,9 +128,9 @@ impl Violation {
             },
             _ => ViolationKind::Other,
         };
-        // Field wrappers validate scalars, so prefix their paths with the known property.
+        // Field wrappers validate isolated values, so restore their known content path.
         let instance_path = match field {
-            Some(field) => format!("/{field}{}", error.instance_path()),
+            Some(field) => format!("/{}{}", field.replace('.', "/"), error.instance_path()),
             None => error.instance_path().to_string(),
         };
         Self {
@@ -259,6 +273,7 @@ impl Validators {
             .map_err(Error::setup)?;
         let options = jsonschema::options()
             .with_draft(Draft::Draft202012)
+            .should_validate_formats(true)
             .offline()
             .with_registry(&registry);
         let root = options
@@ -269,6 +284,10 @@ impl Validators {
         let mut fields = Vec::with_capacity(FIELDS.len());
         for field in FIELDS {
             let wrapper = json!({"$ref": format!("{SCHEMA_URI}#/properties/{field}")});
+            fields.push((field, options.build(&wrapper).map_err(Error::compilation)?));
+        }
+        for (field, definition) in AUTHOR_FIELDS {
+            let wrapper = json!({"$ref": format!("{SCHEMA_URI}#/$defs/{definition}")});
             fields.push((field, options.build(&wrapper).map_err(Error::compilation)?));
         }
         let mut definitions = Vec::with_capacity(DEFINITIONS.len());
@@ -300,6 +319,10 @@ impl Validators {
     }
 
     fn validate_field(&self, field: &'static str, value: &str) -> Result<(), Error> {
+        self.validate_value(field, &Value::String(value.to_owned()))
+    }
+
+    fn validate_value(&self, field: &'static str, value: &Value) -> Result<(), Error> {
         let (_, validator) = self
             .fields
             .iter()
@@ -309,16 +332,14 @@ impl Validators {
                     "Unknown layer manifest schema field selector '{field}'"
                 ))
             })?;
-        validator
-            .validate(&Value::String(value.to_owned()))
-            .map_err(|error| {
-                Error::Content(Box::new(Violation::from_error(
-                    error,
-                    Some(field),
-                    self.approved_nonblank_pattern.as_deref(),
-                    self.approved_name_guidance.as_deref(),
-                )))
-            })
+        validator.validate(value).map_err(|error| {
+            Error::Content(Box::new(Violation::from_error(
+                error,
+                Some(field),
+                self.approved_nonblank_pattern.as_deref(),
+                self.approved_name_guidance.as_deref(),
+            )))
+        })
     }
 
     fn definition(&self, name: &str) -> Result<&Validator, Error> {
@@ -386,9 +407,18 @@ pub fn validate(document: &Value) -> Result<(), Error> {
     cached(&VALIDATORS, SCHEMA)?.validate(document)
 }
 
-/// Validate a known property directly, without manufacturing unrelated metadata.
+/// Validate a string root property or `author.name`, `author.email`, `author.url`
+/// directly, without manufacturing unrelated metadata. Use `validate_value` for
+/// a whole author object or a value whose type must also be checked.
 pub fn validate_field(field: &'static str, value: &str) -> Result<(), Error> {
     cached(&VALIDATORS, SCHEMA)?.validate_field(field, value)
+}
+
+/// Validate a whole author, a nested author field, or another known root field.
+/// Selectors are `author`, `author.name`, `author.email`, `author.url`, `name`,
+/// `description`, and `$schema`. Unknown selectors are internal setup errors.
+pub fn validate_value(field: &'static str, value: &Value) -> Result<(), Error> {
+    cached(&VALIDATORS, SCHEMA)?.validate_value(field, value)
 }
 
 /// Borrowed, schema-validated syntax. Local paths are not interpreted for the host here.
@@ -426,6 +456,124 @@ mod tests {
     fn schema_is_valid_draft_2020_12() {
         jsonschema::draft202012::meta::validate(&schema()).unwrap();
         ensure_ready().unwrap();
+    }
+
+    #[test]
+    fn nested_author_definitions_are_asserted_offline_with_useful_paths() {
+        for (field, value, kind, keyword) in [
+            (
+                "name",
+                json!("\u{85}\u{a0}\u{2003}"),
+                ViolationKind::NonBlank,
+                "pattern",
+            ),
+            ("name", json!(42), ViolationKind::Type, "type"),
+            (
+                "email",
+                json!("not-an-email"),
+                ViolationKind::Format {
+                    format: "email".into(),
+                },
+                "format",
+            ),
+            (
+                "url",
+                json!("relative/path"),
+                ViolationKind::Format {
+                    format: "uri".into(),
+                },
+                "format",
+            ),
+            ("email", Value::Null, ViolationKind::Type, "type"),
+            ("url", json!([]), ViolationKind::Type, "type"),
+        ] {
+            let selector = match field {
+                "name" => "author.name",
+                "email" => "author.email",
+                "url" => "author.url",
+                _ => unreachable!(),
+            };
+            let mut author = json!({"name": "Alex", "unknown": {"email": false}});
+            author[field] = value.clone();
+            let nested = violation(validate_value(selector, &value).unwrap_err());
+            let whole_author = violation(validate_value("author", &author).unwrap_err());
+            let root =
+                violation(validate(&json!({"name": "layer", "author": author})).unwrap_err());
+            assert_eq!(nested, whole_author);
+            assert_eq!(nested, root);
+            assert_eq!(nested.instance_path, format!("/author/{field}"));
+            assert_eq!(nested.kind, kind);
+            assert_eq!(nested.keyword, keyword);
+        }
+        for author in [
+            json!({}),
+            json!({"email": "a@example.invalid"}),
+            json!({"url": "urn:example:x"}),
+        ] {
+            let missing = violation(validate_value("author", &author).unwrap_err());
+            assert_eq!(missing.instance_path, "/author");
+            assert_eq!(
+                missing.kind,
+                ViolationKind::Required {
+                    property: "name".into()
+                }
+            );
+            assert_eq!(missing.keyword, "required");
+        }
+        for (selector, value) in [
+            ("author.name", "  配置 🦀 \n  "),
+            ("author.email", "Alex+work@unreachable.invalid"),
+            ("author.url", "https://unreachable.invalid/not-there"),
+            ("author.url", "mailto:Alex@unreachable.invalid"),
+            ("author.url", "urn:example:person"),
+        ] {
+            validate_field(selector, value).unwrap();
+        }
+    }
+
+    #[test]
+    fn changed_author_definitions_control_fields_whole_authors_and_documents_together() {
+        for (field, definition, selector) in [
+            ("name", "authorName", "author.name"),
+            ("email", "authorEmail", "author.email"),
+            ("url", "authorUrl", "author.url"),
+        ] {
+            let mut changed = schema();
+            changed["$defs"][definition]["const"] = json!("only-this");
+            let validators = compile(&changed);
+            let valid_contact = match field {
+                "name" => "Alex",
+                "email" => "a@example.invalid",
+                _ => "https://example.invalid",
+            };
+            let mut author = json!({"name": "Alex"});
+            author[field] = json!(valid_contact);
+            let nested = violation(
+                validators
+                    .validate_field(selector, valid_contact)
+                    .unwrap_err(),
+            );
+            assert_eq!(nested.keyword, "const");
+            assert_eq!(nested.instance_path, format!("/author/{field}"));
+            assert_eq!(
+                nested,
+                violation(validators.validate_value("author", &author).unwrap_err())
+            );
+            assert_eq!(
+                nested,
+                violation(
+                    validators
+                        .validate(&json!({"name": "layer", "author": author}))
+                        .unwrap_err()
+                )
+            );
+        }
+        for selector in ["author.bad", "author/name", "author.email.type"] {
+            assert!(matches!(
+                validate_value(selector, &json!("x")),
+                Err(Error::Setup { .. })
+            ));
+        }
     }
 
     #[test]
@@ -874,9 +1022,26 @@ mod tests {
                 let mut document = json!({"name": "layer"});
                 document[field] = value;
                 let failure = violation(validate(&document).unwrap_err());
-                assert_eq!(failure.kind, ViolationKind::Type);
+                let missing_author_name = field == "author" && document[field].is_object();
+                assert_eq!(
+                    failure.kind,
+                    if missing_author_name {
+                        ViolationKind::Required {
+                            property: "name".into(),
+                        }
+                    } else {
+                        ViolationKind::Type
+                    }
+                );
                 assert_eq!(failure.instance_path, format!("/{field}"));
-                assert_eq!(failure.keyword, "type");
+                assert_eq!(
+                    failure.keyword,
+                    if missing_author_name {
+                        "required"
+                    } else {
+                        "type"
+                    }
+                );
             }
         }
     }

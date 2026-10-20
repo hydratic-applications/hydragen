@@ -9,7 +9,7 @@ use hydragen::layer_manifest::{EncodeError, LayerManifestError, MetadataError, s
 use hydragen::{InitCreationError, InitCreationState, InitError};
 
 use super::content::{metadata_details, metadata_diagnostic, schema_details};
-use super::{AddCommandError, AddCompletionState, CliIoError, CompletionChannel};
+use super::{AddCommandError, AddCompletionState, AuthorInputError, CliIoError, CompletionChannel};
 use crate::diagnostic_body::Diagnostic;
 
 fn unchanged(mut model: Diagnostic) -> Diagnostic {
@@ -18,6 +18,9 @@ fn unchanged(mut model: Diagnostic) -> Diagnostic {
 }
 
 pub(super) fn diagnostic(error: &(dyn Error + 'static)) -> Diagnostic {
+    if let Some(error) = error.downcast_ref::<AuthorInputError>() {
+        return author_input(error);
+    }
     if let Some(error) = error.downcast_ref::<AddCommandError>() {
         return add(error);
     }
@@ -58,6 +61,54 @@ pub(super) fn diagnostic(error: &(dyn Error + 'static)) -> Diagnostic {
     model.correction =
         Some("Check the reported cause before retrying. Report this error if it persists.".into());
     model
+}
+
+pub(super) fn author_input(error: &AuthorInputError) -> Diagnostic {
+    let model = match error {
+        AuthorInputError::Invalid {
+            flag,
+            source: source @ schema::Error::Content(violation),
+        } => {
+            let mut model = Diagnostic::new(format!("Invalid value for '{flag}'."));
+            let nonblank = violation.kind == schema::ViolationKind::NonBlank;
+            if nonblank {
+                model
+                    .details
+                    .push("The value must contain at least one non-whitespace character.".into());
+                model
+                    .details
+                    .push(format!("Field: {}", display(&violation.instance_path)));
+            } else {
+                schema_details(source, &mut model);
+            }
+            model.correction = Some(match &violation.kind {
+                schema::ViolationKind::NonBlank => {
+                    format!("Supply a non-blank value for '{flag}', or omit this optional flag.")
+                }
+                schema::ViolationKind::Format { format } if format == "email" => format!(
+                    "Correct the email in '{flag}'; use an address such as alex@example.com, or omit this optional flag."
+                ),
+                schema::ViolationKind::Format { format } if format == "uri" => format!(
+                    "Correct the URL in '{flag}'; include an explicit scheme such as 'https:', or omit this optional flag."
+                ),
+                _ => format!(
+                    "Correct '{flag}' using the constraint above, or omit this optional flag."
+                ),
+            });
+            model
+        }
+        AuthorInputError::Invalid { source, .. } => schema_error(source),
+        AuthorInputError::Conflict { flag, field } => {
+            let mut model =
+                Diagnostic::new(format!("Conflicting values in '--author' and '{flag}'."));
+            model.details.push(format!("Field: {}", display(field)));
+            model.correction = Some(format!(
+                "Supply the same contact in both flags, or omit '{flag}' to use the shorthand contact."
+            ));
+            model
+        }
+    };
+    unchanged(model)
 }
 
 pub(super) fn current_directory(source: &io::Error) -> Diagnostic {
@@ -605,6 +656,50 @@ mod tests {
         assert_family(&model);
         assert!(model.summary.starts_with("Internal"));
         assert!(!model.body().contains("Supply --name"));
+    }
+
+    #[test]
+    fn author_input_failures_share_compact_composition_and_keep_actual_input_sources() {
+        for (flag, field, value) in [
+            ("--author", "author.email", RAW),
+            ("--author-email", "author.email", "not-an-email"),
+            ("--author-url", "author.url", "relative/path"),
+        ] {
+            let source = schema::validate_field(field, value).unwrap_err();
+            let error = AuthorInputError::Invalid { flag, source };
+            let model = diagnostic(&error);
+            assert_family(&model);
+            assert!(model.summary.contains(flag));
+            assert!(model.body().contains(&field.replace('.', "/")));
+            assert!(model.body().contains("Schema rule:"));
+            assert_eq!(model.body().matches("No files were changed.").count(), 1);
+            assert_eq!(model.body(), error.to_string());
+            assert!(!model.body().contains("Enter"));
+        }
+        for (flag, field) in [
+            ("--author-email", "author.email"),
+            ("--author-url", "author.url"),
+        ] {
+            let error = AuthorInputError::Conflict { flag, field };
+            let model = diagnostic(&error);
+            assert_family(&model);
+            assert!(model.summary.contains("'--author'") && model.summary.contains(flag));
+            assert!(model.body().contains(field));
+            assert!(model.body().contains("same contact"));
+            assert_eq!(model.body(), error.to_string());
+        }
+        let model = diagnostic(&AuthorInputError::Invalid {
+            flag: "--author-email",
+            source: setup(),
+        });
+        assert_family(&model);
+        assert!(model.summary.starts_with("Internal"));
+        assert!(!model.body().contains("--author-email"));
+        assert!(
+            model
+                .body()
+                .contains("changing valid input will not resolve it")
+        );
     }
 
     #[test]

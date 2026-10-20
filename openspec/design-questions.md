@@ -26,8 +26,10 @@ design everything upfront.
    automatically, or support both by consumer choice?
    - **Partial resolution:** Every layer has a layer manifest declaring its required
      name, optional author and description, and the other layers it depends on. Name
-     and any supplied author or description must be non-blank strings. An
-     omitted dependency list and an empty list both mean no dependencies. See the
+     and any supplied description must be non-blank strings. Author accepts a
+     non-blank string or a name-bearing object with optional email/URL, through
+     the author-contact extension below. An omitted dependency list and an empty
+     list both mean no dependencies. See the
      [layer manifest decision and draft schema choices](changes/archive/2026-10-16-define-layer-manifest/design.md#decisions).
      That increment left source locations and reference/version syntax open;
      the dependency-declaration decision below resolves the initial subset.
@@ -62,6 +64,13 @@ design everything upfront.
       [field-order decision](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#guide-field-order-without-enforcing-it-on-input)
       and [insertion rules](changes/archive/2026-10-19-guide-layer-manifest-field-order/design.md#append-a-missing-dependency-field-without-moving-existing-fields).
      An explicit formatter and placement of future fields remain deferred.
+   - **Implemented author-contact extension:** Accept npm-style author objects with
+     a required name and optional email/URL alongside existing strings; init
+     generates objects without a representation question. Explicit Author input
+     recognises shorthand and treats other text as a literal name. Existing
+     layer manifests are not rewritten. See the
+     [representation and validation decision](changes/extend-init-author-details/design.md#accept-both-representations-without-rewriting-existing-author-data)
+     and [input interpretation](changes/extend-init-author-details/design.md#interpret-shorthand-only-at-explicit-input-boundaries).
    - **Approved review safety refinement:** Preserve YAML string meaning and
      multiline collection/comment layout, not only values compared through the
      same decoder. Check source-sensitive insertion boundaries, including terminal
@@ -157,11 +166,14 @@ design everything upfront.
      CI, and agents. **Agreed input rule:** No input flags means guided init when
      interaction is available; any of `--name`, `--author`, `--description`, or
      explicit `--format` means flag-only init, with no questions to complete
-     missing values. Format alone therefore uses the directory-name default and
-     omits author and description. Omitted format defaults to `layer.yaml` without
-     counting as a supplied flag. Guided input asks Name, Author, Description,
-     then Layer manifest format, with extension-only labels (`yaml`, `yml`, `toml`,
-     `json`, `jsonc`) and `yaml` initially selected. The prompt already identifies
+     missing values. The author-contact extension also makes `--author-email`
+     and `--author-url` input flags, requiring `--author`. Format alone therefore
+     uses the directory-name default and omits author and description. Omitted
+     format defaults to `layer.yaml` without
+     counting as a supplied flag. Guided input asks Name, Author, unresolved
+     Author email, unresolved Author URL, Description, then Layer manifest format,
+     with extension-only labels (`yaml`, `yml`, `toml`, `json`, `jsonc`) and `yaml`
+     initially selected. The prompt already identifies
      the choice as a format, so repeating `layer.` adds no useful distinction;
      generated filenames remain unchanged. See the
      [shorter-label decision](changes/shorten-init-format-labels/design.md).
@@ -177,8 +189,10 @@ design everything upfront.
      default when it satisfies the shared lowercase layer-name policy. An invalid
      directory default fails before prompts or author preparation, with guidance
      to supply a valid `--name`; that override selects flag-only input and bypasses
-     default derivation. Author and description retain their non-blank string rules,
-     not the layer-name restrictions. See the
+     default derivation. Author names and description retain their non-blank
+     string rules, not the layer-name restrictions; author contacts use the
+     shared schema's email and absolute-URI rules (a URL including a scheme such
+     as `https:`). See the
      [shared name policy](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#adopt-an-explicit-lowercase-name-policy-through-the-maintained-schema)
      and the historical
      [directory-name default decision](changes/archive/2026-10-16-add-interactive-init/design.md#default-name-to-the-current-directory).
@@ -199,7 +213,7 @@ design everything upfront.
      login or requests permissions. GitHub-membership-only choices are never
      selected initially, but a project-declared organisation is eligible.
      All discovery is best effort and disabled entirely for flag-only execution;
-     offline use remains supported. See the planned
+     offline use remains supported. See the original
      [source order](changes/archive/2026-10-20-suggest-init-author/design.md#order-project-and-identity-sources),
      [project author discovery](changes/archive/2026-10-20-suggest-init-author/design.md#read-directly-declared-authors-from-project-files),
      [optional GitHub discovery](changes/archive/2026-10-20-suggest-init-author/design.md#add-optional-github-candidates-through-existing-gh-authentication),
@@ -214,6 +228,19 @@ design everything upfront.
      discovery or author values. See the
      [focused-source decision](changes/refine-author-choice-presentation/design.md#reveal-sources-inline-only-on-focus)
      and [icon decision](changes/refine-author-choice-presentation/design.md#use-one-icon-for-source-evidence-not-a-guessed-entity-type).
+   - **Implemented guided contact decisions:** After a selected author, offer email
+     then URL using only that equal-name group's source records; preserve all
+     distinct associated contacts. Custom author input gets no inferred choices,
+     contacts already supplied in shorthand bypass their prompts, and skipping
+     Author bypasses both contact steps. Use public GitHub email only; OS contact
+     stores and private email enumeration remain deferred. Contacts freeze with
+     names under the existing preparation deadlines, without new per-step waits.
+     Separate contact flags keep automation explicit and discovery-free. This
+     extends the earlier name-only Author flow. See the
+     [interaction decision](changes/extend-init-author-details/design.md#collect-only-unresolved-fields-using-the-selected-name-groups-records),
+     [source evidence](changes/extend-init-author-details/design.md#extend-only-the-sources-already-used-by-author-discovery),
+     [privacy boundary](changes/extend-init-author-details/design.md#treat-contact-publication-as-an-explicit-choice),
+     and [flag/output decision](changes/extend-init-author-details/design.md#keep-automation-explicit-and-generation-consistent-across-formats).
    - **Initial add interaction decision:** Require source arguments and no guided
      flow, in terminals and automation alike. Defer registry-backed search,
      autocomplete, existence checking, and available-version selection until

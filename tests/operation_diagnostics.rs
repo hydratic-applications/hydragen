@@ -87,7 +87,7 @@ fn explicit_name_bypasses_invalid_defaults_without_rewriting_optional_metadata()
             serde_json::from_slice(&std::fs::read(case.app.join("layer.json")).unwrap()).unwrap();
         assert_eq!(
             document,
-            serde_json::json!({"name":"valid", "author":raw, "description":raw})
+            serde_json::json!({"name":"valid", "author":{"name":raw}, "description":raw})
         );
         assert_eq!(
             std::fs::read_to_string(&keep).unwrap(),

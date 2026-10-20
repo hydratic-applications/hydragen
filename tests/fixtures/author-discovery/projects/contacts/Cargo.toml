@@ -1,0 +1,8 @@
+[package]
+authors = [
+  "Shared Name <cargo@example.invalid>",
+  "Shared Name <not-an-email>",
+  "Cargo Other <other@example.invalid>",
+  "Malformed <a@example.invalid> <b@example.invalid>",
+]
+homepage = "https://not-author.example.invalid"

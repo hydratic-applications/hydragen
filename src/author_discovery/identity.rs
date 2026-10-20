@@ -1,10 +1,13 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
 use hydragen::layer_manifest::schema;
 
-use super::{Context, GitKey, GitScope, Source, normalize_candidate, process};
+use super::{
+    ContactField, ContactInput, Context, GitKey, GitScope, Source, normalize_candidate, process,
+};
 
 pub(super) fn collect(directory: &Path, context: &Context) -> Result<(), schema::Error> {
     collect_with(
@@ -30,10 +33,19 @@ fn collect_with(
     if !context.active() {
         return Ok(());
     }
-    if let Some(name) = environment("GIT_AUTHOR_NAME")
-        && !context.publish(&name, Source::GitAuthorEnvironment)?
-    {
-        return Ok(());
+    if let Some(name) = environment("GIT_AUTHOR_NAME") {
+        let email = environment("GIT_AUTHOR_EMAIL");
+        let contacts: Vec<_> = email
+            .as_deref()
+            .map(|value| ContactInput {
+                field: ContactField::Email,
+                value,
+            })
+            .into_iter()
+            .collect();
+        if !context.publish_contacts(&name, Source::GitAuthorEnvironment, &contacts)? {
+            return Ok(());
+        }
     }
     if !git(context)? {
         return Ok(());
@@ -62,16 +74,31 @@ fn git_arguments(command: &mut Command) {
         "--show-origin",
         "--includes",
         "--get-regexp",
-        "^(author|user)\\.name$",
+        "^(author|user)\\.(name|email)$",
     ]);
 }
 
 fn publish_git(output: &[u8], context: &Context) -> Result<(), schema::Error> {
     // NUL framing protects values containing newlines. Git emits each matching
     // scope\0origin\0key\nvalue\0; a bad value does not poison another record.
+    struct Name {
+        value: String,
+        key: GitKey,
+        scope: GitScope,
+        origin: Vec<u8>,
+        index: usize,
+    }
+    #[derive(Default)]
+    struct Bucket {
+        names: BTreeSet<String>,
+        emails: Vec<String>,
+        latest_name: Option<usize>,
+    }
+    let mut buckets: BTreeMap<(GitKey, GitScope, Vec<u8>), Bucket> = BTreeMap::new();
+    let mut names = Vec::new();
     let mut fields = output.split(|byte| *byte == 0);
     let mut index = 0;
-    while let (Some(scope), Some(_origin), Some(record)) =
+    while let (Some(scope), Some(origin), Some(record)) =
         (fields.next(), fields.next(), fields.next())
     {
         let definition = index;
@@ -87,21 +114,66 @@ fn publish_git(output: &[u8], context: &Context) -> Result<(), schema::Error> {
         let Some(newline) = record.iter().position(|byte| *byte == b'\n') else {
             continue;
         };
-        let key = match &record[..newline] {
-            b"author.name" => GitKey::Author,
-            b"user.name" => GitKey::User,
+        let (key, is_name) = match &record[..newline] {
+            b"author.name" => (GitKey::Author, true),
+            b"user.name" => (GitKey::User, true),
+            b"author.email" => (GitKey::Author, false),
+            b"user.email" => (GitKey::User, false),
             _ => continue,
         };
-        let Ok(name) = std::str::from_utf8(&record[newline + 1..]) else {
+        let Ok(value) = std::str::from_utf8(&record[newline + 1..]) else {
             continue;
         };
-        if !context.publish(
-            name,
+        if !context.active() {
+            break;
+        }
+        let bucket = buckets.entry((key, scope, origin.to_vec())).or_default();
+        if is_name {
+            if let Some(value) = normalize_candidate(value)? {
+                bucket.names.insert(value.clone());
+                bucket.latest_name = Some(definition);
+                names.push(Name {
+                    value,
+                    key,
+                    scope,
+                    origin: origin.to_vec(),
+                    index: definition,
+                });
+            }
+        } else {
+            bucket.emails.push(value.to_owned());
+        }
+    }
+    for name in names {
+        let bucket = &buckets[&(name.key, name.scope, name.origin.clone())];
+        let contacts: Vec<_> = if bucket.names.len() == 1
+            && !name.origin.is_empty()
+            && bucket.latest_name == Some(name.index)
+        {
+            // Preserve Git's later-definition-first preference inside a bucket.
+            // Attach once to its latest usable name declaration: repeating the
+            // same name must not multiply the bucket's contact storage/work.
+            bucket
+                .emails
+                .iter()
+                .rev()
+                .map(|value| ContactInput {
+                    field: ContactField::Email,
+                    value,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if !context.publish_git_contacts(
+            &name.value,
             Source::Git {
-                key,
-                scope,
-                index: definition,
+                key: name.key,
+                scope: name.scope,
+                index: name.index,
             },
+            &name.origin,
+            &contacts,
         )? {
             break;
         }
@@ -183,13 +255,13 @@ mod tests {
             || { realname_called.set(true); Some("Alex".into()) },
             || { username_called.set(true); Some("login".into()) },
             |variable| {
-                assert_eq!(variable, "GIT_AUTHOR_NAME", "usable account username must prevent username-environment reads");
+                assert!(matches!(variable, "GIT_AUTHOR_NAME" | "GIT_AUTHOR_EMAIL"), "usable account username must prevent username-environment reads");
                 environment_reads.set(environment_reads.get() + 1);
-                Some(" Alex ".into())
+                Some(if variable == "GIT_AUTHOR_NAME" { " Alex " } else { "alex@example.invalid" }.into())
             },
         ).unwrap();
         assert!(git_called.get() && realname_called.get() && username_called.get());
-        assert_eq!(environment_reads.get(), 1);
+        assert_eq!(environment_reads.get(), 2);
         let choices = context.choices_for_tests().unwrap();
         assert_eq!(
             choices
@@ -211,6 +283,8 @@ mod tests {
         assert_eq!(choices[2].hint, "Git local author.name");
         assert_eq!(choices[4].hint, "system account username");
         assert!(choices.iter().all(|choice| choice.eligible));
+        assert_eq!(choices[1].emails[0].value, "alex@example.invalid");
+        assert_eq!(choices[1].emails[0].hint, "GIT_AUTHOR_EMAIL");
     }
 
     #[test]
@@ -281,6 +355,206 @@ mod tests {
         assert_eq!(choices[1].hint, "Git global user.name");
     }
 
+    #[test]
+    fn git_contacts_require_one_distinct_usable_name_in_the_same_origin_scope_and_family() {
+        let context = Context::for_tests();
+        let mut output = Vec::new();
+        for (scope, origin, key, value) in [
+            ("global", "file:/private/global", "user.name", "Shared"),
+            (
+                "global",
+                "file:/private/global",
+                "user.email",
+                "global@example.invalid",
+            ),
+            ("local", "file:/private/local", "user.name", " Shared "),
+            ("local", "file:/private/local", "user.name", "Shared"),
+            ("local", "file:/private/local", "user.name", "bad\nname"),
+            (
+                "local",
+                "file:/private/local",
+                "user.email",
+                "older@example.invalid",
+            ),
+            (
+                "local",
+                "file:/private/local",
+                "user.email",
+                "latest@example.invalid",
+            ),
+            ("local", "file:/private/local", "user.email", "not-an-email"),
+            (
+                "local",
+                "file:/private/ambiguous",
+                "user.name",
+                "Ambiguous A",
+            ),
+            (
+                "local",
+                "file:/private/ambiguous",
+                "user.name",
+                "Ambiguous B",
+            ),
+            (
+                "local",
+                "file:/private/ambiguous",
+                "user.email",
+                "ambiguous@example.invalid",
+            ),
+            (
+                "local",
+                "file:/private/split-name",
+                "user.name",
+                "Split origin",
+            ),
+            (
+                "local",
+                "file:/private/split-email",
+                "user.email",
+                "split@example.invalid",
+            ),
+            ("global", "file:/private/scope", "user.name", "Split scope"),
+            (
+                "local",
+                "file:/private/scope",
+                "user.email",
+                "scope@example.invalid",
+            ),
+            (
+                "local",
+                "file:/private/family",
+                "author.name",
+                "Split family",
+            ),
+            (
+                "local",
+                "file:/private/family",
+                "user.email",
+                "family@example.invalid",
+            ),
+            (
+                "local",
+                "file:/private/author",
+                "author.name",
+                "Author identity",
+            ),
+            (
+                "local",
+                "file:/private/author",
+                "author.email",
+                "author@example.invalid",
+            ),
+            ("local", "", "user.name", "Missing origin"),
+            ("local", "", "user.email", "missing-origin@example.invalid"),
+        ] {
+            output.extend_from_slice(format!("{scope}\0{origin}\0{key}\n{value}\0").as_bytes());
+        }
+        publish_git(&output, &context).unwrap();
+        let choices = context.choices_for_tests().unwrap();
+        let shared = choices.iter().find(|c| c.name == "Shared").unwrap();
+        assert_eq!(
+            shared
+                .emails
+                .iter()
+                .map(|c| c.value.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "latest@example.invalid",
+                "older@example.invalid",
+                "global@example.invalid"
+            ]
+        );
+        assert_eq!(shared.emails[0].hint, "Git local user.email");
+        assert!(
+            shared
+                .records
+                .iter()
+                .all(|record| record.git_origin.is_some())
+        );
+        assert!(choices.iter().all(|c| !c.hint.contains("/private/")
+            && c.emails.iter().all(|e| !e.hint.contains("/private/"))));
+        for name in [
+            "Ambiguous A",
+            "Ambiguous B",
+            "Split origin",
+            "Split scope",
+            "Split family",
+            "Missing origin",
+        ] {
+            assert!(
+                choices
+                    .iter()
+                    .find(|c| c.name == name)
+                    .unwrap()
+                    .emails
+                    .is_empty(),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            choices
+                .iter()
+                .find(|c| c.name == "Author identity")
+                .unwrap()
+                .emails[0]
+                .value,
+            "author@example.invalid"
+        );
+    }
+
+    #[test]
+    fn environment_contacts_never_pair_with_git_account_or_unrelated_variables() {
+        use std::cell::RefCell;
+        for (name, email) in [
+            (None, Some("email-only@example.invalid")),
+            (Some("Same"), None),
+            (Some("Same"), Some("invalid")),
+            (Some("Same"), Some(" env@example.invalid ")),
+            (Some("bad\nname"), Some("orphan@example.invalid")),
+        ] {
+            let context = Context::for_tests();
+            let reads = RefCell::new(Vec::new());
+            collect_with(&context, |context| {
+                publish_git(b"local\0file:fixture\0user.name\nSame\0local\0file:fixture\0user.email\ngit@example.invalid\0", context)?;
+                Ok(true)
+            }, || Some("Account".into()), || Some("account-login".into()), |variable| {
+                reads.borrow_mut().push(variable);
+                match variable {
+                    "GIT_AUTHOR_NAME" => name.map(str::to_owned),
+                    "GIT_AUTHOR_EMAIL" => email.map(str::to_owned),
+                    _ => panic!("unexpected identity variable {variable}"),
+                }
+            }).unwrap();
+            assert_eq!(
+                &*reads.borrow(),
+                if name.is_some() {
+                    &["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL"][..]
+                } else {
+                    &["GIT_AUTHOR_NAME"][..]
+                }
+            );
+            let choices = context.choices_for_tests().unwrap();
+            let shared = choices.iter().find(|c| c.name == "Same").unwrap();
+            let emails: Vec<_> = shared.emails.iter().map(|c| c.value.as_str()).collect();
+            assert_eq!(
+                emails,
+                if email == Some(" env@example.invalid ") {
+                    vec!["env@example.invalid", "git@example.invalid"]
+                } else {
+                    vec!["git@example.invalid"]
+                }
+            );
+            assert!(
+                choices
+                    .iter()
+                    .find(|c| c.name == "Account")
+                    .unwrap()
+                    .emails
+                    .is_empty()
+            );
+        }
+    }
+
     fn isolated_git(directory: &Path, home: &Path, global: &Path) -> Command {
         let mut command = Command::new("git");
         command
@@ -303,9 +577,17 @@ mod tests {
         let global = root.path().join("global");
         let include = root.path().join("included");
         let conditional = root.path().join("conditional");
-        fs::write(&include, "[user]\n name = Included\n").unwrap();
-        fs::write(&conditional, "[author]\n name = Conditional\n").unwrap();
-        fs::write(&global, format!("[user]\n name = Global old\n name = Global new\n[include]\n path = {}\n[includeIf \"gitdir:{}\"]\n path = {}\n[includeIf \"gitdir:/never/hydragen/\"]\n path = /nonexistent/inactive\n", include.display(), repo.join(".git").display(), conditional.display())).unwrap();
+        fs::write(
+            &include,
+            "[user]\n name = Included\n email = included@example.invalid\n",
+        )
+        .unwrap();
+        fs::write(
+            &conditional,
+            "[author]\n name = Conditional\n email = conditional@example.invalid\n",
+        )
+        .unwrap();
+        fs::write(&global, format!("[user]\n name = Global old\n name = Global new\n email = ambiguous@example.invalid\n[include]\n path = {}\n[includeIf \"gitdir:{}\"]\n path = {}\n[includeIf \"gitdir:/never/hydragen/\"]\n path = /nonexistent/inactive\n", include.display(), repo.join(".git").display(), conditional.display())).unwrap();
         assert!(
             isolated_git(&repo, root.path(), &global)
                 .args(["init", "--quiet"])
@@ -313,18 +595,20 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        fs::write(repo.join(".git/config"), "[core]\n repositoryformatversion = 0\n[extensions]\n worktreeConfig = true\n[user]\n name = Local\n[author]\n name = Local author\n").unwrap();
+        fs::write(repo.join(".git/config"), "[core]\n repositoryformatversion = 0\n[extensions]\n worktreeConfig = true\n[user]\n name = Local\n email = local@example.invalid\n[author]\n name = Local author\n email = author@example.invalid\n").unwrap();
         fs::write(
             repo.join(".git/config.worktree"),
-            "[user]\n name = Worktree\n",
+            "[user]\n name = Worktree\n email = worktree@example.invalid\n",
         )
         .unwrap();
         let context = Context::for_tests();
         let mut command = isolated_git(&repo, root.path(), &global);
         command
-            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_COUNT", "2")
             .env("GIT_CONFIG_KEY_0", "user.name")
-            .env("GIT_CONFIG_VALUE_0", "Command");
+            .env("GIT_CONFIG_VALUE_0", "Command")
+            .env("GIT_CONFIG_KEY_1", "user.email")
+            .env("GIT_CONFIG_VALUE_1", "command@example.invalid");
         git_arguments(&mut command);
         let output = process::run(
             command,
@@ -352,6 +636,20 @@ mod tests {
         );
         assert_eq!(choices[2].hint, "Git command user.name");
         assert_eq!(choices[3].hint, "Git worktree user.name");
+        for (index, expected) in [
+            "author@example.invalid",
+            "conditional@example.invalid",
+            "command@example.invalid",
+            "worktree@example.invalid",
+            "local@example.invalid",
+            "included@example.invalid",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(choices[index].emails[0].value, expected);
+        }
+        assert!(choices[6].emails.is_empty() && choices[7].emails.is_empty());
         let outside = Context::for_tests();
         let mut command = isolated_git(root.path(), root.path(), &global);
         git_arguments(&mut command);
@@ -370,6 +668,39 @@ mod tests {
                 .map(|choice| choice.name.as_str())
                 .collect::<Vec<_>>(),
             ["Included", "Global new", "Global old"]
+        );
+    }
+
+    #[test]
+    fn real_git_does_not_pair_effective_contacts_across_included_files_or_key_families() {
+        let root = tempfile::tempdir().unwrap();
+        let global = root.path().join("global");
+        let included = root.path().join("included");
+        fs::write(&global, format!("[user]\n name = Split user\n[author]\n email = parent-author@example.invalid\n[include]\n path = {}\n", included.display())).unwrap();
+        fs::write(
+            &included,
+            "[user]\n email = included-user@example.invalid\n[author]\n name = Split author\n",
+        )
+        .unwrap();
+        let context = Context::for_tests();
+        let mut command = isolated_git(root.path(), root.path(), &global);
+        git_arguments(&mut command);
+        let output = process::run(
+            command,
+            &context,
+            Some(context.now() + Duration::from_millis(500)),
+        )
+        .unwrap();
+        publish_git(&output, &context).unwrap();
+        let choices = context.choices_for_tests().unwrap();
+        assert_eq!(
+            choices.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["Split author", "Split user"]
+        );
+        assert!(choices.iter().all(|c| c.emails.is_empty()));
+        assert_ne!(
+            choices[0].records[0].git_origin,
+            choices[1].records[0].git_origin
         );
     }
 

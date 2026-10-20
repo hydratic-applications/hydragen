@@ -49,6 +49,189 @@ fn assert_failure(output: &Output, message: &str) {
     assert!(!output.stderr.contains(&b'\x1b'));
 }
 
+#[test]
+fn author_contacts_and_shorthand_generate_ordered_objects_in_every_format() {
+    for format in LayerManifestFormat::ALL {
+        for (text, email, url, expected) in [
+            ("  Équipe 🦀  ", None, None, json!({"name":"  Équipe 🦀  "})),
+            (
+                "Alex <alex@example.com>",
+                None,
+                None,
+                json!({"name":"Alex", "email":"alex@example.com"}),
+            ),
+            (
+                "Alex (mailto:alex@example.com)",
+                None,
+                None,
+                json!({"name":"Alex", "url":"mailto:alex@example.com"}),
+            ),
+            (
+                "Alex <alex@example.com> (https://alex.example)",
+                Some("alex@example.com"),
+                Some("https://alex.example"),
+                json!({"name":"Alex", "email":"alex@example.com", "url":"https://alex.example"}),
+            ),
+            (
+                "Alex (team)",
+                Some("other@example.com"),
+                Some("https://example.com/a?q=x&v=2"),
+                json!({"name":"Alex (team)", "email":"other@example.com", "url":"https://example.com/a?q=x&v=2"}),
+            ),
+        ] {
+            let directory = tempdir().unwrap();
+            let mut arguments = vec![
+                "--format",
+                format.extension(),
+                "--description",
+                "Root description",
+                "--author",
+                text,
+            ];
+            if let Some(value) = url {
+                arguments.extend(["--author-url", value]);
+            }
+            if let Some(value) = email {
+                arguments.extend(["--author-email", value]);
+            }
+            let output = init(directory.path(), &arguments);
+            assert_success_in_format(&output, format);
+            let loaded = hydragen::discover(directory.path())
+                .unwrap()
+                .load()
+                .unwrap();
+            assert_eq!(loaded.document["author"], expected);
+            assert_eq!(loaded.document["description"], "Root description");
+            assert_eq!(
+                loaded.document["name"],
+                directory.path().file_name().unwrap().to_str().unwrap()
+            );
+            let source = fs::read_to_string(directory.path().join(format.filename())).unwrap();
+            assert!(source.ends_with('\n'));
+            let email = source.find(if format == LayerManifestFormat::Toml {
+                "email ="
+            } else {
+                "email"
+            });
+            let url = source.find(if format == LayerManifestFormat::Toml {
+                "url ="
+            } else {
+                "url"
+            });
+            if let (Some(email), Some(url)) = (email, url) {
+                assert!(email < url, "{source}");
+            }
+            assert!(!source.contains("[author]"));
+        }
+    }
+}
+
+#[test]
+fn invalid_author_components_and_conflicts_have_relevant_flags_and_no_writes() {
+    for (arguments, flags, location) in [
+        (
+            vec!["--author", "Alex <not-an-email>"],
+            vec!["--author"],
+            "/author/email",
+        ),
+        (
+            vec!["--author", "Alex (https://bad host)"],
+            vec!["--author"],
+            "/author/url",
+        ),
+        (
+            vec!["--author", "Alex", "--author-email", ""],
+            vec!["--author-email"],
+            "/author/email",
+        ),
+        (
+            vec!["--author", "Alex", "--author-url", "relative/path"],
+            vec!["--author-url"],
+            "/author/url",
+        ),
+        (
+            vec![
+                "--author",
+                "Alex <a@example.com>",
+                "--author-email",
+                "b@example.com",
+            ],
+            vec!["--author", "--author-email"],
+            "author.email",
+        ),
+        (
+            vec![
+                "--author",
+                "Alex (https://a.example)",
+                "--author-url",
+                "https://b.example",
+            ],
+            vec!["--author", "--author-url"],
+            "author.url",
+        ),
+        (
+            vec!["--author", "Alex <bad>", "--author-email", "bad"],
+            vec!["--author"],
+            "/author/email",
+        ),
+        (
+            vec!["--author", "Alex <a@example.com>", "--author-email", "bad"],
+            vec!["--author-email"],
+            "/author/email",
+        ),
+    ] {
+        let directory = tempdir().unwrap();
+        let output = init(directory.path(), &arguments);
+        assert_eq!(output.status.code(), Some(1));
+        for flag in flags {
+            assert_failure(&output, flag);
+        }
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains(location), "{error}");
+        assert_eq!(error.matches("No files were changed.").count(), 1);
+        assert!(!error.contains("Author (optional)"));
+        diagnostic_body_support::assert_compact(&error);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn contact_usage_failures_precede_occupied_target_checks_and_help_stays_successful() {
+    for flag in ["--author-email", "--author-url"] {
+        for arguments in [
+            vec![flag],
+            vec![flag, "value"],
+            vec!["--author", "Alex", flag],
+        ] {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("layer.yaml");
+            fs::write(&path, "invalid occupied layer manifest").unwrap();
+            let output = init(directory.path(), &arguments);
+            assert_eq!(output.status.code(), Some(2));
+            assert_failure(
+                &output,
+                if arguments.len() == 2 {
+                    "--author <AUTHOR>"
+                } else {
+                    flag
+                },
+            );
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(error.contains("hydragen init --help"), "{error}");
+            assert!(!error.contains("already has a layer manifest"));
+            assert_eq!(
+                fs::read_to_string(path).unwrap(),
+                "invalid occupied layer manifest"
+            );
+        }
+        let directory = tempdir().unwrap();
+        let output = init(directory.path(), &[flag, "value", "--help"]);
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
 fn assert_occupied_layer_manifest(output: &Output) {
     assert_failure(output, "This directory already has a layer manifest (");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -323,7 +506,7 @@ fn accepts_independent_optional_fields() {
     for (arguments, expected) in [
         (
             vec!["--author", "Team"],
-            json!({"name": "example", "author": "Team"}),
+            json!({"name": "example", "author": {"name": "Team"}}),
         ),
         (
             vec!["--description", "Layer"],
@@ -331,7 +514,7 @@ fn accepts_independent_optional_fields() {
         ),
         (
             vec!["--author", "Team", "--description", "Layer"],
-            json!({"name": "example", "author": "Team", "description": "Layer"}),
+            json!({"name": "example", "author": {"name": "Team"}, "description": "Layer"}),
         ),
     ] {
         let directory = tempdir().unwrap();
@@ -359,7 +542,7 @@ fn optional_metadata_preserves_whitespace_escaping_and_unicode() {
     ));
     assert_eq!(
         read_layer_manifest(directory.path()),
-        json!({"name": "@example/.config", "author": text, "description": text})
+        json!({"name": "@example/.config", "author": {"name": text}, "description": text})
     );
 }
 
@@ -597,7 +780,7 @@ fn copied_help_examples_keep_their_shell_arguments() {
             0 | 3 | 4 => json!({"name": format!("example-{index}")}),
             1 => json!({"name": "shared-rules"}),
             2 => {
-                json!({"name": "shared-agent-rules", "author": "Example team", "description": "Shared agent rules."})
+                json!({"name": "shared-agent-rules", "author": {"name": "Example team"}, "description": "Shared agent rules."})
             }
             _ => unreachable!(),
         };
@@ -935,7 +1118,10 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
                 assert_success_in_format(&output, format);
                 let document = independently_read_format(directory.path(), format);
                 assert_eq!(document["name"], "@example/_config");
-                assert_eq!(document.get("author"), author.then(|| json!(text)).as_ref());
+                assert_eq!(
+                    document.get("author"),
+                    author.then(|| json!({"name": text})).as_ref()
+                );
                 assert_eq!(
                     document.get("description"),
                     description.then(|| json!(text)).as_ref()
@@ -962,7 +1148,7 @@ fn all_formats_validate_unchanged_valid_directory_defaults_and_optional_combinat
                 let mut expected = json!({"name": "my-project.v2_config"});
                 if author {
                     args.extend(["--author", "Team"]);
-                    expected["author"] = json!("Team");
+                    expected["author"] = json!({"name": "Team"});
                 }
                 if description {
                     args.extend(["--description", "Layer"]);
@@ -1007,7 +1193,7 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
             assert!(output.stderr.is_empty(), "{output:?}");
             assert_eq!(
                 independently_read_format(directory.path(), format),
-                json!({"name": "example", "author": value, "description": value})
+                json!({"name": "example", "author": {"name": value}, "description": value})
             );
             // The real loader must also preserve writer-quoted numeric-looking strings.
             assert_eq!(
@@ -1016,7 +1202,7 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
                     .load()
                     .unwrap()
                     .document,
-                json!({"name": "example", "author": value, "description": value})
+                json!({"name": "example", "author": {"name": value}, "description": value})
             );
         }
     }
@@ -1042,13 +1228,13 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
         assert_success_in_format(&output, format);
         let expected = match format {
             LayerManifestFormat::Yaml | LayerManifestFormat::Yml => {
-                "name: example\nauthor: Example team\ndescription: Shared rules\n"
+                "name: example\nauthor:\n  name: Example team\ndescription: Shared rules\n"
             }
             LayerManifestFormat::Toml => {
-                "name = \"example\"\nauthor = \"Example team\"\ndescription = \"Shared rules\"\n"
+                "name = \"example\"\nauthor = { name = \"Example team\" }\ndescription = \"Shared rules\"\n"
             }
             LayerManifestFormat::Json | LayerManifestFormat::Jsonc => {
-                "{\n  \"name\": \"example\",\n  \"author\": \"Example team\",\n  \"description\": \"Shared rules\"\n}\n"
+                "{\n  \"name\": \"example\",\n  \"author\": {\n    \"name\": \"Example team\"\n  },\n  \"description\": \"Shared rules\"\n}\n"
             }
         };
         assert_eq!(

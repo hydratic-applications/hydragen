@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::Metadata;
 use crate::diagnostic_text::display;
+use crate::{Author, Metadata};
 
 mod decode;
 pub mod edit;
@@ -205,6 +205,12 @@ impl From<schema::Error> for MetadataError {
                     }
                 }
                 schema::ViolationKind::Type | schema::ViolationKind::NonBlank => {
+                    // Author is a string/object union, not a string-only field.
+                    if violation.instance_path == "/author"
+                        && violation.kind == schema::ViolationKind::Type
+                    {
+                        return Self::Schema(error);
+                    }
                     if let Some(field) = metadata_field(&violation.instance_path) {
                         return if violation.kind == schema::ViolationKind::NonBlank {
                             Self::Blank { field }
@@ -279,7 +285,17 @@ pub fn validate_document(document: &Value) -> Result<Metadata, MetadataError> {
     };
     Ok(Metadata {
         name: field_value("name")?.ok_or(MetadataError::MissingField { field: "name" })?,
-        author: field_value("author")?,
+        author: object
+            .get("author")
+            .map(|value| {
+                serde_json::from_value::<Author>(value.clone()).map_err(|error| {
+                    MetadataError::Schema(schema::Error::Setup {
+                        message: format!("Validated author cannot be extracted: {error}"),
+                        detail: None,
+                    })
+                })
+            })
+            .transpose()?,
         description: field_value("description")?,
     })
 }
@@ -414,8 +430,7 @@ pub fn encode_metadata(
             serde_saphyr::to_string(metadata)
                 .map_err(|error| serialization_error(error.to_string()))?
         }
-        LayerManifestFormat::Toml => toml::to_string_pretty(metadata)
-            .map_err(|error| serialization_error(error.to_string()))?,
+        LayerManifestFormat::Toml => encode_toml_metadata(metadata).map_err(serialization_error)?,
         LayerManifestFormat::Json | LayerManifestFormat::Jsonc => {
             serde_json::to_string_pretty(metadata)
                 .map_err(|error| serialization_error(error.to_string()))?
@@ -425,4 +440,30 @@ pub fn encode_metadata(
         text.push('\n');
     }
     Ok(text.into_bytes())
+}
+
+// Encode each root value using TOML's own value serializer. In particular an
+// object author must be an inline root value, never an [author] section that
+// would absorb the following description. Struct serialization supplies stable
+// name/email/url order; no separate escaping or content grammar is introduced.
+fn encode_toml_metadata(metadata: &Metadata) -> Result<String, String> {
+    use serde::Serialize;
+    fn field(text: &mut String, name: &str, value: &impl Serialize) -> Result<(), String> {
+        text.push_str(name);
+        text.push_str(" = ");
+        value
+            .serialize(toml::ser::ValueSerializer::new(text))
+            .map_err(|error| error.to_string())?;
+        text.push('\n');
+        Ok(())
+    }
+    let mut text = String::new();
+    field(&mut text, "name", &metadata.name)?;
+    if let Some(author) = &metadata.author {
+        field(&mut text, "author", author)?;
+    }
+    if let Some(description) = &metadata.description {
+        field(&mut text, "description", description)?;
+    }
+    Ok(text)
 }

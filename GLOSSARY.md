@@ -150,9 +150,14 @@ References identify [local dependencies](#local-dependency) by explicit path or
 Names use lowercase ASCII letters, digits, `.`, `_`, and `-`, optionally as
 `@scope/name`, with at most 214 characters overall. An unscoped name and a scope
 cannot start with `.` or `_`; the component after a scope can. Names are not
-silently rewritten and need not match directory names. Author and description
-are arbitrary non-blank strings, preserved unchanged. The same content rules
-apply in every supported format.
+silently rewritten and need not match directory names. Author is a non-blank
+string, including npm's name with optional email and URL notation, or an object
+with a required non-blank `name` and optional `email` and `url`. Object contacts use
+offline email and absolute-URI syntax checks: the URL includes a scheme such as
+`https:` or `mailto:`, without verifying identity or ownership. Existing author
+strings are preserved without parsing. Description is a non-blank string.
+Accepted values and author representation are preserved when reading. The same
+content rules apply in every supported format.
 
 If multiple supported names are occupied, selection follows the fixed order
 `layer.yaml` > `layer.yml` > `layer.toml` > `layer.json` > `layer.jsonc`. Only the

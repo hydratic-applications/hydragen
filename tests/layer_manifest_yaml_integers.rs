@@ -118,7 +118,23 @@ fn overflowing_integers() -> Vec<String> {
 
 fn assert_number_at_every_position(format: Format, scalar: &str, expected: &Value) {
     for (pointer, key, text) in positions(scalar) {
-        if matches!(pointer, "/name" | "/author" | "/description") {
+        if pointer == "/author" {
+            let Err(LayerManifestError::Metadata {
+                source:
+                    MetadataError::Schema(hydragen::layer_manifest::schema::Error::Content(failure)),
+                ..
+            }) = read(format, &text)
+            else {
+                panic!("expected string/object author type failure: {format} {text}");
+            };
+            assert_eq!(failure.instance_path, "/author");
+            assert_eq!(
+                failure.kind,
+                hydragen::layer_manifest::schema::ViolationKind::Type
+            );
+            assert_eq!(failure.keyword, "type");
+            assert!(failure.message.contains("string") && failure.message.contains("object"));
+        } else if matches!(pointer, "/name" | "/description") {
             assert!(
                 matches!(
                     read(format, &text),

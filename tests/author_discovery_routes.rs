@@ -381,7 +381,27 @@ fn each_input_flag_keeps_project_and_identity_authors_out_of_flag_only_init() {
         ),
         (
             vec!["init", "--author", "Explicit team"],
-            json!({"name": "existing-project", "author": "Explicit team"}),
+            json!({"name": "existing-project", "author": {"name": "Explicit team"}}),
+        ),
+        (
+            vec![
+                "init",
+                "--author",
+                "Explicit team",
+                "--author-email",
+                "a@example.com",
+            ],
+            json!({"name": "existing-project", "author": {"name": "Explicit team", "email":"a@example.com"}}),
+        ),
+        (
+            vec![
+                "init",
+                "--author",
+                "Explicit team",
+                "--author-url",
+                "https://example.com",
+            ],
+            json!({"name": "existing-project", "author": {"name": "Explicit team", "url":"https://example.com"}}),
         ),
         (
             vec!["init", "--description", "Existing layer"],
@@ -482,7 +502,7 @@ fn explicit_author_is_preserved_without_discovery_and_blank_values_still_fail() 
     fixture.assert_created(
         &output,
         LayerManifestFormat::Yaml,
-        json!({"name": "existing-project", "author": author}),
+        json!({"name": "existing-project", "author": {"name": author}}),
     );
 
     for author in ["", " \t\n", "\u{00a0}\u{2003}", "\u{85}"] {
@@ -502,7 +522,7 @@ fn only_the_first_creation_succeeds_without_changing_project_attribution() {
     fixture.assert_created(
         &output,
         LayerManifestFormat::Yaml,
-        json!({"name": "existing-project", "author": "Explicit team"}),
+        json!({"name": "existing-project", "author": {"name": "Explicit team"}}),
     );
     let before = snapshot(fixture.sandbox.path());
     let output = fixture.run(&["init", "--author", "Replacement team"]);

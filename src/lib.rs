@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+pub mod author;
 pub mod dependencies;
+pub use author::{Author, AuthorObject};
 pub mod diagnostic_text;
 pub mod layer_manifest;
 pub mod replacement;
@@ -19,7 +21,7 @@ pub use layer_manifest::{
 pub struct Metadata {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<String>,
+    pub author: Option<Author>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -506,7 +508,7 @@ mod tests {
         for author in [None, Some("Example team".to_owned())] {
             for description in [None, Some("Example layer".to_owned())] {
                 let metadata = Metadata {
-                    author: author.clone(),
+                    author: author.clone().map(Author::from),
                     description: description.clone(),
                     ..metadata()
                 };

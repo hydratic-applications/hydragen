@@ -502,6 +502,15 @@ when they reach it. If preparation is unfinished, a short, clearly indicated wai
 is preferable to an unexplained pause. Optional discovery must not hold the
 developer indefinitely or change the choices after they start selecting one.
 
+The same author name can appear in a project declaration, Git settings, the system
+account, and GitHub, while those sources have different work or personal email
+addresses and websites—or no contact details at all. Selecting that name should
+offer its associated contact details as choices, not silently choose an address
+or website. Familiar author notation, such as npm's name with optional email and
+URL, can also save re-entering information already supplied. Developers should be
+able to omit contact details and understand that sharing the layer manifest may
+make any included contact information public.
+
 One developer changes a shared configuration without AI tools. Another uses their
 own AI assistant for help and later delegates an update to an agent. Both need to
 find the same dependency and selected version, understand local contributions,

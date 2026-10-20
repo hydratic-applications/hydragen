@@ -1424,11 +1424,39 @@ mod tests {
                         panic!("expected metadata error for {format} {field}={literal}: {error}");
                     };
                     assert_eq!(affected, &path);
-                    assert_eq!(source, &MetadataError::NotString { field });
-                    assert_eq!(
-                        source.to_string(),
-                        format!("Metadata field '{field}' must be a string.")
-                    );
+                    let author_violation = if field == "author" {
+                        let MetadataError::Schema(schema::Error::Content(violation)) = source
+                        else {
+                            panic!("expected structured author failure: {source:?}");
+                        };
+                        assert_eq!(violation.instance_path, "/author");
+                        if value.is_object() {
+                            assert_eq!(
+                                violation.kind,
+                                schema::ViolationKind::Required {
+                                    property: "name".into()
+                                }
+                            );
+                            assert_eq!(violation.keyword, "required");
+                            assert_eq!(violation.schema_path, "/$defs/authorObject/required");
+                        } else {
+                            assert_eq!(violation.kind, schema::ViolationKind::Type);
+                            assert_eq!(violation.keyword, "type");
+                            assert_eq!(violation.schema_path, "/$defs/author/type");
+                            assert!(
+                                violation.message.contains("string")
+                                    && violation.message.contains("object")
+                            );
+                        }
+                        Some(violation.clone())
+                    } else {
+                        assert_eq!(source, &MetadataError::NotString { field });
+                        assert_eq!(
+                            source.to_string(),
+                            format!("Metadata field '{field}' must be a string.")
+                        );
+                        None
+                    };
                     let error = Arc::new(error);
                     for origin in [
                         SourceOrigin::Current,
@@ -1437,13 +1465,31 @@ mod tests {
                     ] {
                         let text = body(origin, DependencyError::LayerManifest(Arc::clone(&error)));
                         assert!(text.contains(&format!("'{}'", display(path.display()))));
-                        assert!(
-                            text.contains(&format!("Metadata field '{field}' must be a string."))
-                        );
-                        assert!(text.contains(&format!(
-                            "Tip: Set '{field}' to a string, or omit it only if it is optional."
-                        )));
-                        assert!(!text.contains("null"), "{text}");
+                        if let Some(violation) = &author_violation {
+                            assert!(text.contains(&violation.to_string()), "{text}");
+                            assert!(
+                                text.contains(&format!("Schema rule: '{}'", violation.schema_path)),
+                                "{text}"
+                            );
+                            let correction = if value.is_object() {
+                                "Tip: Add the required 'name' property at the reported location."
+                            } else {
+                                "Tip: Use the value type required by the reported schema constraint."
+                            };
+                            assert!(text.contains(correction), "{text}");
+                            assert!(!text.contains("must be a string."), "{text}");
+                            assert_eq!(text.contains("null"), value.is_null(), "{text}");
+                        } else {
+                            assert!(
+                                text.contains(&format!(
+                                    "Metadata field '{field}' must be a string."
+                                ))
+                            );
+                            assert!(text.contains(&format!(
+                                "Tip: Set '{field}' to a string, or omit it only if it is optional."
+                            )));
+                            assert!(!text.contains("null"), "{text}");
+                        }
                         assert_eq!(text.matches("No files were changed.").count(), 1);
                     }
                 }

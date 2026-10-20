@@ -1,0 +1,12 @@
+[
+  "Alex",
+  "Alex <alex@example.invalid> (https://alex.invalid)",
+  "  配置 🦀\nAlex <bad> arbitrary legacy punctuation  ",
+  {"name": "Alex"},
+  {"name": "  配置 🦀\n  "},
+  {"name": "Alex <literal> (team)", "email": "Alex+work@example.invalid"},
+  {"name": "Alex", "url": "mailto:Alex@example.invalid"},
+  {"name": "Alex", "url": "urn:example:person"},
+  {"name": "Alex", "email": "a@example.invalid", "url": "https://unreachable.invalid/path?x=1#part"},
+  {"url": "https://example.invalid", "extra": {"values": [true, 7, "配置"], "email": false}, "name": "Alex", "email": "a@example.invalid"}
+]
