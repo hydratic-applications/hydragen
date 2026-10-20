@@ -206,7 +206,7 @@ mod tests {
         );
         assert_eq!(
             choices[1].hint,
-            "GIT_AUTHOR_NAME, Git local user.name, system account name"
+            "GIT_AUTHOR_NAME, Git local user.name, and system account name"
         );
         assert_eq!(choices[2].hint, "Git local author.name");
         assert_eq!(choices[4].hint, "system account username");

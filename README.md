@@ -77,7 +77,7 @@ account name; press Enter to accept it or type another name.
 
 Author offers names directly declared in the directory's `package.json`,
 `Cargo.toml`, and `pyproject.toml` before Git, GitHub, and system-account suggestions.
-Identical names appear once, with hints showing their sources. Choose a name,
+Identical names appear once; focus a name to see its sources beside it. Choose a name,
 **Enter another author**, or **Skip**. Enter accepts the current selection; Skip
 omits author and moves to Description. With no suggestions, or after choosing
 Enter another author, an empty optional text prompt lets you type a name or press

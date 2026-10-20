@@ -383,7 +383,7 @@ impl TerminalDriver {
     fn custom(&mut self) {
         self.wait("Enter another author");
         self.send(b"\x1b[B");
-        self.wait("● Enter another author");
+        self.wait("● ✏️  Enter another author");
         let offset = self.output.len();
         self.send(b"\r");
         self.wait_text_author(offset);
@@ -586,7 +586,7 @@ fn membership_only_defaults_to_empty_custom_input() {
     let mut driver = TerminalDriver::new("membership");
     driver.enter_name();
     driver.wait("Membership organisation");
-    driver.wait("● Enter another author");
+    driver.wait("● ✏️  Enter another author");
     let offset = driver.output.len();
     driver.send(b"\r");
     // The action's submitted frame is suppressed; the next Author is text.
@@ -606,7 +606,7 @@ fn long_membership_only_selector_visibly_selects_custom_and_enter_opens_empty_in
     let offset = driver.output.len();
     driver.send(b"\r");
     driver.wait_text_author(offset);
-    let initially_visible = driver.text().contains("● Enter another author");
+    let initially_visible = driver.text().contains("● ✏️  Enter another author");
     driver.send(b"\r");
     let result = driver.complete();
     assert!(result["author"].is_null());
@@ -635,7 +635,7 @@ fn moving_up_from_long_membership_custom_visibly_selects_and_summarises_the_name
     let description = transcript
         .find("◆  Description")
         .expect("next Description prompt");
-    let visible = transcript[..submit.unwrap_or(description)].contains("● Membership 19");
+    let visible = transcript[..submit.unwrap_or(description)].contains("● 🏢  Membership 19");
     let summary =
         submit.is_some_and(|submit| transcript[submit..description].contains("│  Membership 19\n"));
     assert!(

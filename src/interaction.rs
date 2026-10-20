@@ -11,7 +11,7 @@ use hydragen::diagnostic_text::display;
 use hydragen::layer_manifest::schema;
 use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
 
-use crate::author_discovery::{Choice, Preparation};
+use crate::author_discovery::{AuthorProvenanceKind, Choice, Preparation};
 use crate::diagnostics::{CliIoError, CompletionChannel};
 use crate::presentation::{self, Presentation};
 
@@ -31,7 +31,48 @@ struct AuthorSelectorTheme {
     // Theme hooks receive labels/hints, not selector values. Keep their exact
     // display identities mapped to typed actions; never interpret a name as an action.
     rows: Vec<(String, String, AuthorAction)>,
+    kinds: Vec<AuthorProvenanceKind>,
     selected: AuthorAction,
+}
+
+impl AuthorSelectorTheme {
+    fn kind(&self, action: AuthorAction) -> AuthorProvenanceKind {
+        match action {
+            AuthorAction::Candidate(index) => self.kinds[index],
+            _ => AuthorProvenanceKind::Unspecified,
+        }
+    }
+}
+
+// The full glyph set fixes the slot width, independent of viewport or choices.
+fn author_icon_slot_width() -> usize {
+    ["👤", "🏢", "◈", "◇", "✏️", "⏭"]
+        .into_iter()
+        .map(console::measure_text_width)
+        .fold(2, usize::max)
+}
+
+// Display-only prefix: glyph, right padding to the fixed slot, then two spaces.
+// Basic terminals keep that same slot; NO_COLOR does not select ASCII icons.
+fn author_icon_prefix(action: AuthorAction, kind: AuthorProvenanceKind, basic: bool) -> String {
+    let glyph = match (action, kind, basic) {
+        (AuthorAction::EnterAnother, _, false) => "✏️",
+        (AuthorAction::EnterAnother, _, true) => "+",
+        (AuthorAction::Skip, _, false) => "⏭",
+        (AuthorAction::Skip, _, true) => ">",
+        (_, AuthorProvenanceKind::Identity, false) => "👤",
+        (_, AuthorProvenanceKind::Identity, true) => "U",
+        (_, AuthorProvenanceKind::Organisation, false) => "🏢",
+        (_, AuthorProvenanceKind::Organisation, true) => "O",
+        (_, AuthorProvenanceKind::Mixed, false) => "◈",
+        (_, AuthorProvenanceKind::Mixed, true) => "*",
+        (_, AuthorProvenanceKind::Unspecified, false) => "◇",
+        (_, AuthorProvenanceKind::Unspecified, true) => "?",
+    };
+    format!(
+        "{glyph}{}  ",
+        " ".repeat(author_icon_slot_width().saturating_sub(console::measure_text_width(glyph)))
+    )
 }
 
 type AuthorThemeState = Arc<Mutex<Option<AuthorSelectorTheme>>>;
@@ -163,7 +204,7 @@ impl cliclack::Theme for InitTheme {
         {
             return String::new();
         }
-        let author_action = {
+        let author_row = {
             let mut context = self.author.lock().unwrap();
             context.as_mut().and_then(|context| {
                 let action = context
@@ -175,9 +216,10 @@ impl cliclack::Theme for InitTheme {
                 if selected && let Some(action) = action {
                     context.selected = action;
                 }
-                action
+                action.map(|action| (action, context.kind(action)))
             })
         };
+        let author_action = author_row.map(|(action, _)| action);
         if matches!(state, cliclack::ThemeState::Submit) {
             match author_action {
                 Some(AuthorAction::Skip) => {
@@ -202,9 +244,20 @@ impl cliclack::Theme for InitTheme {
         };
         let symbol = self.radio_symbol(state, selected);
         let gap = if symbol.is_empty() { "" } else { " " };
-        let hint = if hint.is_empty()
-            || (author_action.is_some() && matches!(state, cliclack::ThemeState::Submit))
-        {
+        let icon = if matches!(state, cliclack::ThemeState::Active) {
+            author_row.map_or_else(String::new, |(action, kind)| {
+                author_icon_prefix(action, kind, self.presentation.basic)
+            })
+        } else {
+            String::new()
+        };
+        // Author sources appear inline only beside the focused active candidate,
+        // never beside actions, unfocused choices, or completed answers.
+        let show_hint = author_action.is_none()
+            || (matches!(author_action, Some(AuthorAction::Candidate(_)))
+                && selected
+                && matches!(state, cliclack::ThemeState::Active));
+        let hint = if hint.is_empty() || !show_hint {
             String::new()
         } else {
             self.presentation
@@ -213,7 +266,10 @@ impl cliclack::Theme for InitTheme {
                 .apply_to(format!(" ({hint})"))
                 .to_string()
         };
-        format!("{symbol}{gap}{}{hint}", style.apply_to(label))
+        format!(
+            "{symbol}{gap}{}{hint}",
+            style.apply_to(format!("{icon}{label}"))
+        )
     }
 
     fn format_select_item(
@@ -231,6 +287,8 @@ impl cliclack::Theme for InitTheme {
         {
             return String::new();
         }
+        // Leave natural terminal wrapping and redraw to cliclack, as for other
+        // selectors; do not insert a separate source-detail line.
         format!(
             "{}  {}\n",
             self.bar_color(state).apply_to("│"),
@@ -573,6 +631,7 @@ fn collect_author(choices: &[Choice], session: &GuidedSession) -> io::Result<Opt
     let action = {
         *session.author.lock().unwrap() = Some(AuthorSelectorTheme {
             rows,
+            kinds: choices.iter().map(|choice| choice.kind).collect(),
             selected: initial,
         });
         let _scope = AuthorThemeScope(&session.author);
@@ -1187,11 +1246,13 @@ mod tests {
                 name: "Membership".into(),
                 hint: "membership".into(),
                 eligible: false,
+                kind: AuthorProvenanceKind::Organisation,
             },
             Choice {
                 name: "Declared organisation".into(),
                 hint: "project".into(),
                 eligible: true,
+                kind: AuthorProvenanceKind::Unspecified,
             },
         ];
         assert_eq!(author_initial(&choices), AuthorAction::Candidate(1));
@@ -1221,6 +1282,10 @@ mod tests {
                 ),
                 ("Skip".into(), String::new(), AuthorAction::Skip),
             ],
+            kinds: vec![
+                AuthorProvenanceKind::Unspecified,
+                AuthorProvenanceKind::Identity,
+            ],
             selected: AuthorAction::Candidate(0),
         });
         let scope = AuthorThemeScope(&theme.author);
@@ -1246,10 +1311,9 @@ mod tests {
                 .radio_item(&ThemeState::Submit, true, "Skip", "package.json author")
                 .contains("package.json")
         );
-        assert!(
-            theme
-                .radio_item(&ThemeState::Active, true, "Skip", "package.json author")
-                .contains("package.json")
+        assert_eq!(
+            theme.radio_item(&ThemeState::Active, true, "Skip", "package.json author"),
+            "● ◇   Skip (package.json author)"
         );
         drop(scope);
         assert!(theme.author.lock().unwrap().is_none());
@@ -1261,5 +1325,267 @@ mod tests {
             theme.radio_item(&ThemeState::Submit, true, "Skip", ""),
             "Skip"
         );
+    }
+
+    fn author_theme() -> InitTheme {
+        let theme = theme();
+        *theme.author.lock().unwrap() = Some(AuthorSelectorTheme {
+            rows: vec![
+                (
+                    "Alex".into(),
+                    "package.json author and Git local user.name".into(),
+                    AuthorAction::Candidate(0),
+                ),
+                (
+                    "Morgan".into(),
+                    "system account name".into(),
+                    AuthorAction::Candidate(1),
+                ),
+                (
+                    "No source".into(),
+                    String::new(),
+                    AuthorAction::Candidate(2),
+                ),
+                (
+                    "Enter another author".into(),
+                    String::new(),
+                    AuthorAction::EnterAnother,
+                ),
+                ("Skip".into(), String::new(), AuthorAction::Skip),
+            ],
+            kinds: vec![
+                AuthorProvenanceKind::Identity,
+                AuthorProvenanceKind::Identity,
+                AuthorProvenanceKind::Unspecified,
+            ],
+            selected: AuthorAction::Candidate(0),
+        });
+        theme
+    }
+
+    #[test]
+    fn only_the_focused_active_author_candidate_has_an_inline_hint() {
+        let theme = author_theme();
+        let first_hint = "package.json author and Git local user.name";
+        let render = |selected, label, hint| {
+            theme.format_select_item(&ThemeState::Active, selected, label, hint)
+        };
+        assert_eq!(
+            render(true, "Alex", first_hint),
+            "│  ● 👤  Alex (package.json author and Git local user.name)\n"
+        );
+        assert_eq!(render(false, "Alex", first_hint), "│  ○ 👤  Alex\n");
+        assert_eq!(
+            render(true, "Morgan", "system account name"),
+            "│  ● 👤  Morgan (system account name)\n"
+        );
+        for (label, icon) in [
+            ("Enter another author", "✏️ "),
+            ("Skip", "⏭  "),
+            ("No source", "◇  "),
+        ] {
+            assert_eq!(render(true, label, ""), format!("│  ● {icon} {label}\n"));
+        }
+        theme.author.lock().unwrap().as_mut().unwrap().rows[4].1 = "action hint".into();
+        assert_eq!(render(true, "Skip", "action hint"), "│  ● ⏭   Skip\n");
+        // Lookup is the exact label/hint pair, not a candidate-like label alone.
+        assert_eq!(
+            render(true, "Alex", "unmapped hint"),
+            "│  ● Alex (unmapped hint)\n"
+        );
+    }
+
+    #[test]
+    fn author_details_never_leak_into_submit_cancel_or_error_rows() {
+        let theme = author_theme();
+        let hint = "package.json author and Git local user.name";
+        for state in [ThemeState::Submit, ThemeState::Cancel] {
+            assert_eq!(theme.radio_item(&state, true, "Alex", hint), "Alex");
+            assert_eq!(
+                theme.format_select_item(&state, true, "Alex", hint),
+                "│  Alex\n"
+            );
+            assert!(
+                theme
+                    .format_select_item(&state, false, "Alex", hint)
+                    .is_empty()
+            );
+        }
+        assert_eq!(
+            theme.format_select_item(&ThemeState::Error("Invalid".into()), true, "Alex", hint,),
+            "│  Alex\n"
+        );
+        for label in ["Enter another author", "Skip"] {
+            let cancelled = theme.format_select_item(&ThemeState::Cancel, true, label, "");
+            assert!(!cancelled.contains('('));
+        }
+    }
+
+    #[test]
+    fn focused_author_details_are_dim_and_other_selectors_keep_their_layout() {
+        let mut author = author_theme();
+        author.presentation.decorated = true;
+        let rendered =
+            author.format_select_item(&ThemeState::Active, true, "Morgan", "system account name");
+        assert!(rendered.contains("\x1b[2m (system account name)"));
+        assert_eq!(
+            console::strip_ansi_codes(&rendered),
+            "│  ● 👤  Morgan (system account name)\n"
+        );
+
+        let ordinary = theme();
+        for state in [ThemeState::Active, ThemeState::Submit, ThemeState::Cancel] {
+            for selected in [false, true] {
+                assert_eq!(
+                    console::strip_ansi_codes(
+                        &author.format_select_item(&state, selected, "yaml", "")
+                    ),
+                    ordinary.format_select_item(&state, selected, "yaml", "")
+                );
+            }
+        }
+        assert_eq!(
+            ordinary.format_select_item(&ThemeState::Active, true, "toml", "ordinary hint",),
+            "│  ● toml (ordinary hint)\n"
+        );
+    }
+
+    #[test]
+    fn inline_sources_preserve_complete_text_without_forced_line_breaks() {
+        for hint in [
+            "package.json author, Cargo.toml package.authors, and Git local user.name".to_owned(),
+            "long-token-".repeat(24),
+            "界e\u{301}".repeat(60),
+        ] {
+            let theme = author_theme();
+            theme.author.lock().unwrap().as_mut().unwrap().rows[0].1 = hint.clone();
+            let rendered = theme.format_select_item(&ThemeState::Active, true, "Alex", &hint);
+            assert_eq!(rendered, format!("│  ● 👤  Alex ({hint})\n"));
+            assert_eq!(rendered.lines().count(), 1);
+        }
+    }
+
+    #[test]
+    fn all_author_icons_share_one_slot_and_keep_hints_inline() {
+        let variants = [
+            (
+                AuthorAction::Candidate(0),
+                AuthorProvenanceKind::Identity,
+                "👤",
+                "U",
+            ),
+            (
+                AuthorAction::Candidate(0),
+                AuthorProvenanceKind::Organisation,
+                "🏢",
+                "O",
+            ),
+            (
+                AuthorAction::Candidate(0),
+                AuthorProvenanceKind::Mixed,
+                "◈",
+                "*",
+            ),
+            (
+                AuthorAction::Candidate(0),
+                AuthorProvenanceKind::Unspecified,
+                "◇",
+                "?",
+            ),
+            (
+                AuthorAction::EnterAnother,
+                AuthorProvenanceKind::Unspecified,
+                "✏️",
+                "+",
+            ),
+            (
+                AuthorAction::Skip,
+                AuthorProvenanceKind::Unspecified,
+                "⏭",
+                ">",
+            ),
+        ];
+        let slot = author_icon_slot_width();
+        assert!(slot >= 2);
+        for basic in [false, true] {
+            for decorated in [false, true] {
+                for (action, kind, unicode, ascii) in variants {
+                    let glyph = if basic { ascii } else { unicode };
+                    let icon = author_icon_prefix(action, kind, basic);
+                    assert!(icon.starts_with(glyph));
+                    assert!(
+                        icon[glyph.len()..]
+                            .chars()
+                            .all(|character| character == ' ')
+                    );
+                    assert_eq!(console::measure_text_width(&icon), slot + 2);
+                    assert!(icon.ends_with("  "));
+
+                    let mut theme = author_theme();
+                    theme.presentation.basic = basic;
+                    theme.presentation.decorated = decorated;
+                    let (label, hint) = {
+                        let mut context = theme.author.lock().unwrap();
+                        let context = context.as_mut().unwrap();
+                        context.kinds[0] = kind;
+                        let (label, hint, _) = context
+                            .rows
+                            .iter()
+                            .find(|(_, _, row_action)| *row_action == action)
+                            .unwrap();
+                        (label.clone(), hint.clone())
+                    };
+                    for selected in [false, true] {
+                        let output =
+                            theme.format_select_item(&ThemeState::Active, selected, &label, &hint);
+                        if !decorated {
+                            assert!(!output.contains('\x1b'), "{output:?}");
+                        }
+                        let plain = console::strip_ansi_codes(&output);
+                        let mut lines = plain.lines();
+                        let row = lines.next().unwrap();
+                        assert!(row.contains(glyph));
+                        let (before_name, _) = row.split_once(&label).unwrap();
+                        let name_column = console::measure_text_width(before_name);
+                        assert_eq!(name_column, 3 + 2 + slot + 2);
+                        let expected_hint =
+                            if selected && matches!(action, AuthorAction::Candidate(_)) {
+                                format!(" ({hint})")
+                            } else {
+                                String::new()
+                            };
+                        assert_eq!(
+                            row,
+                            format!(
+                                "│  {} {icon}{label}{expected_hint}",
+                                if selected { "●" } else { "○" }
+                            )
+                        );
+                        assert!(lines.next().is_none());
+                    }
+                    // Rendering decorates neither the raw label/hint identity
+                    // nor its accepted or cancelled answer.
+                    for state in [ThemeState::Submit, ThemeState::Cancel] {
+                        let summary = theme.radio_item(&state, true, &label, &hint);
+                        let plain = console::strip_ansi_codes(&summary);
+                        let expected = match (&state, action) {
+                            (ThemeState::Submit, AuthorAction::Skip) => "Skipped",
+                            (ThemeState::Submit, AuthorAction::EnterAnother) => "",
+                            _ => label.as_str(),
+                        };
+                        assert_eq!(plain, expected);
+                    }
+                    let context = theme.author.lock().unwrap();
+                    assert!(
+                        context
+                            .as_ref()
+                            .unwrap()
+                            .rows
+                            .iter()
+                            .any(|row| { row == &(label.clone(), hint.clone(), action) })
+                    );
+                }
+            }
+        }
     }
 }

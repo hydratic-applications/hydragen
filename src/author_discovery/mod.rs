@@ -73,6 +73,28 @@ pub struct Choice {
     pub name: String,
     pub hint: String,
     pub eligible: bool,
+    pub kind: AuthorProvenanceKind,
+}
+
+/// Evidence about a suggestion's sources, not a verified person/entity type.
+/// Identity settings may themselves contain a company or team name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorProvenanceKind {
+    Identity,
+    Organisation,
+    Mixed,
+    Unspecified,
+}
+
+impl AuthorProvenanceKind {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Unspecified, kind) | (kind, Self::Unspecified) => kind,
+            (Self::Identity, Self::Identity) => Self::Identity,
+            (Self::Organisation, Self::Organisation) => Self::Organisation,
+            _ => Self::Mixed,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,6 +148,19 @@ pub(super) enum Source {
 }
 
 impl Source {
+    fn provenance_kind(&self) -> AuthorProvenanceKind {
+        match self {
+            Self::Project { .. } => AuthorProvenanceKind::Unspecified,
+            Self::GithubOrganization { .. } => AuthorProvenanceKind::Organisation,
+            Self::GitAuthorEnvironment
+            | Self::Git { .. }
+            | Self::GithubProfile { .. }
+            | Self::AccountName
+            | Self::AccountUsername
+            | Self::EnvironmentUsername { .. } => AuthorProvenanceKind::Identity,
+        }
+    }
+
     fn order(&self) -> (u8, usize, usize, usize) {
         match self {
             Self::Project { file, index } => (0, *file as usize, *index, 0),
@@ -164,17 +199,20 @@ impl Source {
                 };
                 format!("Git {scope} {key}")
             }
-            Self::GithubProfile { login, host } => {
+            Self::GithubProfile { login, host } | Self::GithubOrganization { login, host } => {
                 if !safe_component(login) || !safe_component(host) {
                     return None;
                 }
-                format!("GitHub profile {login} on {host}")
-            }
-            Self::GithubOrganization { login, host } => {
-                if !safe_component(login) || !safe_component(host) {
-                    return None;
+                let kind = if matches!(self, Self::GithubProfile { .. }) {
+                    "profile"
+                } else {
+                    "organisation"
+                };
+                if host.eq_ignore_ascii_case("github.com") {
+                    format!("GitHub {kind} {login}")
+                } else {
+                    format!("GitHub {kind} {login} on {host}")
                 }
-                format!("GitHub organisation {login} on {host}")
             }
             Self::AccountName => "system account name".to_owned(),
             Self::AccountUsername => "system account username".to_owned(),
@@ -240,24 +278,89 @@ fn choices(mut records: Vec<Record>) -> Vec<Choice> {
                 name: record.name,
                 hint: String::new(),
                 eligible: false,
+                kind: AuthorProvenanceKind::Unspecified,
             });
             hints.push(Vec::new());
             result.len() - 1
         });
         result[index].eligible |= eligible;
+        result[index].kind = result[index].kind.merge(record.source.provenance_kind());
         if !hints[index].contains(&record.hint) {
             hints[index].push(record.hint);
         }
     }
     for (choice, hints) in result.iter_mut().zip(hints) {
-        choice.hint = hints.join(", ");
+        choice.hint = join_source_hints(&hints);
     }
     result
+}
+
+fn join_source_hints(hints: &[String]) -> String {
+    match hints {
+        [] => String::new(),
+        [hint] => hint.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [earlier @ .., last] => format!("{}, and {last}", earlier.join(", ")),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn github_hints_omit_the_public_host_but_keep_enterprise_context_and_safety() {
+        for (host, suffix) in [
+            ("github.com", ""),
+            ("GITHUB.COM", ""),
+            ("enterprise.example", " on enterprise.example"),
+            (
+                "github.com.enterprise.example",
+                " on github.com.enterprise.example",
+            ),
+        ] {
+            for (source, kind) in [
+                (
+                    Source::GithubProfile {
+                        login: "alex".into(),
+                        host: host.into(),
+                    },
+                    "profile",
+                ),
+                (
+                    Source::GithubOrganization {
+                        login: "alex".into(),
+                        host: host.into(),
+                    },
+                    "organisation",
+                ),
+            ] {
+                assert_eq!(source.hint(), Some(format!("GitHub {kind} alex{suffix}")));
+            }
+        }
+        for (login, host) in [
+            ("bad\nlogin", "github.com"),
+            ("alex", "github.com\n"),
+            ("alex", ""),
+        ] {
+            assert!(
+                Source::GithubProfile {
+                    login: login.into(),
+                    host: host.into()
+                }
+                .hint()
+                .is_none()
+            );
+            assert!(
+                Source::GithubOrganization {
+                    login: login.into(),
+                    host: host.into()
+                }
+                .hint()
+                .is_none()
+            );
+        }
+    }
 
     #[test]
     fn normalization_preserves_spelling_and_rejects_unsafe_text() {
@@ -334,9 +437,285 @@ mod tests {
         assert_eq!(choices[0].name, "Team");
         assert_eq!(
             choices[0].hint,
-            "package.json author, Cargo.toml package.authors, system account name, GitHub organisation team on github.com"
+            "package.json author, Cargo.toml package.authors, system account name, and GitHub organisation team"
         );
         assert!(choices[0].eligible);
         assert!(!choices[1].eligible);
+        assert_eq!(choices[0].kind, AuthorProvenanceKind::Mixed);
+        assert_eq!(choices[1].kind, AuthorProvenanceKind::Organisation);
+    }
+
+    #[test]
+    fn source_hint_joining_handles_empty_single_pairs_and_oxford_lists() {
+        let hints: Vec<_> = ["first", "second", "third", "fourth"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        for (count, expected) in [
+            (0, ""),
+            (1, "first"),
+            (2, "first and second"),
+            (3, "first, second, and third"),
+            (4, "first, second, third, and fourth"),
+        ] {
+            assert_eq!(join_source_hints(&hints[..count]), expected);
+        }
+    }
+
+    #[test]
+    fn joining_keeps_source_text_order_exact_deduplication_and_eligibility() {
+        let records = vec![
+            Record {
+                name: "Team".into(),
+                source: Source::GithubOrganization {
+                    login: "team".into(),
+                    host: "github.com".into(),
+                },
+                hint: "GitHub organisation team and friends".into(),
+            },
+            Record {
+                name: "Team".into(),
+                source: Source::AccountName,
+                hint: "system account name".into(),
+            },
+            Record {
+                name: "Team".into(),
+                source: Source::AccountName,
+                hint: "system account name".into(),
+            },
+            Record {
+                name: "Team".into(),
+                source: Source::Project {
+                    file: ProjectFile::PackageJson,
+                    index: 0,
+                },
+                hint: "package.json author".into(),
+            },
+        ];
+        let grouped = choices(records);
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped[0].name, "Team");
+        assert_eq!(
+            grouped[0].hint,
+            "package.json author, system account name, and GitHub organisation team and friends"
+        );
+        assert!(grouped[0].eligible);
+    }
+
+    #[test]
+    fn provenance_describes_sources_even_when_identity_settings_name_a_company() {
+        let sources = [
+            (Source::GitAuthorEnvironment, AuthorProvenanceKind::Identity),
+            (
+                Source::Git {
+                    key: GitKey::Author,
+                    scope: GitScope::Command,
+                    index: 0,
+                },
+                AuthorProvenanceKind::Identity,
+            ),
+            (
+                Source::Git {
+                    key: GitKey::User,
+                    scope: GitScope::Local,
+                    index: 0,
+                },
+                AuthorProvenanceKind::Identity,
+            ),
+            (
+                Source::GithubProfile {
+                    login: "company".into(),
+                    host: "github.com".into(),
+                },
+                AuthorProvenanceKind::Identity,
+            ),
+            (Source::AccountName, AuthorProvenanceKind::Identity),
+            (Source::AccountUsername, AuthorProvenanceKind::Identity),
+            (
+                Source::EnvironmentUsername {
+                    variable: "USER",
+                    index: 0,
+                },
+                AuthorProvenanceKind::Identity,
+            ),
+            (
+                Source::GithubOrganization {
+                    login: "person-like-login".into(),
+                    host: "github.com".into(),
+                },
+                AuthorProvenanceKind::Organisation,
+            ),
+        ];
+        for (source, expected) in sources.into_iter().chain(
+            [
+                ProjectFile::PackageJson,
+                ProjectFile::CargoToml,
+                ProjectFile::PyprojectToml,
+            ]
+            .into_iter()
+            .map(|file| {
+                (
+                    Source::Project { file, index: 0 },
+                    AuthorProvenanceKind::Unspecified,
+                )
+            }),
+        ) {
+            let context = Context::for_tests();
+            for name in [" Team Incorporated ", "Alex Morgan", "👤 literal icon"] {
+                assert!(context.publish(name, source.clone()).unwrap());
+            }
+            let grouped = context.choices_for_tests().unwrap();
+            assert_eq!(grouped.len(), 3);
+            for name in ["Team Incorporated", "Alex Morgan", "👤 literal icon"] {
+                let choice = grouped.iter().find(|choice| choice.name == name).unwrap();
+                assert_eq!(choice.name, name);
+                assert_eq!(choice.kind, expected);
+                assert_eq!(choice.hint, source.hint().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn project_evidence_neither_erases_nor_invents_known_provenance() {
+        fn permutations(sources: &[Source]) -> Vec<Vec<Source>> {
+            if sources.is_empty() {
+                return vec![vec![]];
+            }
+            let mut result = Vec::new();
+            for index in 0..sources.len() {
+                let mut rest = sources.to_vec();
+                let first = rest.remove(index);
+                for mut tail in permutations(&rest) {
+                    tail.insert(0, first.clone());
+                    result.push(tail);
+                }
+            }
+            result
+        }
+        let project = Source::Project {
+            file: ProjectFile::PackageJson,
+            index: 0,
+        };
+        let identity = Source::GitAuthorEnvironment;
+        let organisation = Source::GithubOrganization {
+            login: "team".into(),
+            host: "github.com".into(),
+        };
+        for (sources, kind, eligible) in [
+            (
+                vec![project.clone()],
+                AuthorProvenanceKind::Unspecified,
+                true,
+            ),
+            (
+                vec![project.clone(), identity.clone()],
+                AuthorProvenanceKind::Identity,
+                true,
+            ),
+            (
+                vec![project.clone(), organisation.clone()],
+                AuthorProvenanceKind::Organisation,
+                true,
+            ),
+            (
+                vec![identity.clone(), organisation.clone()],
+                AuthorProvenanceKind::Mixed,
+                true,
+            ),
+            (
+                vec![organisation.clone()],
+                AuthorProvenanceKind::Organisation,
+                false,
+            ),
+            (
+                vec![project, identity, organisation],
+                AuthorProvenanceKind::Mixed,
+                true,
+            ),
+        ] {
+            let mut baseline = None;
+            for ordered in permutations(&sources) {
+                let context = Context::for_tests();
+                // Repeat every source to exercise idempotence independently of
+                // the order and exact-hint deduplication.
+                for source in ordered.iter().chain(ordered.iter().rev()) {
+                    context.publish("Same name", source.clone()).unwrap();
+                }
+                let grouped = context.choices_for_tests().unwrap();
+                assert_eq!(grouped.len(), 1);
+                assert_eq!(grouped[0].name, "Same name");
+                assert_eq!(grouped[0].kind, kind);
+                assert_eq!(grouped[0].eligible, eligible);
+                assert_eq!(baseline.get_or_insert_with(|| grouped.clone()), &grouped);
+            }
+        }
+    }
+
+    #[test]
+    fn rejected_source_evidence_does_not_change_provenance() {
+        let context = Context::for_tests();
+        context.publish("Team", Source::AccountName).unwrap();
+        context
+            .publish(
+                "Team",
+                Source::GithubOrganization {
+                    login: "unsafe\nlogin".into(),
+                    host: "github.com".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            context.choices_for_tests().unwrap()[0].kind,
+            AuthorProvenanceKind::Identity
+        );
+    }
+
+    #[test]
+    fn provenance_merge_is_idempotent_commutative_and_associative() {
+        let kinds = [
+            AuthorProvenanceKind::Unspecified,
+            AuthorProvenanceKind::Identity,
+            AuthorProvenanceKind::Organisation,
+            AuthorProvenanceKind::Mixed,
+        ];
+        for first in kinds {
+            assert_eq!(first.merge(first), first);
+            assert_eq!(first.merge(AuthorProvenanceKind::Unspecified), first);
+            for second in kinds {
+                assert_eq!(first.merge(second), second.merge(first));
+                for third in kinds {
+                    assert_eq!(
+                        first.merge(second).merge(third),
+                        first.merge(second.merge(third))
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            AuthorProvenanceKind::Identity.merge(AuthorProvenanceKind::Organisation),
+            AuthorProvenanceKind::Mixed
+        );
+    }
+
+    #[test]
+    fn hint_deduplication_does_not_discard_provenance_evidence() {
+        let grouped = choices(
+            [
+                Source::AccountName,
+                Source::GithubOrganization {
+                    login: "team".into(),
+                    host: "github.com".into(),
+                },
+            ]
+            .into_iter()
+            .map(|source| Record {
+                name: "Team".into(),
+                source,
+                hint: "same display hint".into(),
+            })
+            .collect(),
+        );
+        assert_eq!(grouped[0].hint, "same display hint");
+        assert_eq!(grouped[0].kind, AuthorProvenanceKind::Mixed);
     }
 }

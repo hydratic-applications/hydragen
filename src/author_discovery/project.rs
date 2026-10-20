@@ -407,7 +407,7 @@ mod tests {
             );
             assert_eq!(
                 choices[0].hint,
-                "package.json author, Cargo.toml package.authors, pyproject.toml project.authors"
+                "package.json author, Cargo.toml package.authors, and pyproject.toml project.authors"
             );
             assert!(choices.iter().all(|choice| choice.eligible));
         }

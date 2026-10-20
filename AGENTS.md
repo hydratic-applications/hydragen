@@ -283,7 +283,7 @@ failures remain errors, not an empty discovery result. The
 the supported fields, complete source order, host selection, and resource limits.
 
 When names exist, use the native single-choice `Author (optional)` selector with
-grouped source hints, then `Enter another author` and `Skip`. Initially select the
+grouped names, then `Enter another author` and `Skip`. Initially select the
 first project-declared or developer-identity name, including a project-declared
 organisation. A name supported only by GitHub membership is not evidence of
 authorship and must not be initially selected; if only such names exist, start on
@@ -294,6 +294,17 @@ selector and use the same empty optional Author text-input function as
 without restoring a suggestion or returning to the selector. Keep action values
 separate from name strings, use native scrolling for long lists, and show the
 accepted name or `Skipped`, never source hints or action labels as metadata.
+
+Show the complete source hint only beside the focused active candidate, in dimmed
+inline parentheses, without a separate detail row or truncation. Join pairs with
+`and` and longer source lists with an Oxford comma. Retain one aligned icon for
+source evidence per option, the emoji pencil for custom entry, and two separator
+spaces before every label. Do not guess an entity type from a name. Omit
+`on github.com` for the public host but retain other GitHub hosts. Preserve native
+wrapping/redraw, basic-terminal fallbacks and colour controls; completed answers
+omit added icons and sources. The
+[author-presentation design](openspec/changes/refine-author-choice-presentation/design.md)
+defines the glyphs, provenance rules and display-only boundaries.
 
 Start author preparation once, only after selecting guided input and completing
 target safety checks, schema readiness, and directory-name default validation.
