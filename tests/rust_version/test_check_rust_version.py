@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -273,7 +274,7 @@ class RustVersionTests(unittest.TestCase):
                 self.assertNotIn("width", dict(attrs))
 
     def test_actual_actions_handoff_emits_only_after_successful_checks(self):
-        workflow = (ROOT / ".github/workflows/coverage.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
         code = textwrap.dedent(workflow.split("        id: msrv\n        run: |\n", 1)[1].split("\n      - name:", 1)[0])
         scripts = self.root / "scripts"
         scripts.mkdir()
@@ -303,9 +304,9 @@ class RustVersionTests(unittest.TestCase):
                     self.assertIn("Rust version check failed:", result.stderr)
 
     def test_workflow_keeps_toolchain_selection_explicit_and_jobs_independent(self):
-        workflow = (ROOT / ".github/workflows/coverage.yml").read_text(encoding="utf-8")
-        job = workflow.split("\n  msrv:\n", 1)[1].split("\n  coverage:\n", 1)[0]
-        self.assertIn("    name: MSRV\n", job)
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+        job = re.split(r"\n  [a-z][a-z0-9_-]*:\n", workflow.split("\n  msrv:\n", 1)[1], maxsplit=1)[0]
+        self.assertIn("    name: Run tests on minimum supported Rust\n", job)
         self.assertNotIn("needs:", job)
         self.assertNotIn("secrets.", job)
         self.assertNotIn("id-token:", job)

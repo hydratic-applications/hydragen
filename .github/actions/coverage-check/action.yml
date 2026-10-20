@@ -1,0 +1,47 @@
+name: Check coverage threshold
+description: Validate this run's report and apply total or changed-line coverage policy.
+
+inputs:
+  mode:
+    description: Coverage policy to assess (total or changed).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate assessment mode
+      shell: bash
+      env:
+        COVERAGE_CHECK: ${{ inputs.mode }}
+      run: |
+        case "$COVERAGE_CHECK" in
+          total|changed) ;;
+          *) printf 'Invalid coverage assessment mode: %s\n' "$COVERAGE_CHECK" >&2; exit 2 ;;
+        esac
+
+    - name: Download only this run's named report
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.COVERAGE_HEAD }}
+        path: ${{ runner.temp }}/coverage-artifact
+
+    - name: Install isolated diff-cover
+      if: inputs.mode == 'changed'
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/coverage-venv"
+        "$RUNNER_TEMP/coverage-venv/bin/python" -m pip install 'diff-cover[toml]==10.6.0'
+
+    - name: Validate and enforce coverage threshold
+      shell: bash
+      env:
+        COVERAGE_CHECK: ${{ inputs.mode }}
+      run: |
+        args=()
+        if [[ "$COVERAGE_CHECK" == changed ]]; then
+          args+=(--diff-cover "$RUNNER_TEMP/coverage-venv/bin/diff-cover")
+        fi
+        python3 scripts/coverage_gate.py "$COVERAGE_CHECK" --artifact "$RUNNER_TEMP/coverage-artifact" \
+          --event "$COVERAGE_EVENT" --head "$COVERAGE_HEAD" --base "$COVERAGE_BASE" \
+          --repository "$COVERAGE_REPOSITORY" --run-id "$COVERAGE_RUN_ID" --run-attempt "$COVERAGE_RUN_ATTEMPT" \
+          "${args[@]}"

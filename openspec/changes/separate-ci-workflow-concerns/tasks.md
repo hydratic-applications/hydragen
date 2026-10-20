@@ -1,0 +1,23 @@
+## 1. Separate the workflow responsibilities
+
+- [x] 1.1 Add `.github/workflows/tests.yml` named `Testing` and move the existing `tests` and `msrv` jobs into it, labelling them `Run tests on stable Rust` and `Run tests on minimum supported Rust`. Preserve job ids, commands, toolchain handling, Python helper regressions, isolated pinned diff-cover, Ubuntu runners, 30-minute bounds, action SHA pins, and read-only permissions.
+- [x] 1.2 Declare all three existing events without path filters, use testing-specific immutable head context for both checkouts with credentials disabled, and add the distinct testing-prefixed PR/ref cancellation group. Keep the two jobs independent of each other and coverage, without event bridges or reusable-workflow coupling.
+- [x] 1.3 Restrict `Coverage` to PR/manual read-only `coverage`, `total`, and `changed` jobs, and add `Coverage on main` for main-push/manual runs with those jobs plus `upload`. Omit upload and OIDC entirely from the PR graph. Share post-checkout production/assessment in local composite actions, retaining action-led labels, job ids, guarded main-only uploading, distinct cancellation, same-run artifact identities, producer-only dependency edges, exact gates/N/A policy, and the isolated uploader.
+
+## 2. Preserve and extend workflow regressions
+
+- [x] 2.1 Update `tests/rust_version/test_check_rust_version.py` to read the testing workflow, retain execution of its actual handoff shell code for valid/invalid inputs, and remove assumptions that the MSRV job is followed by a coverage job. Retain explicit exact-toolchain and job-independence assertions.
+- [x] 2.2 Extend workflow assertions across three entry points and both composite actions: exact job membership/names, event routing, no upload/OIDC on PRs, distinct concurrency, immutable checkouts, bounded jobs, pinned external actions, exact local action allowlist, read-only sharing, and no cross-workflow coupling. Verify both coverage entry points call the same producer/check actions; locate pinned diff-cover in Testing and the shared changed-line implementation.
+- [x] 2.3 Retain all six labels/ids and existing artifact/dependency/privilege/inline-validator regressions, moving validator extraction to the main entry point. Execute the actual shared validation/assessment shell for valid and invalid modes, argument safety, independent coverage outcomes, and main N/A. Keep one measurement, no checkout/local action in the uploader, no OpenSpec test inputs, and no new parser/runtime dependency.
+
+## 3. Align current CI documentation
+
+- [x] 3.1 Revise README Development concisely to identify Testing and PR/main coverage entry points, with uploading absent from PR results and present only in Coverage on main. Preserve current names, local commands, compiler guidance, badge claims, and the focused reference link.
+- [x] 3.2 Update the coverage reference and CI-related publication checklist entries for three entry points, shared read-only actions, single-report reuse, separate manual dispatch choices, the non-main manual upload guard, and unchanged thresholds/trust policy. Preserve the six-name migration mapping and add the main workflow path without prescribing setting changes or rewriting publication history.
+- [x] 3.3 Review the revised documentation as a first-time reader, explicitly explaining why PRs have no upload check and how manual publishing differs from read-only checks. Confirm no product foundations/glossary/question change is needed.
+
+## 4. Verify the split and record evidence
+
+- [x] 4.1 Lint all three workflow entry points, run both Python helper suites with isolated pinned diff-cover, the offline Rust-version checker, and `cargo test --locked`. Record commands/results and environment limitations in verification.md, plus shared-action preservation and guarded main uploader review.
+- [x] 4.2 Push the authorised PR update, observe Testing and Coverage at the same immutable implementation head, and record run URLs, compiler results, gate results, shared action execution, report artifact identity, actual check names, and absence of any upload check or Coverage on main run. Use static/regression evidence for main-only uploading until the entry point exists on main; record the post-merge live-main gap without merging or dispatching uploads.
+- [x] 4.3 Inspect actual emitted check identities and applicable external branch-protection/ruleset/workflow references when access permits; report any required maintainer follow-up or access gap without changing repository settings. Review the final diff against the delta specs and validate the OpenSpec change.

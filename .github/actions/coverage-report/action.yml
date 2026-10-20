@@ -1,0 +1,39 @@
+name: Generate coverage report
+description: Measure once, validate the report, and retain this run's coverage evidence.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust and matching LLVM tools
+      shell: bash
+      run: rustup toolchain install stable --profile minimal --component llvm-tools-preview
+
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      with:
+        tool: cargo-llvm-cov@0.9.1
+        fallback: none
+
+    - name: Run instrumented tests once and generate fresh LCOV
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/raw-coverage"
+        cargo llvm-cov --locked --workspace --all-targets --lcov --output-path "$RUNNER_TEMP/raw-coverage/lcov.info"
+
+    - name: Validate and normalize report without applying thresholds
+      shell: bash
+      run: |
+        python3 scripts/coverage_gate.py prepare \
+          --report "$RUNNER_TEMP/raw-coverage/lcov.info" --output "$RUNNER_TEMP/coverage-artifact" \
+          --event "$COVERAGE_EVENT" --head "$COVERAGE_HEAD" --base "$COVERAGE_BASE" \
+          --repository "$COVERAGE_REPOSITORY" --run-id "$COVERAGE_RUN_ID" --run-attempt "$COVERAGE_RUN_ATTEMPT"
+
+    - name: Retain valid report, including below-target results
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.COVERAGE_HEAD }}
+        path: |
+          ${{ runner.temp }}/coverage-artifact/lcov.info
+          ${{ runner.temp }}/coverage-artifact/manifest.json
+        if-no-files-found: error
+        retention-days: 7

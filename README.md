@@ -298,15 +298,20 @@ cargo test --locked
 Product requirements and design decisions live in [OpenSpec](openspec/); those
 documents are not build or runtime inputs.
 
-CI reports **Tests** on current stable Rust and **MSRV** on the minimum from
-`Cargo.toml` as separate, independent checks. **Total coverage** and
-**Changed-line coverage** are independent percentage gates; each requires at least
-**80%**, using unrounded line counts. A PR with no changed measured executable
-lines reports changed-line coverage as not applicable. **Coverage report** retains
-the shared evidence even below target. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
-provides report browsing and the token-free `main` shield, not percentage gates;
-only main pushes and manual runs on main upload. The shield may be unavailable
-while report access is private.
+CI separates **Testing** from coverage. Testing reports **Run tests on stable
+Rust** and **Run tests on minimum supported Rust** independently, using the
+minimum from `Cargo.toml` for the latter.
+
+PRs use **Coverage**; pushes to `main` use **Coverage on main**. In either,
+**Generate coverage report** retains one shared report even below
+target. **Check total coverage** and **Check changed-line coverage** independently
+require at least **80%**, using unrounded line counts. A PR with no changed measured
+executable lines reports changed-line coverage as not applicable.
+**Upload main coverage to Codecov** is present only in Coverage on main, sending
+the same report on main pushes or manual runs of that workflow on `main`. It does
+not appear as a skipped PR check. [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main)
+provides report browsing and the token-free `main` shield, not percentage gates.
+The shield may be unavailable while report access is private.
 
 To check the MSRV declaration, README guidance, and dynamic shield configuration
 locally without network access, use Python 3.11 or newer:
