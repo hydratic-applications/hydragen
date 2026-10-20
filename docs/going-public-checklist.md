@@ -23,8 +23,9 @@ applicable if they are not in use when publication happens.
   receive secrets or run contributed code in a privileged context. **Testing** runs
   **Run tests on stable Rust** and **Run tests on minimum supported Rust** independently.
   **Coverage** runs **Generate coverage report**, **Check total coverage**, and
-  **Check changed-line coverage** on fork PRs but skips every PR's
-  **Upload main coverage to Codecov** job. Only that isolated main uploader may
+  **Check changed-line coverage** on fork PRs with no upload job or skipped upload
+  result. **Coverage on main** adds **Upload main coverage to Codecov** for main
+  pushes or manual runs on main, never PR events. Only that isolated uploader may
   request OIDC; it must not execute repository or artifact code.
   Publication does not automatically change that policy.
 - [ ] Verify the candidate's separate **Run tests on stable Rust**,
@@ -40,7 +41,7 @@ applicable if they are not in use when publication happens.
 - [ ] Check the repository and README while signed out, including images and
   linked documentation, to confirm what external readers can actually access.
 - [ ] If Codecov is configured, confirm its repository/report access is public,
-  not just the GitHub repository. Confirm a `main` workflow run has uploaded a
+  not just the GitHub repository. Confirm a **Coverage on main** run has uploaded a
   report and Codecov has processed it.
 - [ ] Verify the main-branch coverage shield works **without a badge token**, after
   normal service cache refresh. Keep its existing branch-specific Shields.io URL
@@ -55,11 +56,11 @@ applicable if they are not in use when publication happens.
 - [ ] Verify the next eligible PR receives independent **Run tests on stable Rust**
   and **Run tests on minimum supported Rust** results in **Testing**, plus both
   Actions-owned coverage gates in **Coverage**, including forks without upload
-  credentials. Confirm Codecov project/patch statuses remain disabled rather than
+  credentials and without an upload check. Confirm Codecov project/patch statuses remain disabled rather than
   becoming duplicate percentage policies. Review any old check-name or workflow-path
   references using the [migration guidance](coverage.md#workflow-and-check-name-migration).
 - [ ] Verify a real main push or manual-main run uploads the matching current-run
-  report using the separate OIDC job, including if valid coverage is below target.
+  report in **Coverage on main** using the separate OIDC job, including if valid coverage is below target.
   PR runs must not upload. Public access does not require unauthenticated uploads
   or privileged fork execution; do not widen permissions to make a result appear.
 - [ ] Recheck the README's deps.rs, stars, and sponsors badges and their links.

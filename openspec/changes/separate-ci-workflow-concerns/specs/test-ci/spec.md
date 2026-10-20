@@ -41,7 +41,8 @@ coverage artifact context. The jobs SHALL NOT depend on each other or on coverag
 
 ### Requirement: CI job labels state their actions and subjects
 
-Workflow names SHALL group responsibility as `Testing` and `Coverage`. Each job's
+Workflow names SHALL group responsibility as `Testing`, `Coverage`, and
+`Coverage on main`. Each job's
 display name SHALL state its primary action and subject rather than only a topic,
 result noun, or unexplained abbreviation. The testing jobs SHALL be named
 `Run tests on stable Rust` and `Run tests on minimum supported Rust`. Coverage jobs
@@ -83,10 +84,11 @@ Workflow regression tests SHALL assert the exact labels and corresponding job id
 The testing workflow SHALL trigger on `pull_request`, pushes to `main`, and
 `workflow_dispatch`, without path filters. It SHALL use
 `testing-${{ github.event.pull_request.number || github.ref }}` as its concurrency
-group with `cancel-in-progress: true`, distinct from coverage's existing group.
-Neither workflow SHALL trigger or depend on the other through an event bridge
-or a reusable-workflow call. Manually dispatching a workflow SHALL run only the
-selected responsibility.
+group with `cancel-in-progress: true`, distinct from both coverage entry points'
+groups. No entry point SHALL trigger or depend on another through an event bridge
+or a reusable-workflow call. Sharing local read-only coverage actions SHALL NOT
+couple workflow lifecycles. Manually dispatching a workflow SHALL run only that
+entry point.
 
 #### Scenario: Documentation-only changes trigger both responsibilities
 
@@ -102,9 +104,10 @@ selected responsibility.
 
 #### Scenario: A maintainer dispatches one workflow
 
-- **WHEN** a maintainer manually dispatches `Testing` or `Coverage`
+- **WHEN** a maintainer manually dispatches `Testing`, `Coverage`, or `Coverage on main`
 - **THEN** that workflow runs its own jobs without dispatching the other workflow
-- **AND** running both responsibilities manually requires selecting each workflow
+- **AND** running testing and coverage manually requires selecting the desired
+  entry points separately, with uploading available only through Coverage on main on `main`
 
 ## MODIFIED Requirements
 

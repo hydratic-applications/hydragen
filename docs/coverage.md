@@ -2,13 +2,22 @@
 
 Hydragen uses `cargo-llvm-cov` to measure which executable lines its tests exercise.
 It instruments Rust code using LLVM, the compiler infrastructure used by Rust.
-GitHub Actions separates ordinary test execution in the **Testing** workflow from
-measurement and percentage checks in **Coverage**. Both workflows run for PRs,
-including forks, and pushes to `main`, without path filters or a dependency on
-each other. Each also supports manual dispatch: select **Testing** or **Coverage**
-in GitHub Actions and use **Run workflow** for the desired branch. To run both
-responsibilities manually, dispatch each workflow separately; dispatching Coverage
-does not run the ordinary stable or minimum-version test jobs.
+GitHub Actions separates ordinary test execution in **Testing** from coverage:
+
+- **Testing** runs ordinary tests on stable and minimum supported Rust for PRs,
+  main pushes, and manual runs.
+- **Coverage** generates and checks coverage for PRs, including forks, or manual
+  read-only runs. It contains no Codecov upload job, so PRs have no skipped upload
+  check and receive no upload authentication permissions.
+- **Coverage on main** generates and checks coverage on pushes to `main`, and
+  additionally uploads its report to Codecov. It never starts for a PR event.
+
+There are no path filters or dependencies between these entry points. All support
+manual dispatch: select the desired workflow in GitHub Actions and use **Run
+workflow** for the branch. Choose Coverage for read-only checks; choose Coverage
+on main on the `main` branch for uploading. A manual Coverage on main run on
+another branch cannot upload. Dispatch Testing separately when both ordinary
+tests and coverage are wanted.
 
 Each applicable coverage gate requires at least 80%, using exact line counts,
 without depending on Codecov. **Generate coverage report** produces and retains
@@ -116,7 +125,13 @@ Both jobs run the full Rust test suite, with different compilers. Their supporti
 helper checks differ as described above. They have no job dependency on each
 other, so a failure on one compiler does not suppress the other's result.
 
-### Coverage workflow
+### Coverage jobs
+
+Both coverage entry points use the same local composite actions—shared groups of
+steps—for report generation and threshold checks. Each run measures once and
+uses its own report throughout, without transferring artifacts between workflows.
+Jobs keep their direct names and dependencies rather than nesting another
+workflow's jobs.
 
 - **Generate coverage report** runs fresh stable Rust/LLVM instrumentation once,
   validates and normalizes LCOV data, and retains it with identifying metadata.
@@ -129,9 +144,11 @@ other, so a failure on one compiler does not suppress the other's result.
   is explicitly **not applicable** (N/A), not numerically 100%. Main and manual
   non-PR runs report N/A by event policy, not by comparing with an arbitrary ref.
 - **Upload main coverage to Codecov** validates and uploads the generated report
-  on eligible main runs. It does not rerun tests, remeasure coverage, or enforce a
-  percentage. Upload success does not guarantee Codecov processing or public
-  report access; see [upload safety](#codecov-setup-and-upload-safety).
+  only in Coverage on main, on eligible main runs. The PR workflow omits this job
+  entirely rather than defining it with a false condition. It does not rerun tests,
+  remeasure coverage, or enforce a percentage. Upload success does not guarantee
+  Codecov processing or public report access; see
+  [upload safety](#codecov-setup-and-upload-safety).
 
 For covered count `C` and positive measured count `N`, both gates pass exactly
 when `5 * C >= 4 * N`. Exactly 80% passes; a smaller fraction fails even if rounded
@@ -146,8 +163,10 @@ not coverage passes. An upload or service failure cannot change either local res
 ### Workflow and check-name migration
 
 The normal `tests` and `msrv` jobs have moved from `coverage.yml` to `tests.yml`,
-under **Testing**. All six job ids are unchanged, but their display names now
-describe their actions:
+under **Testing**. Main coverage and uploading now live in `coverage-main.yml`;
+`coverage.yml` is the PR/read-only entry point and has no upload job. All six job
+ids are retained within their applicable entry points, but their display names
+now describe their actions:
 
 | Previous display name | Current display name |
 | --- | --- |
@@ -159,7 +178,7 @@ describe their actions:
 | Codecov main report | Upload main coverage to Codecov |
 
 If repository rules or external integrations refer to the old names or workflow
-paths, review them against the actual emitted check names and the two workflow
+paths, review them against the actual emitted check names and the three workflow
 files. Stable job ids do not guarantee that external references remain compatible.
 This reorganisation does not change branch protection or required-check settings
 automatically; any needed changes require a separate maintainer decision.
@@ -228,9 +247,10 @@ Connect (OIDC): GitHub issues a short-lived identity token that Codecov verifies
 No `CODECOV_TOKEN` secret is needed. Account limits or service features can affect
 browsing and publishing, but do not decide the local Actions coverage gates.
 
-Only pushes to `main` and manual runs on `main` upload. Every PR, including
-same-repository, bot and fork PRs, retains local coverage evidence without uploading.
-Publication does not silently enable fork uploads or privileged execution.
+Only Coverage on main pushes to `main` and manual runs of that workflow on `main`
+upload. Every PR, including same-repository, bot and fork PRs, retains local
+coverage evidence without an upload job or skipped upload check. Publication does
+not silently enable fork uploads or privileged execution.
 
 The **Upload main coverage to Codecov** job alone has OIDC issuance permission.
 It uses a fresh runner with no checkout, Cargo, repository scripts, build caches

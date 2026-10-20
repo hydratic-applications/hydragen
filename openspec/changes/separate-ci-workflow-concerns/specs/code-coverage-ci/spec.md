@@ -3,24 +3,28 @@
 ### Requirement: Coverage workflow is limited to coverage responsibilities
 
 `.github/workflows/coverage.yml` SHALL retain workflow name `Coverage` and contain
-the `coverage`, `total`, `changed`, and `upload` jobs with display names
-`Generate coverage report`, `Check total coverage`, `Check changed-line coverage`, and
-`Upload main coverage to Codecov`. Normal `tests` and `msrv` jobs SHALL live in
-the separate testing workflow. Instrumented tests SHALL remain part of report
-production and SHALL NOT replace the normal testing result.
+the `coverage`, `total`, and `changed` jobs with display names
+`Generate coverage report`, `Check total coverage`, and `Check changed-line coverage`.
+It SHALL trigger on PRs and manual dispatch, without an `upload` job, skipped
+upload result, or OIDC permission. `.github/workflows/coverage-main.yml`, named
+`Coverage on main`, SHALL trigger on pushes to `main` and manual dispatch, not
+PRs, and contain those jobs plus `upload` named `Upload main coverage to Codecov`.
+Normal `tests` and `msrv` jobs SHALL live in Testing. Instrumented tests SHALL
+remain part of report production and SHALL NOT replace the normal testing result.
 
-Coverage SHALL retain pull-request, main-push, and manual-dispatch events without
-path filters, its existing coverage-prefixed PR/ref cancellation group, immutable
-revision context, reviewed action pins, timeouts, commands, artifact identities,
-thresholds, and N/A policy. Both gates and the uploader SHALL depend only on
-successful `coverage` production within that same workflow run. No cross-workflow
-artifact transfer or dependency on testing SHALL be introduced.
+The entry points SHALL have no path filters and SHALL retain immutable revision
+context, reviewed action pins, timeouts, commands, artifact identities, thresholds,
+and N/A policy. Coverage SHALL retain its coverage-prefixed PR/ref cancellation
+group; Coverage on main SHALL use a distinct coverage-main/ref group. Both gates
+and the eligible uploader SHALL depend only on successful `coverage` production
+within their own workflow run. No cross-workflow artifact transfer, event bridge,
+or dependency on testing SHALL be introduced.
 
 Only the existing eligible main uploader SHALL have `id-token: write`. All other
-jobs across both workflows SHALL remain repository-content read-only. The
+jobs across all entry points SHALL remain repository-content read-only. The
 uploader SHALL retain its data-only validation, no-checkout/no-repository-code
 boundary, and main-only OIDC policy. Regression checks SHALL cover both workflow
-files without weakening existing artifact, privilege, or action-pin assertions.
+files and shared actions without weakening existing artifact, privilege, or action-pin assertions.
 
 The producer and uploader display names SHALL identify generation and upload as
 distinct stages of the same report, not separate coverage measurements. Job ids
@@ -31,8 +35,9 @@ producer's validated report without running tests or generating fresh coverage.
 
 - **WHEN** a PR triggers coverage
 - **THEN** `Coverage` contains report production, total and changed-line assessment,
-  and the skipped main-only upload job, not normal-test or minimum-compiler jobs
+  but no upload job or skipped upload result, and no normal-test or minimum-compiler jobs
 - **AND** both coverage gates consume only that run's validated report
+- **AND** no `Coverage on main` run is scheduled by the PR event
 
 #### Scenario: Testing fails while valid coverage evidence exists
 
@@ -54,6 +59,45 @@ producer's validated report without running tests or generating fresh coverage.
   `Upload main coverage to Codecov` sends that same validated report to Codecov
 - **AND** uploading does not rerun tests, remeasure coverage, enforce another
   percentage gate, or imply successful Codecov processing or public report access
+
+### Requirement: Coverage entry points share read-only implementation
+
+Both coverage entry points SHALL invoke the same maintained local composite
+actions after their immutable, credential-free full-history checkout:
+`.github/actions/coverage-report` for post-checkout report production and
+`.github/actions/coverage-check` for post-checkout assessment with mode `total`
+or `changed`. The mode SHALL be validated before artifact work and passed as
+quoted data, not shell source. Invalid modes SHALL fail; diff-cover SHALL be
+installed only for changed-line assessment. The action definitions SHALL retain
+the existing pinned tools and report-validation/gate commands.
+
+Each workflow run SHALL measure coverage once, then reuse that run's report for
+its consumers. Shared actions SHALL execute only in read-only jobs, without OIDC,
+secrets, or upload logic. The uploader SHALL remain inline in the main entry point
+and SHALL NOT check out or invoke a local action. Thin job declarations SHALL
+retain exact labels, ids, execution bounds, and direct dependency edges without
+nested reusable-workflow check-name prefixes. Implementation assets/tests SHALL
+remain outside OpenSpec and SHALL NOT read its artifacts.
+
+#### Scenario: PR and main entry points run the same coverage policies
+
+- **WHEN** PR coverage or eligible main coverage runs
+- **THEN** the producer and both consumers use the same local action definitions
+- **AND** there is one measurement and a same-run artifact, not a second
+  implementation, cross-workflow download, or privileged event bridge
+
+#### Scenario: A shared assessment receives an invalid mode
+
+- **WHEN** the check action receives a mode other than `total` or `changed`
+- **THEN** it fails before downloading evidence or running a coverage command
+- **AND** the mode cannot become executable shell source
+
+#### Scenario: A main coverage gate fails
+
+- **WHEN** a valid main report fails total or changed-line policy
+- **THEN** the independent gate failure does not prevent the sibling uploader
+  from consuming the producer's valid report
+- **AND** the uploader does not wait for an aggregate reusable-workflow result
 
 ## MODIFIED Requirements
 
@@ -170,8 +214,10 @@ production. No PR SHALL upload, including same-repository, bot and fork PRs. Onl
 the upload job SHALL have `id-token: write`; all other jobs SHALL be read-only.
 The workflow SHALL NOT grant repository/PR/status write permission, execute PR
 code through `pull_request_target`, introduce a privileged `workflow_run` bridge,
-or expose stored credentials to contributed code. Actions SHALL use reviewed full
-commit SHA pins; secrets SHALL NOT appear in files, URLs or logs.
+or expose stored credentials to contributed code. External actions SHALL use
+reviewed full commit SHA pins; the two shared local actions SHALL load only from
+the immutable measured checkout in read-only jobs. Secrets SHALL NOT appear in
+files, URLs or logs.
 
 The uploader SHALL use a fresh runner without checkout, Cargo, repository scripts,
 build caches or executable artifact consumption. It SHALL download only an
@@ -222,7 +268,8 @@ because neither gate is an upload dependency.
 
 - **WHEN** any same-repository, bot or fork PR produces a valid report
 - **THEN** all applicable local Actions gates run and the report is retained
-- **AND** uploading is skipped with an explanation, without OIDC issuance to PR jobs
+- **AND** the PR graph contains no upload job or skipped upload check, and no
+  OIDC credentials are issued to PR jobs
 
 #### Scenario: Artifact identity or contents do not match
 
@@ -297,16 +344,20 @@ or successful Codecov uploading.
 ### Requirement: Coverage setup is reproducible without affecting ordinary use
 
 README Development SHALL include the local LCOV command and link to a focused
-reference explaining measurement scope, the separate `Testing` and `Coverage`
-workflows, the stable-test and compiler-compatibility results, supporting
+reference explaining measurement scope, the `Testing`, `Coverage`, and
+`Coverage on main` entry points, the stable-test and compiler-compatibility results, supporting
 report/upload jobs, exact inclusive 80% policy, N/A, immutable comparisons,
 main-only OIDC, fork behaviour, report access and shield troubleshooting. CI
 documentation SHALL identify `Run tests on stable Rust` and
 `Run tests on minimum supported Rust` as independent executions of the Rust test
 suite on different compilers in `Testing`, with `Check total coverage`,
-`Check changed-line coverage`, and their supporting report/upload jobs in
-`Coverage`. It SHALL explain that each workflow
-supports manual dispatch separately; dispatching one does not run the other.
+`Check changed-line coverage`, and their producer in both coverage entry points.
+The uploader SHALL be identified only with `Coverage on main`, absent from PR
+results rather than skipped. Documentation SHALL explain shared read-only action
+definitions, single measurement per run, and independent manual dispatch. Select
+Coverage for read-only checks or Coverage on main on `main` for uploading; a
+non-main manual dispatch of the main entry point SHALL NOT upload. Dispatching
+one workflow SHALL NOT run another.
 The README, coverage reference, and CI-related entries in the going-public
 checklist SHALL agree about this separation and use all six action-led display
 names without changing job ids, gates, upload rules, or required-check settings.
@@ -315,7 +366,8 @@ gates and eligible uploader reuse the same report;
 it SHALL distinguish generating a report from uploading it to Codecov.
 
 The focused reference SHALL identify that the `tests` and `msrv` jobs moved out of
-`Coverage` and all six job ids remain stable. It SHALL map the old/new labels:
+`Coverage`, the main upload moved to `coverage-main.yml`, and all six job ids remain
+stable within their applicable entry points. It SHALL map the old/new labels:
 `Tests` to `Run tests on stable Rust`, `MSRV` to `Run tests on minimum supported Rust`,
 `Coverage report` to `Generate coverage report`, `Total coverage` to
 `Check total coverage`, `Changed-line coverage` to `Check changed-line coverage`,

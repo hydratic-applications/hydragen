@@ -134,15 +134,71 @@ workflow-qualified labels. All six display names change in this implementation;
 the internal ids remain stable. New emitted identities must still be observed
 after publishing the implementation.
 
-## Outstanding live verification
+## Initial PR verification before the upload-visibility refinement
 
-Task 4.2 remains open. After an authorised ordinary PR push, record both workflow
-run URLs and the immutable implementation head, verify separate stable/minimum
-test results and coverage results, and inspect the report artifact identity.
-Confirm the upload job is skipped for the PR and record the actual new check names.
-Local syntax/wiring tests establish independence but do not prove that GitHub has
-executed the new arrangement.
+The authorised implementation commit `ea234d484a24c541ddec68fba8f04b3d047064dd`
+was pushed and [PR #16](https://github.com/hydratic-applications/hydragen/pull/16)
+opened. Its [Testing run 39354854343](https://github.com/hydratic-applications/hydragen/actions/runs/39354854343)
+passed both compiler jobs, and its [Coverage run 39354854331](https://github.com/hydratic-applications/hydragen/actions/runs/39354854331)
+passed generation and both gates. The uploader appeared as skipped. That observed
+clutter motivated the user-approved refinement below; it is not the final
+job-graph acceptance evidence.
 
-At this local-verification checkpoint, no commit, push, PR creation, manual
+At the original local-verification checkpoint, before that PR was opened, no
+commit, push, PR creation, manual
 workflow dispatch, upload, merge, archive, repository-setting change, or
 coverage-policy change had been performed.
+
+## Approved refinement: omit uploading from PR results
+
+The user approved separate PR/main coverage entry points with shared read-only
+implementation. `Coverage` now has only the producer and two gates; `Coverage on
+main` declares those jobs plus the isolated uploader. The shared producer/check
+steps live in two local composite actions, preserving direct job names and
+producer-only dependency edges without nested workflow calls or cross-run data.
+This explicitly supersedes the earlier expectation of a skipped upload check.
+
+Read-only source comparison against `ea234d4` confirmed that the complete uploader
+job body is unchanged in `coverage-main.yml`. All three read-only job declarations
+are identical between entry points, including names, runner, bounds, permissions,
+credential-free full-history checkout, and calls to the same local actions.
+Only their trigger/context/cancellation headers differ. Testing is unchanged.
+The extracted producer steps also match the prior job byte-for-byte after
+normalising indentation and removing the composite action's explicit Bash shell
+declarations; the added mode adapter is exercised by the actual-shell tests.
+
+Local verification of the refinement, on the same macOS/Python/Rust environment:
+
+```sh
+actionlint .github/workflows/tests.yml .github/workflows/coverage.yml .github/workflows/coverage-main.yml
+TMPDIR=/private/var/folders/p9/02qtjw2138dd0jbmmjb0k45r0000gp/T/opencode \
+  DIFF_COVER="$PWD/target/coverage-venv/bin/diff-cover" \
+  python3 -m unittest discover -s tests/coverage -v
+python3 -m unittest discover -s tests/rust_version -v
+python3 scripts/check_rust_version.py
+cargo test --locked
+openspec validate separate-ci-workflow-concerns --strict
+git diff --check
+```
+
+Results: all three entry points passed actionlint; all 47 coverage-helper tests,
+24 Rust-version tests, and 572 Rust tests passed with no ignored/skipped tests.
+The Rust-version consistency check, strict OpenSpec validation, and whitespace
+check passed. The same canonical temporary-directory setting avoids the already
+recorded macOS alias mismatch; no validation was weakened.
+
+The new regressions execute actual composite-action shell blocks, not a rewritten
+model: mode validation accepts only `total`/`changed`, rejects empty/other modes,
+newlines and shell-injection payloads; assessment preserves total-pass/changed-fail
+and main below-target/changed-line-N/A outcomes. Existing inline-validator tests
+now extract the unchanged uploader code from `coverage-main.yml`. Static checks
+assert exact event routing, no upload/OIDC in the PR entry point, shared step
+reuse, distinct cancellation, all external action pins, and read-only local-action
+execution after checkout. Documentation and specifications were reviewed together
+for the three entry points, manual publishing choice, and PR upload absence.
+
+Final PR task 4.2 still requires observing the refined implementation after its
+authorised push: same-head compiler/gate results, report identity, and no upload
+check or Coverage on main run. Main publication can only receive live acceptance
+after the new entry point exists on `main`; do not treat a PR run or local
+validator tests as proof of a real OIDC upload from the new main entry point.

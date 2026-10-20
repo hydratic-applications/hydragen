@@ -1,6 +1,6 @@
 ## Context
 
-`.github/workflows/coverage.yml` is currently the only CI workflow. It contains
+Before this change, `.github/workflows/coverage.yml` was the only CI workflow. It contained
 six independently reported jobs: `Tests`, `MSRV`, `Coverage report`, `Total
 coverage`, `Changed-line coverage`, and `Codecov main report`. The first two are
 already independent of coverage in their job dependencies, but GitHub groups
@@ -33,6 +33,8 @@ question needs to be settled or newly recorded for this reorganisation.
 - Preserve existing commands, events, revision selection, timeouts, action pins,
   permissions, thresholds, and artifact/upload safety.
 - Keep regression tests and current documentation accurate after the move.
+- Omit the main-only upload job entirely from PR results, rather than show it as
+  skipped, without duplicating measurement/check implementation.
 
 **Non-Goals:**
 
@@ -40,8 +42,8 @@ question needs to be settled or newly recorded for this reorganisation.
   CI gate, or new required checks.
 - Change Rust versions, test targets, coverage tools, helper-test placement by
   subject matter, coverage scope, thresholds, badges, or Codecov configuration.
-- Add reusable-workflow infrastructure, cross-workflow artifacts, event bridges,
-  caches, or repository/ruleset changes.
+- Add cross-workflow artifacts, event bridges, caches, repository/ruleset changes,
+  or a dependency between Testing and coverage.
 - Implement the change while proposing it, publish a branch, or dispatch remote CI
   without the maintainer's authorisation.
 
@@ -50,9 +52,11 @@ question needs to be settled or newly recorded for this reorganisation.
 ### Split by responsibility into Testing and Coverage
 
 Add `.github/workflows/tests.yml` with workflow name `Testing`. Move the existing
-`tests` and `msrv` jobs there. Keep `.github/workflows/coverage.yml`
-named `Coverage` with only `coverage`, `total`, `changed`, and `upload`, retaining
-their job ids. Use the action-led display names below for every job.
+`tests` and `msrv` jobs there. Use `.github/workflows/coverage.yml` named `Coverage`
+for PR/read-only checks, with `coverage`, `total`, and `changed`. Add
+`.github/workflows/coverage-main.yml` named `Coverage on main` for main pushes and
+manual dispatch, containing those jobs plus `upload`. Keep the existing job ids
+within their entry points and the action-led labels below.
 
 `Testing / Run tests on stable Rust` means ordinary stable-compiler correctness
 and helper regression tests; `Testing / Run tests on minimum supported Rust` means
@@ -142,10 +146,14 @@ display-name-aware regressions and align current documentation with the new labe
 
 ### Keep triggers, immutable checkout, and cancellation independent
 
-Both workflows declare `pull_request`, pushes to `main`, and `workflow_dispatch`,
-without path filters. Neither triggers or waits for the other. Manual dispatch
-runs only the chosen workflow; maintainers run both when they want both sets of
-results. Do not add `workflow_run`, `workflow_call`, or `pull_request_target`.
+Testing declares `pull_request`, pushes to `main`, and `workflow_dispatch`.
+Coverage declares `pull_request` and `workflow_dispatch`; Coverage on main declares
+pushes to `main` and `workflow_dispatch`. None has path filters or triggers/waits
+for another workflow. A PR schedules no upload workflow, not even a skipped job.
+Manual dispatch runs only the chosen entry point. Select Coverage for read-only
+checks, or Coverage on main on the `main` branch for uploading; a non-main manual
+dispatch of the latter may run read-only checks but cannot upload. Do not add
+`workflow_run`, `workflow_call`, or `pull_request_target`.
 
 Use a testing-only environment value such as `TEST_HEAD` for
 `${{ github.event.pull_request.head.sha || github.sha }}` and check out that value
@@ -153,11 +161,47 @@ in both testing jobs. Do not carry `COVERAGE_*` variables or artifact identities
 into testing. Keep `persist-credentials: false`, full reviewed action pins,
 `ubuntu-latest`, each existing 30-minute job bound, and explicit compiler selection.
 
-Retain coverage's current `coverage-<PR number or ref>` concurrency group and add
-`testing-<PR number or ref>` with `cancel-in-progress: true`. A newer run cancels
-older work in its own workflow, never the other responsibility. The small
-duplication of event and checkout declarations is preferable to infrastructure
-that couples the two workflows.
+Retain `coverage-<PR number or ref>` for Coverage, use `coverage-main-<ref>` for
+Coverage on main, and `testing-<PR number or ref>` for Testing, all with
+`cancel-in-progress: true`. A newer run cancels older work in its own entry point,
+never another responsibility or a distinct manual entry point.
+
+### Declare event-specific jobs and share read-only steps
+
+The user approved this refinement after observing the initial PR's skipped upload
+check. GitHub still creates a skipped result for a job guarded by `if:` in a
+PR-triggered workflow. To omit it, the PR's declared job graph must exclude it.
+This decision supersedes the original single-coverage-workflow arrangement and
+its assumption that a skipped upload result is acceptable.
+
+Keep the report and gate jobs concrete in both coverage entry points, with the
+same display names, runner, timeouts, read-only permissions, immutable checkout,
+and direct `needs: coverage` edges. Extract the producer's post-checkout steps to
+`.github/actions/coverage-report/action.yml` and the consumers' post-checkout steps
+to `.github/actions/coverage-check/action.yml`. These are local composite actions:
+reusable groups of steps that execute inside the caller's existing job, not new
+jobs, privileged workflows, or cross-run artifact consumers.
+
+The check action accepts only `total` or `changed` as its mode. Validate that input
+before artifact work, pass it as quoted environment data to the existing CLI,
+and install isolated pinned diff-cover only for `changed`. Do not interpolate it
+as shell source. Both entry points use the same two action definitions from their
+immutable checkout, retaining one authoritative measurement/check implementation.
+Small job declarations and expected event context remain explicit in each entry
+point; regressions enforce their parity rather than duplicate business logic.
+
+Composite actions are preferred over nested reusable workflows here because they
+preserve the exact check labels without caller/callee prefixes and the direct
+producer-to-gate/uploader dependency graph. A reusable workflow containing both
+producer and gates would make a caller's uploader depend on the aggregate gate
+outcome unless more infrastructure were added. Duplicating the entire pipeline
+would avoid new abstractions but create two implementations to maintain.
+
+The main uploader stays inline in `coverage-main.yml`, with its existing guard,
+fresh data-only runner, validator and OIDC configuration. It never checks out or
+calls a local composite action. The PR entry point and shared actions contain no
+uploader or OIDC capability. No `workflow_run` bridge, stored token, second
+measurement, or cross-workflow artifact handoff is introduced.
 
 ### Preserve the coverage pipeline and privilege boundary intact
 
@@ -179,18 +223,20 @@ Point the Rust-version workflow tests at `tests.yml`, including extraction and
 execution of the actual validated-version handoff. Extract job bodies by their
 boundaries rather than relying on a following coverage job that no longer exists.
 
-Extend workflow assertions to cover the arrangement across both files: exact
-workflow/job membership and names, all three events without filters, distinct
+Extend workflow assertions across all three entry points and both shared actions:
+exact workflow/job membership and names, event routing without filters, distinct
 cancellation groups, immutable testing checkouts, bounds, action pins, permissions,
 and no dependency or event bridge between workflows. Retain coverage artifact,
 consumer dependency, main-only upload, and inline-validator regression coverage.
-The coverage workflow now installs pinned diff-cover once for changed-line
-assessment, while the testing workflow installs it once for helper regressions;
-replace the old assertion that both installations share one file.
+The shared check action defines pinned diff-cover installation once for changed-line
+assessment, while Testing installs it once for helper regressions. Verify the
+PR graph omits upload, both entry points call the same actions, the uploader
+depends only on the producer, and the extracted actual validator and shared
+check shell retain valid/invalid evidence and independent-outcome regressions.
 
 Keep these checks in maintained tests outside `openspec/`. Use existing testing
 facilities rather than add a YAML parser dependency solely for this move, and run
-`actionlint` on both workflows for syntax and expression validation.
+`actionlint` on all workflow entry points for syntax and expression validation.
 
 ### Document current organisation and treat external references as a migration
 
@@ -212,11 +258,12 @@ required-check configuration necessarily changes.
 - **Cross-workflow cancellation** → Distinct testing/coverage group prefixes plus
   regression assertions prevent one workflow cancelling the other.
 - **Lost or duplicated checks after the move** → Assert exact membership, stable
-  job ids, and the intended display names; review both workflows with actionlint.
+  job ids, and the intended display names; review all entry points with actionlint.
 - **Tests still assume the monolithic workflow** → Update both helper suites,
   preserve actual-shell/inline-validator execution tests, and rerun them.
-- **Duplicated event declarations can drift** → Test both workflows' events and
-  filters together; do not add abstraction before it is needed.
+- **Duplicated event declarations can drift** → Test all entry points' events and
+  filters together; test parity of the thin coverage entry points and the shared
+  composite action calls.
 - **Separate manual runs require two dispatches** → Document this explicitly;
   independence is more valuable than introducing an orchestration workflow here.
 - **Remote check references may be stale** → Inspect observed check identities and
@@ -224,17 +271,18 @@ required-check configuration necessarily changes.
 
 ## Migration Plan
 
-1. Move the testing jobs, establish testing-specific checkout context and
-   cancellation, and rename all six job display labels without
-   changing their pipeline behaviour.
+1. Move the testing jobs, establish independent entry points and cancellation,
+   use the six action-led labels, and extract shared read-only steps. The uploader
+   is declared only by the main entry point, retaining its same-run dependency.
 2. Update the two helper-test suites and current CI documentation together.
-3. Run actionlint on both workflows, the coverage-policy and Rust-version Python
+3. Run actionlint on all workflows, the coverage-policy and Rust-version Python
    suites (with isolated pinned diff-cover), the offline Rust-version checker,
    and `cargo test --locked`. Record commands and outcomes in this change's
    implementation verification record.
 4. On an authorised ordinary PR push, inspect both workflow runs for the same
    immutable PR head and record their URLs, workflow/job membership, compiler
-   results, and independent coverage results. Do not treat a legitimately failing
+   results, independent coverage results, and the absence of any upload check or
+   Coverage on main run. Inspect shared-step execution and artifact identity. Do not treat a legitimately failing
    coverage gate as evidence that testing failed. Do not create failing commits,
    change repository settings, or dispatch uploads merely to exercise this move.
 5. Review applicable external workflow/check references with the maintainer. If
@@ -242,7 +290,9 @@ required-check configuration necessarily changes.
    live verification. Rollback, if necessary, restores the two jobs and their
    tests/docs to the single workflow and the former job display labels
    without changing code or coverage policy; coordinate external references
-   separately if they were updated.
+   separately if they were updated. Main publication cannot be observed before
+   the new main entry point is present on `main`; record that post-merge evidence
+   gap explicitly rather than dispatching another branch or changing trust rules.
 
 ## Open Questions
 

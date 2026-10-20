@@ -2,8 +2,6 @@ name: Coverage
 
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -38,36 +36,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust and matching LLVM tools
-        run: rustup toolchain install stable --profile minimal --component llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-llvm-cov@0.9.1
-          fallback: none
-
-      - name: Run instrumented tests once and generate fresh LCOV
-        run: |
-          mkdir -p "$RUNNER_TEMP/raw-coverage"
-          cargo llvm-cov --locked --workspace --all-targets --lcov --output-path "$RUNNER_TEMP/raw-coverage/lcov.info"
-
-      - name: Validate and normalize report without applying thresholds
-        run: |
-          python3 scripts/coverage_gate.py prepare \
-            --report "$RUNNER_TEMP/raw-coverage/lcov.info" --output "$RUNNER_TEMP/coverage-artifact" \
-            --event "$COVERAGE_EVENT" --head "$COVERAGE_HEAD" --base "$COVERAGE_BASE" \
-            --repository "$COVERAGE_REPOSITORY" --run-id "$COVERAGE_RUN_ID" --run-attempt "$COVERAGE_RUN_ATTEMPT"
-
-      - name: Retain valid report, including below-target results
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.COVERAGE_HEAD }}
-          path: |
-            ${{ runner.temp }}/coverage-artifact/lcov.info
-            ${{ runner.temp }}/coverage-artifact/manifest.json
-          if-no-files-found: error
-          retention-days: 7
+      - name: Generate and retain coverage evidence
+        uses: ./.github/actions/coverage-report
 
   total:
     name: Check total coverage
@@ -84,17 +54,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Download only this run's named report
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Assess total coverage
+        uses: ./.github/actions/coverage-check
         with:
-          name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.COVERAGE_HEAD }}
-          path: ${{ runner.temp }}/coverage-artifact
-
-      - name: Validate report identity and enforce exact total threshold
-        run: |
-          python3 scripts/coverage_gate.py total --artifact "$RUNNER_TEMP/coverage-artifact" \
-            --event "$COVERAGE_EVENT" --head "$COVERAGE_HEAD" --base "$COVERAGE_BASE" \
-            --repository "$COVERAGE_REPOSITORY" --run-id "$COVERAGE_RUN_ID" --run-attempt "$COVERAGE_RUN_ATTEMPT"
+          mode: total
 
   changed:
     name: Check changed-line coverage
@@ -111,145 +74,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Download only this run's named report
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Assess changed-line coverage
+        uses: ./.github/actions/coverage-check
         with:
-          name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.COVERAGE_HEAD }}
-          path: ${{ runner.temp }}/coverage-artifact
-
-      - name: Install isolated diff-cover
-        run: |
-          python3 -m venv "$RUNNER_TEMP/coverage-venv"
-          "$RUNNER_TEMP/coverage-venv/bin/python" -m pip install 'diff-cover[toml]==10.6.0'
-
-      - name: Validate and enforce exact changed-line threshold
-        run: |
-          python3 scripts/coverage_gate.py changed --artifact "$RUNNER_TEMP/coverage-artifact" \
-            --diff-cover "$RUNNER_TEMP/coverage-venv/bin/diff-cover" \
-            --event "$COVERAGE_EVENT" --head "$COVERAGE_HEAD" --base "$COVERAGE_BASE" \
-            --repository "$COVERAGE_REPOSITORY" --run-id "$COVERAGE_RUN_ID" --run-attempt "$COVERAGE_RUN_ATTEMPT"
-
-  upload:
-    name: Upload main coverage to Codecov
-    needs: coverage
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      # Deliberately no checkout, repository code, Cargo, caches or artifact executables.
-      - name: Download only this main run's named data
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
-          path: ${{ runner.temp }}/codecov-data
-
-      - name: Validate untrusted data using workflow-owned code
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-          EXPECTED_REF: ${{ github.ref }}
-        run: |
-          python3 - <<'PY'
-          # BEGIN UPLOAD VALIDATOR (tests extract this exact code)
-          import hashlib
-          import json
-          import os
-          from pathlib import Path
-          import re
-          import stat
-
-          def check(ok, message):
-              if not ok:
-                  raise ValueError(message)
-
-          def unique(pairs):
-              result = {}
-              for key, value in pairs:
-                  check(key not in result, f"Duplicate JSON key: {key}")
-                  result[key] = value
-              return result
-
-          def validate_upload(directory, repository, run_id, attempt, event, sha, ref):
-              check(ref == "refs/heads/main" and event in {"push", "workflow_dispatch"}, "Main-only upload")
-              check(re.fullmatch(r"[0-9a-f]{40}", sha), "Invalid expected SHA")
-              check(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "Invalid expected repository")
-              check(re.fullmatch(r"[1-9][0-9]*", run_id) and re.fullmatch(r"[1-9][0-9]*", attempt), "Invalid expected run")
-              directory = Path(directory)
-              check(directory.is_dir() and not directory.is_symlink(), "Invalid artifact directory")
-              check({p.name for p in directory.iterdir()} == {"lcov.info", "manifest.json"}, "Unexpected artifact entries")
-              data = {}
-              for name, limit in (("manifest.json", 2 * 1024 * 1024), ("lcov.info", 50 * 1024 * 1024)):
-                  info = (directory / name).lstat()
-                  check(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= limit, f"Invalid file: {name}")
-                  data[name] = (directory / name).read_bytes()
-              manifest = json.loads(data["manifest.json"], object_pairs_hook=unique)
-              expected = {"schema_version": 1, "repository": repository, "run_id": run_id,
-                          "run_attempt": attempt, "event": event, "head": sha, "base": sha, "merge_base": sha}
-              check(type(manifest) is dict and manifest.keys() == (expected.keys() | {"sources", "report_sha256"}), "Invalid manifest fields")
-              for key, value in expected.items():
-                  check(type(manifest[key]) is type(value) and manifest[key] == value, f"Mismatched {key}")
-              check(manifest["report_sha256"] == hashlib.sha256(data["lcov.info"]).hexdigest(), "Report digest mismatch")
-              sources = manifest["sources"]
-              check(type(sources) is dict and 2 <= len(sources) <= 10000, "Invalid source inventory")
-              for path, identity in sources.items():
-                  check(re.fullmatch(r"src/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.rs", path), "Unsafe source path")
-                  check(type(identity) is dict and identity.keys() == {"sha256", "lines"}, "Invalid source identity")
-                  check(type(identity["sha256"]) is str and re.fullmatch(r"[0-9a-f]{64}", identity["sha256"]), "Invalid source digest")
-                  check(type(identity["lines"]) is int and 0 < identity["lines"] <= 10000000, "Invalid source length")
-              check({"src/lib.rs", "src/main.rs"} <= sources.keys(), "Missing library/CLI inventory")
-              seen, path, counts, summaries = {}, None, {}, {}
-              for line in data["lcov.info"].decode("utf-8").splitlines():
-                  if line.startswith("SF:"):
-                      check(path is None, "Unterminated record")
-                      path = line[3:]
-                      check(path in sources and path not in seen, "Unknown/duplicate source")
-                      counts, summaries = {}, {}
-                      continue
-                  check(path is not None, "Data outside record")
-                  if line == "end_of_record":
-                      check(counts and summaries.get("LF") == len(counts) and summaries.get("LH") == sum(v > 0 for v in counts.values()), "Invalid line summaries")
-                      seen[path] = any(counts.values())
-                      path = None
-                      continue
-                  tag, sep, value = line.partition(":")
-                  check(sep, "Malformed LCOV field")
-                  if tag == "DA":
-                      check(re.fullmatch(r"[1-9][0-9]*,(?:0|[1-9][0-9]*)", value), "Invalid line counts")
-                      number, hits = map(int, value.split(","))
-                      check(number <= sources[path]["lines"] and number not in counts, "Duplicate/out-of-range line")
-                      counts[number] = hits
-                  elif tag in {"LF", "LH"}:
-                      check(tag not in summaries and re.fullmatch(r"0|[1-9][0-9]*", value), "Invalid/duplicate summary")
-                      summaries[tag] = int(value)
-                  else:
-                      raise ValueError("Unexpected field in canonical line-only LCOV")
-              check(path is None and seen.keys() == sources.keys(), "Incomplete source report")
-              check(seen["src/lib.rs"] and seen["src/main.rs"], "Library/CLI has no executed lines")
-
-          if __name__ == "__main__":
-              try:
-                  validate_upload(Path(os.environ["RUNNER_TEMP"]) / "codecov-data", os.environ["COVERAGE_REPOSITORY"],
-                                  os.environ["COVERAGE_RUN_ID"], os.environ["COVERAGE_RUN_ATTEMPT"],
-                                  os.environ["COVERAGE_EVENT"], os.environ["EXPECTED_SHA"], os.environ["EXPECTED_REF"])
-              except (ValueError, OSError, TypeError, KeyError) as exc:
-                  raise SystemExit(f"Upload validation ERROR: {exc}")
-              print("Validated current main-run coverage data; artifact metadata does not select upload identity.")
-          # END UPLOAD VALIDATOR
-          PY
-
-      - name: Upload validated main report to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          override_commit: ${{ github.sha }}
-          override_branch: main
-          slug: ${{ github.repository }}
-          files: ${{ runner.temp }}/codecov-data/lcov.info
-          working-directory: ${{ runner.temp }}/codecov-data
-          disable_search: true
-          disable_file_fixes: true
-          disable_safe_directory: true
-          plugins: noop
-          fail_ci_if_error: true
+          mode: changed
