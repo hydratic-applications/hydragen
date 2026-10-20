@@ -315,3 +315,14 @@ design everything upfront.
       [licensing decisions](changes/archive/2026-10-18-add-project-license/design.md#decisions).
       Broader license policy or enforcement for layer dependencies is not settled
       by this project-license choice.
+14. **Input-source continuity during guided interaction.** Should a guided session
+    always stop if its original stdin terminal disappears, even when a separate
+    controlling terminal remains available for input? If that stricter policy is
+    needed, how should Hydragen enforce it while retaining cliclack?
+    - **Testing decision:** Cover unavailable input locally with a test-only
+      launcher that has no controlling terminal, while retaining the existing
+      selected-input regression. This avoids needing a dependency change for
+      ordinary input-error coverage. It does not fix the surviving-terminal case
+      or settle the broader input-source policy; existing production interaction
+      rules remain unchanged. See the
+      [test/runtime scope decision](changes/cover-unavailable-terminal-input/design.md#keep-the-runtime-input-policy-question-separate).

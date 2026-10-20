@@ -9,13 +9,14 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use hydragen::LayerManifestFormat;
-use portable_pty::{
-    Child, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, native_pty_system,
-};
+use portable_pty::{CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, native_pty_system};
 use serde_json::{Value, json};
 mod diagnostic_body_support;
 mod support;
+#[path = "support/unavailable_input.rs"]
+mod unavailable_input;
 use support::tempdir;
+use unavailable_input::{OutputEnd, OwnedChild};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 // Bound terminal allocation independently of the test runner's thread count.
@@ -25,6 +26,7 @@ static TERMINAL_SESSION: Mutex<()> = Mutex::new(());
 enum Event {
     Data(bool, Vec<u8>),
     Closed,
+    ReaderEnd(OutputEnd),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,7 +244,7 @@ impl Default for TerminalSettings {
 // actual cliclack output rather than relying on a combined terminal transcript.
 struct Session {
     _terminal_session: MutexGuard<'static, ()>,
-    child: Box<dyn Child + Send + Sync>,
+    child: OwnedChild,
     writer: Option<Box<dyn Write + Send>>,
     prompt_terminal: Option<Box<dyn portable_pty::MasterPty + Send>>,
     stdout_terminal: Option<PtyPair>,
@@ -255,6 +257,31 @@ struct Session {
 }
 
 impl Session {
+    fn without_controlling_terminal(
+        directory: &Path,
+    ) -> (Self, Box<dyn MasterPty + Send>, fs::File) {
+        let terminal_session = TERMINAL_SESSION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (sender, events) = mpsc::channel();
+        let launch = unavailable_input::spawn(directory, &["init"], sender)
+            .expect("Could not launch guided init without a controlling terminal");
+        let session = Self {
+            _terminal_session: terminal_session,
+            child: launch.child,
+            writer: None,
+            prompt_terminal: None,
+            stdout_terminal: None,
+            events,
+            readers: Vec::new(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            closed: 0,
+            finished: false,
+        };
+        (session, launch.input_master, launch.input_writer)
+    }
+
     fn new(directory: &Path, arguments: &[&str], ci: Option<&str>) -> Self {
         Self::spawn(directory, arguments, ci, None)
     }
@@ -397,7 +424,7 @@ esac",
             })
         })
         .collect();
-        let child = terminal.slave.spawn_command(command).unwrap();
+        let child = OwnedChild::new(terminal.slave.spawn_command(command).unwrap());
         drop(terminal.slave);
         Self {
             _terminal_session: terminal_session,
@@ -419,6 +446,17 @@ esac",
             Ok(Event::Data(true, data)) => self.stdout.extend(data),
             Ok(Event::Data(false, data)) => self.stderr.extend(data),
             Ok(Event::Closed) => self.closed += 1,
+            Ok(Event::ReaderEnd(end)) => {
+                end.require_eof().unwrap_or_else(|error| {
+                    panic!(
+                        "{error}; {}; stderr: {}; stdout: {}",
+                        self.child.diagnostic(),
+                        String::from_utf8_lossy(&self.stderr),
+                        String::from_utf8_lossy(&self.stdout)
+                    )
+                });
+                self.closed += 1;
+            }
             Err(_) => {}
         }
     }
@@ -601,7 +639,7 @@ esac",
                 self.writer.take();
                 self.prompt_terminal.take();
                 self.stdout_terminal.take();
-                if self.closed == self.readers.len() {
+                if self.closed == self.readers.len() + self.child.reader_count() {
                     self.finished = true;
                     return status.clone();
                 }
@@ -610,7 +648,7 @@ esac",
                 Instant::now() < deadline,
                 "Terminal child did not finish (child status: {status:?}, closed readers: {}/{}): {}",
                 self.closed,
-                self.readers.len(),
+                self.readers.len() + self.child.reader_count(),
                 String::from_utf8_lossy(&self.stderr)
             );
             self.receive(Duration::from_millis(10));
@@ -724,13 +762,34 @@ esac",
 
 impl Drop for Session {
     fn drop(&mut self) {
-        if !self.finished {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
+        // Preserve the legacy writer's lifetime: its destructor injects input,
+        // so it must not submit a pending answer before failed-child cleanup.
+        // The direct launcher already released every parent-owned output slave.
+        let cleanup = self.child.cleanup();
         self.writer.take();
         self.prompt_terminal.take();
         self.stdout_terminal.take();
+        if self.child.reader_count() > 0 && self.child.readers_stopped() {
+            // Workers have released their senders, so this only drains a finite
+            // queue of already captured output, never waits for terminal EOF.
+            // Do not count cancelled readers as normally completed here either.
+            for event in self.events.try_iter() {
+                match event {
+                    Event::Data(true, bytes) => self.stdout.extend(bytes),
+                    Event::Data(false, bytes) => self.stderr.extend(bytes),
+                    _ => {}
+                }
+            }
+        }
+        if let Err(error) = cleanup {
+            // An unconfirmed child must not be followed by blocking joins.
+            unavailable_input::report_cleanup_failure(format!(
+                "{error}; stderr: {}; stdout: {}",
+                String::from_utf8_lossy(&self.stderr),
+                String::from_utf8_lossy(&self.stdout)
+            ));
+            return;
+        }
         for reader in self.readers.drain(..) {
             let _ = reader.join();
         }
@@ -2429,5 +2488,86 @@ fn library_writer_drop_injects_submit_and_is_not_a_terminal_hangup() {
         input.master.get_termios().map(|mode| mode.local_flags)
     );
     // Release the extra PTY before Session releases the allocation mutex.
+    drop(input);
+}
+
+#[test]
+fn unavailable_terminal_input_at_visible_name_or_format_reports_one_error_and_no_files() {
+    for at_selector in [false, true] {
+        let directory = tempdir().unwrap();
+        let (mut session, input, mut writer) =
+            Session::without_controlling_terminal(directory.path());
+        session.wait_for_frame_since(0, "◆", "Name", "");
+        if at_selector {
+            session.prepare_selector_on_input(input.as_ref(), &mut writer);
+            // The complete frame, including every choice and the footer, must
+            // be visible. This is not an input-selection readiness barrier.
+            let transcript = visible_text(&session.stderr);
+            let choices = transcript.rsplit_once("Layer manifest format").unwrap().1;
+            let mut previous = 0;
+            for format in LayerManifestFormat::ALL {
+                let position = choices.find(format.extension()).unwrap();
+                assert!(position >= previous, "{choices}");
+                previous = position;
+            }
+        }
+        assert_no_layer_manifests(directory.path());
+        // Close *every* stdin master without synthetic Enter/EOT bytes. Loss
+        // follows frame visibility, not a guaranteed before-selection point.
+        drop(writer);
+        drop(input);
+        let status = session.finish();
+        let text = visible_text(&session.stderr);
+        assert!(
+            !status.success(),
+            "selector={at_selector}: {status:?}; {text}"
+        );
+        assert_eq!(
+            text.matches("Could not collect initialisation input")
+                .count(),
+            1,
+            "{text}"
+        );
+        assert_eq!(text.matches("Error:").count(), 1, "{text}");
+        assert_eq!(text.matches("No files were changed.").count(), 1, "{text}");
+        assert!(!text.contains("cancelled"), "{text}");
+        assert!(!text.contains("Layer initialised"), "{text}");
+        assert_style(&session.stderr, "✕ Error:", |style| {
+            style.foreground == Some(31)
+        });
+        let error = text.find("Error: ").unwrap();
+        diagnostic_body_support::assert_compact(&text[error..].replace('\r', ""));
+        assert!(
+            session.stdout.is_empty(),
+            "{:?}",
+            String::from_utf8_lossy(&session.stdout)
+        );
+        assert_no_layer_manifests(directory.path());
+        assert_only_files(directory.path(), &[]);
+        session.evidence(&format!("unavailable-input-selector-{at_selector}"));
+    }
+}
+
+#[test]
+fn connected_terminal_input_without_controlling_terminal_completes_guided_init() {
+    let directory = tempdir().unwrap();
+    let (mut session, input, mut writer) = Session::without_controlling_terminal(directory.path());
+    session.prepare_selector_on_input(input.as_ref(), &mut writer);
+    assert_no_layer_manifests(directory.path());
+    session.send_key_on_input(input.as_ref(), &mut writer, b"\r");
+    assert!(session.finish().success());
+    session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
+    assert_eq!(
+        layer_manifest(directory.path()),
+        json!({
+            "name": "example", "author": "Team", "description": "Description"
+        })
+    );
+    let text = visible_text(&session.stderr);
+    assert!(!text.contains("Error:"), "{text}");
+    assert!(!text.contains("cancelled"), "{text}");
+    assert_only_files(directory.path(), &["layer.yaml"]);
+    session.evidence("unavailable-input-connected-control");
+    drop(writer);
     drop(input);
 }
