@@ -1,5 +1,18 @@
 # Verification: guided init author suggestions
 
+## Completion decision — 2026-10-20
+
+**Archived as completed with accepted deferred work**, by explicit maintainer
+approval after the reviewed Linux CI evidence at `3a79aa9`. The implementation
+checklist remains **25/27**, with the unresolved portions of 3.3/4.5 transferred to
+[Hydragen #14](https://github.com/hydratic-applications/hydragen/issues/14).
+This decision supersedes earlier “not ready to archive” and “CRITICAL before
+archive” conclusions, not the underlying display defect or test-evidence findings.
+Future completion is managed in #14, without reopening this archived checklist.
+The separate direct Git/valid-profile fixture follow-up and Windows qualification
+remain. See [archive-review.md](archive-review.md) for the acceptance rationale and
+the exact runtime/CI proof; no full-conformance or PR-merge claim is made.
+
 ## Historical snapshot and newer integration status
 
 The original assessment below records the 2026-10-20 review of runtime
@@ -12,7 +25,7 @@ in [PR #15](https://github.com/hydratic-applications/hydragen/pull/15).
 Historical source links below are pinned to `734ce99`; their old paths and line
 numbers remain dated evidence, not claims about current source locations or fresh
 tests. The terminal-test source location for the approved CI fix is
-[`src/interaction/author_terminal.rs`](../../../src/interaction/author_terminal.rs),
+[`src/interaction/author_terminal.rs`](../../../../src/interaction/author_terminal.rs),
 with the Rust module name `author_tests` retained.
 
 The newer integration retains main's already-agreed lowercase layer-name policy
@@ -41,13 +54,14 @@ did not rerun the runtime suites.
 | `cargo test --locked --bin hydragen long_membership -- --ignored` | **0 passed, 2 expected visibility failures in 0.09 seconds**; correct returned metadata and no fixture failure. |
 | Coverage-policy tests | **39 passed**, using the existing diff-cover 10.6.0 virtual environment and canonical `TMPDIR`; no installation. These are policy checks, not measured coverage. |
 | Strict OpenSpec validation | All **9 main specs** and this change passed. The aggregate run reported **12 passed, 1 failed**, solely the pre-existing `add-validate-command` change with no delta specs. |
-| Independent integration reviews | Runtime, test/document/index and final publication reviews accepted the baseline with no blockers before PR #15 opened. The later CI compatibility fix has separate local results and pending final publication review below. |
+| Independent integration reviews | Runtime, test/document/index and final publication reviews accepted the baseline with no blockers before PR #15 opened. The later CI compatibility fix and final hosted evidence were subsequently accepted as recorded below. |
 
 Tasks 3.3/4.5 remain open for the accepted #115 exception, with **25/27 complete**.
 The direct equal-Git/valid-GitHub-profile grouping fixture gap remains an open
-project follow-up, not a newly demonstrated runtime defect. Full conformance and
-archive readiness are not established. Windows and the actual hosted Linux
-coverage gates remain unverified; the later Linux test results are recorded below.
+project follow-up, not a newly demonstrated runtime defect. Full conformance is
+not established; archive is now accepted with those deferrals transferred to #14.
+Windows remains unverified. The later passing Linux coverage results are recorded
+in the archive review, superseding the earlier unmeasured-coverage qualification.
 
 Documentation checks on the integrated baseline passed strict validation for
 the reconciled `cli-interaction` main spec and `suggest-init-author` change, plus
@@ -79,7 +93,7 @@ macOS baseline above executed **12**. Those platform-specific counts must not be
 treated as the same run.
 
 The approved bounded fix renames the file to
-[`src/interaction/author_terminal.rs`](../../../src/interaction/author_terminal.rs)
+[`src/interaction/author_terminal.rs`](../../../../src/interaction/author_terminal.rs)
 without changing its body, test functions or deferred assertions, retaining Rust
 module `author_tests` through `#[path]`. A compatibility guard checks tracked
 source paths against the default filters of the workflow's pinned exporter
@@ -88,8 +102,8 @@ of this fix, and no dependency installation is involved. Including these helper
 lines changes measured scope; it does not add production tests or prove improved
 production coverage.
 
-**Local fix validation passed; final publication review and hosted evidence remain
-pending.** The fix candidate based on `7545817` passed locked build, formatting,
+**Local and hosted fix validation passed at runtime head `3a79aa9`.** The fix
+candidate based on `7545817` passed locked build, formatting,
 all-target lint and `cargo test --locked`: **673 passed, 0 failed, 3 ignored**.
 The controlled-terminal run passed **12 with 3 ignored**; the two explicitly run
 deferred cases still fail only visibility while returning correct values. All
@@ -98,13 +112,17 @@ orchestrator staged the 100% rename for the tracked-index guard. The renamed bod
 is byte-identical at **32,110 bytes**, SHA-256
 `c0e9a0742a1c4b074cec77b68c961e5eab47c8a7f9d983443410f62cf4d830b1`;
 the `#[path]` attribute retains module `author_tests`. The independent focused
-code review was accepted conditionally on full results and updated documentation;
-final publication review is still pending. A fresh hosted run must include the
-new source path in LCOV, complete report preparation and evaluate the unchanged
-80% gates before their results or percentages can be claimed. Run 39348268145's
-preparation failure remains historical evidence, not a passing result for the
-fix. The #115 exception and 25/27 task state remain unchanged; no merge or archive
-is authorised.
+code review was initially conditional on full results and updated documentation;
+final publication and hosted-evidence review subsequently accepted the fix.
+Run 39349524907 contains the new source record, completed preparation and passed
+both unchanged gates. The [archive review](archive-review.md#reviewed-runtime-and-ci-evidence)
+records exact head/base identity, all 32 source hashes/inventory checks,
+593/656 terminal-helper lines, total 13,734/14,131 = 97.19% and changed
+3,193/3,375 = 94.61%, with the [published proof](https://github.com/hydratic-applications/hydragen/pull/15#issuecomment-6280696832).
+Run 39348268145's preparation failure remains historical evidence, not a passing
+result. Neither helper inclusion nor the green gates prove improved production-only
+testing. The #115 exception and 25/27 checklist remain unchanged; the maintainer
+separately authorised archive with transferred follow-up, not a PR merge.
 
 ### Current integration requirement inventory
 
@@ -149,12 +167,18 @@ existing offline scenario are preserved verbatim. Scoped whitespace checks passe
 
 The local baseline validation above supersedes its earlier pending-runtime status,
 not the historical evidence below. Its integration/publication reviews are
-complete; the later CI compatibility fix has passing local validation, with final
-publication review and fresh hosted coverage evidence still pending.
-The #115 exception, open fixture follow-up and platform/coverage limits remain
-explicit.
+complete; the later CI compatibility fix also has accepted hosted evidence at
+the exact runtime head recorded above. This does not claim that a later docs-only
+archive commit has passed CI. The #115 exception, open fixture follow-up and
+Windows limit remain explicit.
 
-## Assessment and scope
+## Historical assessment and scope
+
+The assessment below preserves the earlier `734ce99`/`11da971` evidence and
+archive-gating judgement. Its “CRITICAL before archive” classification and old
+checklist-closing instructions are historical, superseded by the dated completion
+decision above. The actual findings remain unresolved and owned by #14 or the
+separate nonblocking fixture follow-up; they have not become passing scenarios.
 
 Reviewed on 2026-10-20 against integrated runtime HEAD
 `734ce9977ce1cdb2c66991b58f6c91c3fc1f0014` (`734ce99`), whose parents are the
@@ -195,7 +219,7 @@ dependency changes were made for this verification.
 
 ## Findings by severity
 
-### CRITICAL before archive: 2 outstanding task portions
+### Historical CRITICAL-before-archive classification: 2 outstanding task portions
 
 1. **Task 3.3: initial selection visibility and related completed feedback in long
    membership-only lists are incomplete.**
@@ -580,10 +604,12 @@ Supporting inspection included the maintained schema, Cargo dependency/lock
 entries, coverage workflow, README, foundations/guidance and all change artifacts.
 Source/test reference searches and focused status/count commands were read-only.
 
-**Final assessment:** 2 critical outstanding task portions must be resolved before
-archive; 1 direct scenario-test gap should receive a focused test-only follow-up.
-The accepted broader landing scope is unchanged, and final synchronised-document
-reconciliation and scoped strict validation are complete. The unrelated
-repository-wide missing-delta failure remains disclosed; Linux coverage and
-Windows are not certified. Do not describe this change as fully conformant or
-ready to archive.
+**Historical final assessment (archive gate superseded on 2026-10-20):**
+
+> 2 critical outstanding task portions must be resolved before
+> archive; 1 direct scenario-test gap should receive a focused test-only follow-up.
+> The accepted broader landing scope is unchanged, and final synchronised-document
+> reconciliation and scoped strict validation are complete. The unrelated
+> repository-wide missing-delta failure remains disclosed; Linux coverage and
+> Windows are not certified. Do not describe this change as fully conformant or
+> ready to archive.

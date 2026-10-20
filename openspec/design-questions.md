@@ -200,12 +200,12 @@ design everything upfront.
      selected initially, but a project-declared organisation is eligible.
      All discovery is best effort and disabled entirely for flag-only execution;
      offline use remains supported. See the planned
-     [source order](changes/suggest-init-author/design.md#order-project-and-identity-sources),
-     [project author discovery](changes/suggest-init-author/design.md#read-directly-declared-authors-from-project-files),
-     [optional GitHub discovery](changes/suggest-init-author/design.md#add-optional-github-candidates-through-existing-gh-authentication),
-     [early preparation and Author waiting](changes/suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered),
-     [grouping](changes/suggest-init-author/design.md#group-equal-names-and-retain-their-sources),
-     and [conditional author interaction](changes/suggest-init-author/design.md#show-a-selector-only-when-there-are-names-to-choose-from).
+     [source order](changes/archive/2026-10-20-suggest-init-author/design.md#order-project-and-identity-sources),
+     [project author discovery](changes/archive/2026-10-20-suggest-init-author/design.md#read-directly-declared-authors-from-project-files),
+     [optional GitHub discovery](changes/archive/2026-10-20-suggest-init-author/design.md#add-optional-github-candidates-through-existing-gh-authentication),
+     [early preparation and Author waiting](changes/archive/2026-10-20-suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered),
+     [grouping](changes/archive/2026-10-20-suggest-init-author/design.md#group-equal-names-and-retain-their-sources),
+     and [conditional author interaction](changes/archive/2026-10-20-suggest-init-author/design.md#show-a-selector-only-when-there-are-names-to-choose-from).
    - **Initial add interaction decision:** Require source arguments and no guided
      flow, in terminals and automation alike. Defer registry-backed search,
      autocomplete, existence checking, and available-version selection until
@@ -325,7 +325,7 @@ design everything upfront.
       and cleanup. The init increment uses a 15-second preparation lifetime and
       at most 1,500 ms additional Author wait; these are scoped values, not global
       targets for all commands. See the
-      [preparation decision](changes/suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered)
+      [preparation decision](changes/archive/2026-10-20-suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered)
       and the existing [DX/performance values](../FOUNDATIONS.md#guiding-values).
       Broader command targets and project-size benchmarks remain open.
 12. **Patch structure.** What internal structure should `.patch` files use to

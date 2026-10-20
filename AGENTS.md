@@ -279,7 +279,7 @@ silent, non-fatal discovery failures; retain other names and support offline use
 Keep credentials and source/membership records out of the layer manifest. Use the
 maintained schema's author definition for discovered names; internal schema
 failures remain errors, not an empty discovery result. The
-[author-suggestion design](openspec/changes/suggest-init-author/design.md) defines
+[author-suggestion design](openspec/changes/archive/2026-10-20-suggest-init-author/design.md) defines
 the supported fields, complete source order, host selection, and resource limits.
 
 When names exist, use the native single-choice `Author (optional)` selector with

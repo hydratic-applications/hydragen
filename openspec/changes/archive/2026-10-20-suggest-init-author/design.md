@@ -1,9 +1,21 @@
+## Completion decision — 2026-10-20
+
+Archived as **completed with accepted deferred work** by explicit maintainer
+approval. The checklist remains 25/27: the unresolved portions of 3.3/4.5 are
+transferred to [Hydragen #14](https://github.com/hydratic-applications/hydragen/issues/14),
+not marked implemented. This dated decision supersedes earlier archive-blocking
+conclusions without changing the intended interaction or the known #115 defect.
+See the [archive review](archive-review.md) for the accepted scope, reviewed CI
+evidence at runtime head `3a79aa9`, and future completion checks. The design below
+preserves the implementation decisions and historical context.
+
 ## Context
 
-Guided init currently asks Name, Author, Description, then Layer manifest format.
-Only Name has a default. Author and Description start empty, and Enter skips them.
-`src/main.rs` selects guided or flag-only input before collecting values and checks
-the target and schema before prompting. `src/interaction.rs` uses cliclack and
+Before this change, guided init asked Name, Author, Description, then Layer manifest
+format. Only Name had a default. Author and Description started empty, and Enter
+skipped them. [src/main.rs](../../../../src/main.rs) selects guided or flag-only
+input before collecting values and checks the target and schema before prompting.
+[src/interaction.rs](../../../../src/interaction.rs) uses cliclack and
 shared schema-derived validation; skipped values become `None`.
 
 This change addresses the guided-input part of design question 9 and the
@@ -11,10 +23,10 @@ responsiveness concern in question 11. It does not settle broader agent interfac
 or performance targets. It supports the foundations' DX, efficiency, and
 performance values: reduce repetitive typing while preserving explicit choices,
 offline operation, and fast automation. The responsiveness refinement also extends
-the existing DX and performance values in `FOUNDATIONS.md`: prepare likely next
+the existing DX and performance values in [FOUNDATIONS.md](../../../../FOUNDATIONS.md): prepare likely next
 steps safely, distinguish background lifetime from visible waiting, and keep
 unavoidable waits understandable and cancellable. The supplied init example is
-integrated into its everyday-development scenario; `AGENTS.md` carries the general
+integrated into its everyday-development scenario; [AGENTS.md](../../../../AGENTS.md) carries the general
 implementation/review guidance. These are explicit refinements of existing values,
 not a ninth value or a requirement to make every command asynchronous. Common
 background-preparation terminology is explained here, so no glossary addition is
@@ -441,7 +453,7 @@ additional step only when entering a custom author after names were discovered.
 
 Integration with main `328644ec72012e11ae01ffbf7213694ebd40e7be` applies
 already-agreed constraints, not a new author-suggestion product design. The
-[shared name policy](../../specs/layer-manifest/spec.md) restricts layer names to
+[shared name policy](../../../specs/layer-manifest/spec.md) restricts layer names to
 the maintained schema's lowercase definition. Directory defaults must pass that
 definition before prompts or author preparation; failure gives `--name` override
 guidance rather than trimming, lowercasing, or sanitising the directory name.
@@ -456,7 +468,7 @@ existing author-schema validation and exact grouping. Project-first ordering,
 membership eligibility, native selection, preparation deadlines and the accepted
 #115 limitation remain unchanged.
 
-Main's [shared CLI diagnostic contract](../../specs/cli-interaction/spec.md) also
+Main's [shared CLI diagnostic contract](../../../specs/cli-interaction/spec.md) also
 remains in force. Parsing outcomes precede current-directory resolution, layer
 discovery, schema preparation, prompts and writes. Explicit help/version remain
 plain and successful; parser and operational failures use eligible compact
@@ -468,7 +480,7 @@ to optional metadata while reconciling these flows. Main's argument-only local
 dependency addition and its source-preserving write rules remain independent of
 guided author discovery.
 
-The [initialisation runtime-service requirement](../../specs/layer-initialization/spec.md#requirement-initialisation-works-without-external-runtime-services)
+The [initialisation runtime-service requirement](../../../specs/layer-initialization/spec.md#requirement-initialisation-works-without-external-runtime-services)
 previously prohibited all Git commands. This change explicitly supersedes that
 blanket prohibition only for the optional read-only Git configuration queries
 already selected for eligible guided author discovery. It also records the
@@ -503,9 +515,10 @@ measured scope, not production test coverage or the strength of its evidence.
 Local validation of the fix based on `7545817` passed: locked build, formatting,
 all-target lint, 673 Rust tests with 0 failures and 3 ignored entries, and 42
 coverage-policy tests after the exact rename was staged for the index guard.
-The focused code review was accepted conditionally on full results and updated
-documentation; final publication review and a fresh hosted run proving the new
-LCOV source record and actual unchanged 80% gate results remain pending.
+Final publication and hosted-evidence review subsequently accepted the fix at
+`3a79aa9`. Run 39349524907 verified all 32 source records, including the renamed
+helper, and passed both unchanged 80% gates. See the [archive review](archive-review.md#reviewed-runtime-and-ci-evidence)
+for exact counts and runtime identity; these are not claims about a later docs head.
 
 ### Keep validation and file creation unchanged
 
@@ -640,8 +653,11 @@ and the deferred tests' results explicitly; a passing default suite does not mea
 all scenarios pass. Tasks 3.3 and 4.5 remain unchecked for their upstream-dependent
 portions. After adopting an upstream fix, remove both temporary ignore markers,
 pass both regressions, and repeat full validation before closing that follow-up.
-Landing with this exception does not establish full specification conformance or
-authorise archiving the change.
+Landing with this exception did not by itself authorise archive or establish full
+specification conformance. The maintainer separately approved archive on
+2026-10-20 with these deferred portions transferred to #14; the [completion
+decision](archive-review.md#completion-decision--2026-10-20) supersedes the earlier
+archive restriction. Future work follows #14 rather than reopening this checklist.
 
 ## Migration Plan
 
@@ -660,7 +676,8 @@ No product decision remains open. Landing is accepted with the native selector
 limitation recorded above; the upstream-dependent portions of tasks 3.3 and 4.5
 remain outstanding, not a whole-feature landing blocker. The intended interaction
 and specification requirements remain unchanged, and the exception does not mean
-all scenarios pass or the change is ready to archive. Focused platform dependencies
+all scenarios pass. Archive is accepted for the completed scope with the remaining
+work owned by #14. Focused platform dependencies
 are selected above, with untested target behaviour still requiring explicit
 qualification. Changing automation defaults, scanning multiple GitHub accounts/hosts,
 adding other identity providers, and initiating authentication remain outside this
