@@ -8,7 +8,8 @@ Implementation, local validation, and independent final conformance review are
 complete, within the explicit platform/coverage/upstream exclusions below.
 See [tasks.md](tasks.md) for checked implementation progress and
 [design.md](design.md) for the selected behaviour and source/privacy boundaries.
-No commit, pull request, publication, or archive has been performed by this work.
+Commit/PR publication and archiving are separate from the local validation
+recorded here.
 
 ## Foundation and shared interface
 
@@ -233,4 +234,24 @@ includes the new author module, maintained schema and author fixtures, while
 excluding internal deepwork files. No additional runtime dependency was introduced.
 
 **Final assessment:** Ready for archive within the approved scope and documented
-exclusions. No archive or commit has been performed automatically.
+exclusions. This verification step does not archive the change.
+
+## Parent-branch reconciliation before PR creation — 2026-10-20
+
+At PR preparation, the parent `fresh-gecko` change was still open rather than
+merged to main. Its latest commit, `38afd10` (Git fixture timeout isolation), was
+merged into this branch as `5d7a66b` after the feature commit `4eb2e40`.
+
+The test-module conflict retained both the parent's bounded file-backed fixture
+runner/regressions and the author-contact assertions. The new split-origin/family
+configuration test uses that same fixture runner. Independent review confirmed
+the production code and dedicated 500 ms guard regression were unchanged, and
+the parent's helper/runner tests were preserved exactly.
+
+The complete post-merge locked serial run passed **748 tests, 0 failed, and 3
+retained ignores**: 122 library, 250 binary, and 376 integration tests. The two
+additional passing tests come from the parent fix. Post-merge all-target strict
+Clippy, formatting, whitespace, and strict OpenSpec checks passed. All 42
+coverage-policy tests were rerun successfully with Python bytecode generation
+disabled and canonical TMPDIR. Platform, coverage-percentage, and upstream
+selector limitations recorded above remain unchanged.
