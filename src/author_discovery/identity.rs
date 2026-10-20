@@ -155,6 +155,60 @@ fn collect_account(
 mod tests {
     use super::*;
     use std::fs;
+    use std::io::{self, Read, Seek};
+    use std::process::{Child, ExitStatus, Output, Stdio};
+    use std::time::Instant;
+
+    // Configuration semantics must not depend on the production runner's 500ms
+    // lookup or 100ms capture-cleanup budgets. Files avoid pipe/capture-thread
+    // scheduling altogether; the test still bounds execution and reaps failures.
+    fn fixture_output(mut command: Command, timeout: Duration) -> io::Result<Output> {
+        let mut stdout = tempfile::tempfile()?;
+        let mut stderr = tempfile::tempfile()?;
+        let mut child = command
+            .stdin(Stdio::null())
+            .stdout(stdout.try_clone()?)
+            .stderr(stderr.try_clone()?)
+            .spawn()?;
+        let status = wait_fixture_child(&mut child, timeout)?;
+        stdout.rewind()?;
+        stderr.rewind()?;
+        let mut output = Output {
+            status,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        stdout.read_to_end(&mut output.stdout)?;
+        stderr.read_to_end(&mut output.stderr)?;
+        Ok(output)
+    }
+
+    fn wait_fixture_child(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
+        let deadline = Instant::now() + timeout;
+        let result = (|| loop {
+            if let Some(status) = child.try_wait()? {
+                return Ok(status);
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Git fixture command exceeded its test execution allowance",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        })();
+        if result.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        result
+    }
+
+    fn git_fixture_output(command: Command) -> Vec<u8> {
+        let output = fixture_output(command, Duration::from_secs(10)).unwrap();
+        assert!(output.status.success(), "Git fixture failed: {output:?}");
+        output.stdout
+    }
 
     #[test]
     fn author_environment_is_collected_before_all_git_and_account_alternatives() {
@@ -306,32 +360,23 @@ mod tests {
         fs::write(&include, "[user]\n name = Included\n").unwrap();
         fs::write(&conditional, "[author]\n name = Conditional\n").unwrap();
         fs::write(&global, format!("[user]\n name = Global old\n name = Global new\n[include]\n path = {}\n[includeIf \"gitdir:{}\"]\n path = {}\n[includeIf \"gitdir:/never/hydragen/\"]\n path = /nonexistent/inactive\n", include.display(), repo.join(".git").display(), conditional.display())).unwrap();
-        assert!(
-            isolated_git(&repo, root.path(), &global)
-                .args(["init", "--quiet"])
-                .status()
-                .unwrap()
-                .success()
-        );
+        let mut command = isolated_git(&repo, root.path(), &global);
+        command.args(["init", "--quiet"]);
+        git_fixture_output(command);
         fs::write(repo.join(".git/config"), "[core]\n repositoryformatversion = 0\n[extensions]\n worktreeConfig = true\n[user]\n name = Local\n[author]\n name = Local author\n").unwrap();
         fs::write(
             repo.join(".git/config.worktree"),
             "[user]\n name = Worktree\n",
         )
         .unwrap();
-        let context = Context::for_tests();
         let mut command = isolated_git(&repo, root.path(), &global);
         command
             .env("GIT_CONFIG_COUNT", "1")
             .env("GIT_CONFIG_KEY_0", "user.name")
             .env("GIT_CONFIG_VALUE_0", "Command");
         git_arguments(&mut command);
-        let output = process::run(
-            command,
-            &context,
-            Some(context.now() + Duration::from_millis(500)),
-        )
-        .unwrap();
+        let output = git_fixture_output(command);
+        let context = Context::for_tests();
         publish_git(&output, &context).unwrap();
         let choices = context.choices_for_tests().unwrap();
         assert_eq!(
@@ -352,15 +397,10 @@ mod tests {
         );
         assert_eq!(choices[2].hint, "Git command user.name");
         assert_eq!(choices[3].hint, "Git worktree user.name");
-        let outside = Context::for_tests();
         let mut command = isolated_git(root.path(), root.path(), &global);
         git_arguments(&mut command);
-        let output = process::run(
-            command,
-            &outside,
-            Some(outside.now() + Duration::from_millis(500)),
-        )
-        .unwrap();
+        let output = git_fixture_output(command);
+        let outside = Context::for_tests();
         publish_git(&output, &outside).unwrap();
         assert_eq!(
             outside
@@ -371,6 +411,50 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["Included", "Global new", "Global old"]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fixture_output_captures_both_streams_without_pipe_capacity_or_stdin_waits() {
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "read answer && exit 9; i=0; while [ \"$i\" -lt 16384 ]; do printf 'stdout\\n'; printf 'stderr\\n' >&2; i=$((i + 1)); done",
+        ]);
+        let output = fixture_output(command, Duration::from_secs(10)).unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, b"stdout\n".repeat(16384));
+        assert_eq!(output.stderr, b"stderr\n".repeat(16384));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fixture_output_timeout_kills_and_reaps_the_command() {
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id() as libc::pid_t;
+        // Expire immediately after spawn rather than racing a child-written PID
+        // marker against a short real-time deadline on a busy runner.
+        let error = wait_fixture_child(&mut child, Duration::ZERO).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let mut status = 0;
+        // SAFETY: pid identifies the fixture child and status is writable.
+        assert_eq!(
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        // SAFETY: signal zero only checks whether the fixture child still exists.
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
     }
 
     #[cfg(unix)]
