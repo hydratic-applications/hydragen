@@ -22,3 +22,6 @@ toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 
 [dev-dependencies]
 portable-pty = "0.9"
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
