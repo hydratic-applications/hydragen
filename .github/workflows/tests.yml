@@ -1,0 +1,88 @@
+name: Testing
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testing-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEST_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  tests:
+    name: Run tests on stable Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - name: Check out test head (not the PR merge commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEST_HEAD }}
+          persist-credentials: false
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Install isolated policy-test dependency
+        run: |
+          python3 -m venv "$RUNNER_TEMP/coverage-venv"
+          "$RUNNER_TEMP/coverage-venv/bin/python" -m pip install 'diff-cover[toml]==10.6.0'
+
+      - name: Run policy and real diff-cover regression tests
+        env:
+          DIFF_COVER: ${{ runner.temp }}/coverage-venv/bin/diff-cover
+        run: python3 -m unittest discover -s tests/coverage -v
+
+  msrv:
+    name: Run tests on minimum supported Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out test head (not the PR merge commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEST_HEAD }}
+          persist-credentials: false
+
+      - name: Check Python version and helper regressions
+        run: |
+          python3 -c 'import sys; sys.exit("MSRV checks require Python 3.11 or newer" if sys.version_info < (3, 11) else 0)'
+          python3 -m unittest discover -s tests/rust_version -v
+
+      - name: Validate MSRV declaration and README
+        id: msrv
+        run: |
+          version="$(python3 scripts/check_rust_version.py --print-version)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install and identify the declared compiler
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: |
+          rustup toolchain install "$MSRV" --profile minimal
+          rustc "+$MSRV" --version --verbose
+          cargo "+$MSRV" --version
+
+      - name: Build and test the declared MSRV
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: |
+          cargo "+$MSRV" build --locked
+          cargo "+$MSRV" test --locked

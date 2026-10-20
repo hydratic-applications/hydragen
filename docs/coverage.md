@@ -2,14 +2,18 @@
 
 Hydragen uses `cargo-llvm-cov` to measure which executable lines its tests exercise.
 It instruments Rust code using LLVM, the compiler infrastructure used by Rust.
-GitHub Actions reports **Tests** on current stable Rust, **Total coverage**, and
-**Changed-line coverage**, plus an independent **MSRV** compiler-compatibility
-check. Each applicable coverage gate requires at least 80%, using exact line
-counts. These checks run for PRs, including forks, pushes to `main`, and manual
-Coverage workflow runs, without depending on Codecov.
+GitHub Actions separates ordinary test execution in the **Testing** workflow from
+measurement and percentage checks in **Coverage**. Both workflows run for PRs,
+including forks, and pushes to `main`, without path filters or a dependency on
+each other. Each also supports manual dispatch: select **Testing** or **Coverage**
+in GitHub Actions and use **Run workflow** for the desired branch. To run both
+responsibilities manually, dispatch each workflow separately; dispatching Coverage
+does not run the ordinary stable or minimum-version test jobs.
 
-The supporting **Coverage report** job produces and retains the shared evidence.
-A separate **Codecov main report** job sends eligible main reports to
+Each applicable coverage gate requires at least 80%, using exact line counts,
+without depending on Codecov. **Generate coverage report** produces and retains
+one report for both gates. **Upload main coverage to Codecov** sends that same
+report on eligible main runs to
 [Codecov](https://app.codecov.io/gh/hydratic-applications/hydragen/tree/main) for
 source-level browsing and the README shield. These two pipeline-health jobs are
 not extra quality policies. Codecov's project and patch statuses are disabled.
@@ -54,7 +58,8 @@ python3 -m unittest discover -s tests/coverage -v
 on `PATH`. The helper always supplies its own TOML configuration to avoid
 project-specific exclusions. Python 3.10 needs the `toml` extra to read it;
 Python 3.11 and later have a built-in TOML parser. CI also installs pinned
-diff-cover in isolation for its combined **Tests** check and changed-line job.
+diff-cover in isolation for **Run tests on stable Rust** and **Check changed-line
+coverage**, in their separate workflows.
 These dependencies are optional developer tooling, not Rust/runtime dependencies;
 ordinary `cargo test --locked` is unchanged.
 
@@ -89,30 +94,44 @@ measured line is removed; a different total does not mean tests improved or scop
 was reduced. Consumers and the uploader accept only this canonical report: its
 line records and recalculated summaries must agree.
 
-## What the checks mean
+## Workflow jobs and results
 
-- **Tests** runs `cargo test --locked` on current stable Rust, including normal
-  unit, integration, terminal and documentation tests, plus the Python helper
-  tests above using an isolated pinned diff-cover executable. Any test failure
-  fails this check. It has read-only access and no coverage-service or percentage
-  dependency.
-- **MSRV** independently builds and runs the full Rust test suite with `--locked`
-  on the exact minimum supported Rust version declared in `Cargo.toml`. It also
-  checks that README build guidance and the dynamic MSRV shield configuration
-  agree with their intended sources, using Python 3.11 or newer and the helper's
-  regression tests. It does not measure coverage or require coverage tools. Run
-  these offline checks locally with `python3 scripts/check_rust_version.py` and
+### Testing workflow
+
+- **Run tests on stable Rust** runs `cargo test --locked` on current stable Rust,
+  including normal unit, integration, terminal and documentation tests, plus the
+  Python helper tests above using an isolated pinned diff-cover executable. Any
+  test failure fails this check. It has read-only access and no coverage-service
+  or percentage dependency.
+- **Run tests on minimum supported Rust** independently builds and runs the full
+  Rust test suite with `--locked` on the exact minimum supported Rust version
+  declared in `Cargo.toml`. It also checks that README build guidance and the
+  dynamic minimum supported Rust version (MSRV) shield configuration agree with
+  their intended sources, using Python 3.11 or newer and the helper's regression
+  tests. It does not measure coverage or require coverage tools. Run these offline
+  checks locally with `python3 scripts/check_rust_version.py` and
   `python3 -m unittest discover -s tests/rust_version -v`.
-- **Coverage report** runs fresh stable Rust/LLVM instrumentation once, validates
-  and normalizes LCOV data, and retains it with identifying metadata. It does not
-  enforce a percentage or upload. Instrumented-test, report, validation and
+
+Both jobs run the full Rust test suite, with different compilers. Their supporting
+helper checks differ as described above. They have no job dependency on each
+other, so a failure on one compiler does not suppress the other's result.
+
+### Coverage workflow
+
+- **Generate coverage report** runs fresh stable Rust/LLVM instrumentation once,
+  validates and normalizes LCOV data, and retains it with identifying metadata.
+  It does not enforce a percentage or upload. Instrumented-test, report, validation and
   retention errors fail this job; a valid low-coverage report does not.
-- **Total coverage** validates that shared evidence and requires at least 80% of
+- **Check total coverage** validates that shared evidence and requires at least 80% of
   all measured executable lines to be covered, with a positive measured count.
-- **Changed-line coverage** independently requires at least 80% of the measured
+- **Check changed-line coverage** independently requires at least 80% of the measured
   executable lines added or modified by a PR to be covered. A valid PR with none
   is explicitly **not applicable** (N/A), not numerically 100%. Main and manual
   non-PR runs report N/A by event policy, not by comparing with an arbitrary ref.
+- **Upload main coverage to Codecov** validates and uploads the generated report
+  on eligible main runs. It does not rerun tests, remeasure coverage, or enforce a
+  percentage. Upload success does not guarantee Codecov processing or public
+  report access; see [upload safety](#codecov-setup-and-upload-safety).
 
 For covered count `C` and positive measured count `N`, both gates pass exactly
 when `5 * C >= 4 * N`. Exactly 80% passes; a smaller fraction fails even if rounded
@@ -123,8 +142,27 @@ The two gate jobs depend only on valid report production, not on one another,
 normal tests, MSRV, or uploading. Low total coverage does not skip changed-line
 analysis or discard the report. If production fails, dependent gates are blocked,
 not coverage passes. An upload or service failure cannot change either local result.
-**Tests** and **MSRV** also have no job dependency on each other, so a failure on
-one compiler does not suppress the other's result.
+
+### Workflow and check-name migration
+
+The normal `tests` and `msrv` jobs have moved from `coverage.yml` to `tests.yml`,
+under **Testing**. All six job ids are unchanged, but their display names now
+describe their actions:
+
+| Previous display name | Current display name |
+| --- | --- |
+| Tests | Run tests on stable Rust |
+| MSRV | Run tests on minimum supported Rust |
+| Coverage report | Generate coverage report |
+| Total coverage | Check total coverage |
+| Changed-line coverage | Check changed-line coverage |
+| Codecov main report | Upload main coverage to Codecov |
+
+If repository rules or external integrations refer to the old names or workflow
+paths, review them against the actual emitted check names and the two workflow
+files. Stable job ids do not guarantee that external references remain compatible.
+This reorganisation does not change branch protection or required-check settings
+automatically; any needed changes require a separate maintainer decision.
 
 ### Revisions and report identity
 
@@ -194,9 +232,9 @@ Only pushes to `main` and manual runs on `main` upload. Every PR, including
 same-repository, bot and fork PRs, retains local coverage evidence without uploading.
 Publication does not silently enable fork uploads or privileged execution.
 
-The **Codecov main report** job alone has OIDC issuance permission. It uses a fresh
-runner with no checkout, Cargo, repository scripts, build caches or executable
-artifacts.
+The **Upload main coverage to Codecov** job alone has OIDC issuance permission.
+It uses a fresh runner with no checkout, Cargo, repository scripts, build caches
+or executable artifacts.
 It downloads only the named current-run report data, validates allowed files,
 types, sizes, schema, run/repository/commit context and digest using inline workflow
 code, including strict canonical line records and summary agreement, then invokes

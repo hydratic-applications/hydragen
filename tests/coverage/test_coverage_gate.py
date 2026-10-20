@@ -592,21 +592,105 @@ class UploadValidatorTests(RepoCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.testing = (ROOT / ".github/workflows/tests.yml").read_text()
+        self.coverage = (ROOT / ".github/workflows/coverage.yml").read_text()
+
+    @staticmethod
+    def jobs(text):
+        # Inspect this project's block-style jobs; actionlint validates YAML syntax.
+        return dict(re.findall(r"^  ([a-z][a-z0-9_-]*):\n(.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                               text.split("\njobs:\n", 1)[1], re.M | re.S))
+
+    def test_workflow_membership_and_action_led_names(self):
+        for text, workflow, names in [
+            (self.testing, "Testing", {
+                "tests": "Run tests on stable Rust", "msrv": "Run tests on minimum supported Rust"}),
+            (self.coverage, "Coverage", {
+                "coverage": "Generate coverage report", "total": "Check total coverage",
+                "changed": "Check changed-line coverage", "upload": "Upload main coverage to Codecov"}),
+        ]:
+            with self.subTest(workflow=workflow):
+                self.assertTrue(text.startswith(f"name: {workflow}\n"))
+                jobs = self.jobs(text)
+                self.assertEqual(list(jobs), list(names))
+                for job, name in names.items():
+                    self.assertIn(f"    name: {name}\n", jobs[job])
+
+    def test_events_cancellation_and_shared_safeguards(self):
+        events = "on:\n  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch:\n"
+        for text, group in [(self.testing, "testing"), (self.coverage, "coverage")]:
+            with self.subTest(workflow=group):
+                header = text.split("\njobs:\n", 1)[0]
+                trigger_block = re.search(r"^on:\n.*?(?=^\S)", header, re.M | re.S)
+                self.assertIsNotNone(trigger_block)
+                self.assertEqual(trigger_block[0].strip(), events.strip())
+                self.assertIn(f"  group: {group}-${{{{ github.event.pull_request.number || github.ref }}}}\n", header)
+                self.assertIn("  cancel-in-progress: true\n", header)
+                self.assertEqual(re.findall(r"^  ([a-z-]+): (read|write)$", header, re.M), [("contents", "read")])
+                for forbidden in ("pull_request_target", "workflow_run", "workflow_call", "paths:",
+                                  "paths-ignore:", "branches-ignore:", "secrets.", "continue-on-error:"):
+                    self.assertNotIn(forbidden, text)
+                for action in re.findall(r"uses: ([^\s]+)", text):
+                    self.assertRegex(action, r"^[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
+                for job, body in self.jobs(text).items():
+                    self.assertIn("    runs-on: ubuntu-latest\n", body)
+                    self.assertEqual(body.count("timeout-minutes: 30"), 1)
+                    permissions = re.search(r"^    permissions:\n((?:      [a-z-]+: [a-z]+\n)+)", body, re.M)
+                    self.assertIsNotNone(permissions, job)
+                    expected = "      contents: read\n"
+                    if job == "upload":
+                        expected += "      id-token: write\n"
+                    self.assertEqual(permissions[1], expected)
+
+    def test_testing_is_independent_and_uses_immutable_heads(self):
+        self.assertIn("  TEST_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}\n", self.testing)
+        for forbidden in ("COVERAGE_", "id-token:", "llvm-cov", "uses: codecov/",
+                          "actions/upload-artifact@", "actions/download-artifact@", "scripts/coverage_gate.py"):
+            self.assertNotIn(forbidden, self.testing)
+        for body in self.jobs(self.testing).values():
+            self.assertNotIn("needs:", body)
+            self.assertNotIn("    if:", body)
+            self.assertIn("uses: actions/checkout@", body)
+            self.assertIn("          ref: ${{ env.TEST_HEAD }}\n", body)
+            self.assertIn("          persist-credentials: false\n", body)
+        stable = self.jobs(self.testing)["tests"]
+        self.assertIn("      RUSTUP_TOOLCHAIN: stable\n", stable)
+        self.assertIn("run: rustup toolchain install stable --profile minimal\n", stable)
+        self.assertIn("run: cargo test --locked\n", stable)
+        self.assertIn("run: python3 -m unittest discover -s tests/coverage -v\n", stable)
+        self.assertIn("DIFF_COVER: ${{ runner.temp }}/coverage-venv/bin/diff-cover\n", stable)
+        self.assertEqual(self.testing.count("-m pip install 'diff-cover[toml]==10.6.0'"), 1)
+
     def test_independent_jobs_and_privilege_boundary(self):
-        text = (ROOT / ".github/workflows/coverage.yml").read_text()
+        text = self.coverage
+        jobs = self.jobs(text)
+        producer = jobs["coverage"]
+        self.assertNotIn("needs:", producer)
+        self.assertNotIn("    if:", producer)
+        self.assertNotIn("id-token:", producer)
+        self.assertEqual(text.count("cargo llvm-cov --locked --workspace --all-targets --lcov"), 1)
+        artifact = "coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.COVERAGE_HEAD }}"
+        self.assertIn(f"          name: {artifact}\n", producer)
+        self.assertIn("scripts/coverage_gate.py prepare", producer)
+        for command in (" total ", " changed "):
+            self.assertNotIn(command, producer)
         for job in ("total", "changed", "upload"):
-            # Job headers have two spaces; all nested content has four or more.
-            start = text.index(f"\n  {job}:\n") + 1
-            rest = text[start:]
-            next_header = re.search(r"\n  [a-z]+:\n", rest)
-            body = rest[:next_header.start()] if next_header else rest
+            body = jobs[job]
             self.assertIn("    needs: coverage\n", body)
+            self.assertEqual(re.findall(r"^    needs: (.+)$", body, re.M), ["coverage"])
             self.assertEqual(body.count("timeout-minutes: 30"), 1)
             if job == "upload":
+                self.assertIn("    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')\n", body)
                 self.assertIn("      id-token: write", body)
                 self.assertNotIn("uses: actions/checkout@", body)
                 self.assertNotIn("run: cargo", body)
+                self.assertNotIn("rustup", body)
+                self.assertNotIn("llvm-cov", body)
                 self.assertNotIn("scripts/coverage_gate.py", body)
+                self.assertIn("          name: coverage-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}\n", body)
+                self.assertIn("          files: ${{ runner.temp }}/codecov-data/lcov.info\n", body)
+                self.assertIn("          use_oidc: true\n", body)
                 self.assertIn("override_commit: ${{ github.sha }}", body)
                 self.assertIn("slug: ${{ github.repository }}", body)
                 self.assertIn("plugins: noop", body)
@@ -614,13 +698,15 @@ class WorkflowTests(unittest.TestCase):
                 self.assertIn("disable_file_fixes: true", body)
             else:
                 self.assertNotIn("id-token:", body)
+                self.assertNotIn("    if:", body)
+                self.assertIn(f"          name: {artifact}\n", body)
+                self.assertIn(f"scripts/coverage_gate.py {job}", body)
+        for job in ("coverage", "total", "changed"):
+            self.assertIn("          ref: ${{ env.COVERAGE_HEAD }}\n", jobs[job])
+            self.assertIn("          fetch-depth: 0\n", jobs[job])
+            self.assertIn("          persist-credentials: false\n", jobs[job])
         self.assertEqual(text.count("id-token: write"), 1)
-        for action in re.findall(r"uses: ([^\s]+)", text):
-            self.assertRegex(action, r"^[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
-        self.assertNotIn("pull_request_target", text)
-        self.assertNotIn("workflow_run", text)
-        self.assertNotIn("paths:", text)
-        self.assertEqual(text.count("-m pip install 'diff-cover[toml]==10.6.0'"), 2)
+        self.assertEqual(text.count("-m pip install 'diff-cover[toml]==10.6.0'"), 1)
 
 
 if __name__ == "__main__":
