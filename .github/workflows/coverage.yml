@@ -53,6 +53,45 @@ jobs:
           DIFF_COVER: ${{ runner.temp }}/coverage-venv/bin/diff-cover
         run: python3 -m unittest discover -s tests/coverage -v
 
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out measured head (not the PR merge commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.COVERAGE_HEAD }}
+          persist-credentials: false
+
+      - name: Check Python version and helper regressions
+        run: |
+          python3 -c 'import sys; sys.exit("MSRV checks require Python 3.11 or newer" if sys.version_info < (3, 11) else 0)'
+          python3 -m unittest discover -s tests/rust_version -v
+
+      - name: Validate MSRV declaration and README
+        id: msrv
+        run: |
+          version="$(python3 scripts/check_rust_version.py --print-version)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install and identify the declared compiler
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: |
+          rustup toolchain install "$MSRV" --profile minimal
+          rustc "+$MSRV" --version --verbose
+          cargo "+$MSRV" --version
+
+      - name: Build and test the declared MSRV
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: |
+          cargo "+$MSRV" build --locked
+          cargo "+$MSRV" test --locked
+
   coverage:
     name: Coverage report
     runs-on: ubuntu-latest

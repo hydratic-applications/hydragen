@@ -21,14 +21,15 @@ applicable if they are not in use when publication happens.
   published and that there is permission to publish it.
 - [ ] Review GitHub Actions workflows for public contributions: fork PRs must not
   receive secrets or run contributed code in a privileged context. The
-  coverage workflow runs all three local quality policies on fork PRs but skips
-  every PR's Codecov upload. Only the isolated main uploader may request OIDC;
-  it must not execute repository or artifact code. Publication does not
-  automatically change that policy.
-- [ ] Verify the candidate's Actions-owned **Tests**, **Total coverage** and
-  **Changed-line coverage** results and retained report. Both applicable coverage
-  gates require inclusive, unrounded 80%. Changed-line N/A requires valid evidence
-  of no applicable measured PR lines, not a missing report/ref or skipped producer.
+  coverage workflow runs stable **Tests**, independent **MSRV**, and both local
+  coverage gates on fork PRs but skips every PR's Codecov upload. Only the isolated
+  main uploader may request OIDC; it must not execute repository or artifact code.
+  Publication does not automatically change that policy.
+- [ ] Verify the candidate's separate **Tests** (stable), **MSRV** (declared minimum),
+  **Total coverage**, and **Changed-line coverage** results and retained report.
+  Both applicable coverage gates require inclusive, unrounded 80%. Changed-line
+  N/A requires valid evidence of no applicable measured PR lines, not a missing
+  report/ref or skipped producer.
   Do not use Codecov project/patch statuses as substitutes for these local gates.
 
 ## After changing visibility
@@ -48,9 +49,10 @@ applicable if they are not in use when publication happens.
   revocation. This is the badge-access token, not an upload token or GitHub token.
   The current coverage setup deliberately uses no badge token, so this cleanup
   applies only if one is added later.
-- [ ] Verify the next eligible PR receives the three Actions-owned quality checks,
-  including forks without upload credentials. Confirm Codecov project/patch
-  statuses remain disabled rather than becoming duplicate percentage policies.
+- [ ] Verify the next eligible PR receives independent stable **Tests** and **MSRV**
+  results plus both Actions-owned coverage gates, including forks without upload
+  credentials. Confirm Codecov project/patch statuses remain disabled rather than
+  becoming duplicate percentage policies.
 - [ ] Verify a real main push or manual-main run uploads the matching current-run
   report using the separate OIDC job, including if valid coverage is below target.
   PR runs must not upload. Public access does not require unauthenticated uploads

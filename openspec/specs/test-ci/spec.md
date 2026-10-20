@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Define an independent CI test result and reliable terminal input-loss test setup
-without weakening existing test assertions or production interaction rules.
+Define the stable compiler's independent test result and the readiness safeguards
+used by terminal input-loss tests. Minimum-compiler support has its own separate
+[Rust version support specification](../rust-version-support/spec.md).
 
 ## Requirements
 

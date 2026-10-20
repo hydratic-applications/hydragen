@@ -22,10 +22,10 @@ pub(super) fn append(source: &str, references: &[&str]) -> Result<String, String
         .iter()
         .map(|reference| quoted(reference))
         .collect::<Result<Vec<_>, _>>()?;
-    let dependencies = root
-        .children
-        .chunks_exact(2)
-        .find_map(|pair| (document.scalar_key(pair[0]) == Some("dependencies")).then_some(pair[1]));
+    let dependencies =
+        root.children.as_chunks::<2>().0.iter().find_map(|pair| {
+            (document.scalar_key(pair[0]) == Some("dependencies")).then_some(pair[1])
+        });
     let mut insertions = if let Some(index) = dependencies {
         let node = &document.nodes[index];
         if matches!(node.kind, Kind::Alias(_)) {

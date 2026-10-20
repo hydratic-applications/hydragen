@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Define how CI produces trustworthy line-coverage reports, assesses coverage, and
-uploads main-branch reports without adding dependencies to ordinary local use.
+Define independent coverage measurement and assessment in GitHub Actions, with
+validated evidence, exact percentage gates, and isolated main-only Codecov uploads.
+Compiler compatibility is checked separately from coverage.
 
 ## Requirements
 
@@ -124,15 +125,18 @@ because neither gate is an upload dependency.
 
 ### Requirement: Actions assess total and changed-line coverage
 
-Actions SHALL own exactly three quality policies: `Tests`, `Total coverage` and
-`Changed-line coverage`. The two coverage jobs SHALL be sibling consumers whose
-only job dependency is successful `Coverage report` production, not normal tests,
-one another or Codecov. Each SHALL independently revalidate the report against
-expected event/run/repository/revision context and its verified measured checkout.
-For positive measured integer line count `N` and integer covered count `C` with
-`0 <= C <= N`, each applicable gate SHALL pass exactly when `5 * C >= 4 * N`.
-Display rounding SHALL NOT affect policy. A zero total denominator SHALL be an
-error. Neither coverage result SHALL compensate for or suppress the other.
+Within stable-test and coverage reporting scope, Actions SHALL own three quality
+policies: `Tests`, `Total coverage` and `Changed-line coverage`. This enumeration
+SHALL NOT exclude an additional independent `MSRV` compiler-compatibility check
+with its own visible result. The two coverage jobs SHALL be sibling consumers
+whose only job dependency is successful `Coverage report` production, not normal
+tests, MSRV, one another or Codecov. Each SHALL independently revalidate the
+report against expected event/run/repository/revision context and its verified
+measured checkout. For positive measured integer line count `N` and integer
+covered count `C` with `0 <= C <= N`, each applicable gate SHALL pass exactly when
+`5 * C >= 4 * N`. Display rounding SHALL NOT affect policy. A zero total
+denominator SHALL be an error. Neither coverage result SHALL compensate for or
+suppress the other.
 
 Root Codecov configuration SHALL retain `main` and disable project and patch
 statuses with `coverage.status.project: false` and `coverage.status.patch: false`.
@@ -169,16 +173,28 @@ Configuration SHALL NOT change branch protection or required-check settings.
 - **THEN** valid local total and PR changed-line evidence still determines the Actions gates
 - **AND** service failure does not create a replacement percentage or alter those results
 
+#### Scenario: Minimum-compiler compatibility fails independently
+
+- **WHEN** `MSRV` fails but valid coverage evidence is produced
+- **THEN** both coverage gates still determine their own results from that evidence
+- **AND** the three stable-test/coverage policies do not prevent a separate MSRV result
+
 ### Requirement: Coverage setup is reproducible without affecting ordinary use
 
 README Development SHALL include the local LCOV command and link to a focused
-reference explaining measurement scope, three Actions quality checks, supporting
-report/upload jobs, exact inclusive 80% policy, N/A, immutable comparisons,
-main-only OIDC, fork behaviour, report access and shield troubleshooting. The
-existing actual token-free main-specific shield URL and appearance SHALL remain
-unchanged; no static coverage number or token SHALL replace unavailable data.
-Documentation SHALL NOT promise that Codecov's processed display exactly matches
-LLVM's local policy scope or that public visibility guarantees service features.
+reference explaining measurement scope, the three stable-test/coverage policies,
+supporting report/upload jobs, exact inclusive 80% policy, N/A, immutable
+comparisons, main-only OIDC, fork behaviour, report access and shield
+troubleshooting. CI documentation SHALL identify `MSRV` as an additional
+independent compiler-compatibility check rather than describe the former three
+as the complete CI set. The README, coverage reference, and CI-related entries in
+the going-public checklist SHALL agree about this separation without changing
+existing status names, gates, upload rules, or required-check settings.
+The existing actual token-free main-specific coverage shield URL and appearance
+SHALL remain unchanged; no static coverage number or token SHALL replace
+unavailable data. Documentation SHALL NOT promise that Codecov's processed
+display exactly matches LLVM's local policy scope or that public visibility
+guarantees service features.
 
 Ordinary Rust builds, tests and offline CLI use SHALL NOT require coverage tools,
 Python helper tests, `diff-cover`, Codecov, Shields.io or upload authentication.
@@ -206,6 +222,12 @@ Its explicit TOML configuration SHALL have parser support, including on Python
 - **WHEN** a processed main report or token-free shield is not accessible
 - **THEN** documentation identifies report access, processing and cache checks separately
 - **AND** no fabricated percentage, billing change or visibility change conceals the limitation
+
+#### Scenario: A developer checks CI compatibility and coverage results
+
+- **WHEN** a developer reads the README, coverage reference, or CI checklist entries
+- **THEN** stable `Tests`, `MSRV`, and both coverage gates have distinct meanings
+- **AND** supporting report/upload jobs are not presented as extra quality policies
 
 #### Scenario: External account setup is incomplete
 
