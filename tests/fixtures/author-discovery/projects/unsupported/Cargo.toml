@@ -1,0 +1,9 @@
+[package]
+workspace = "../elsewhere"
+authors.workspace = true
+
+[workspace.package]
+authors = ["Workspace Author"]
+
+[workspace]
+members = ["child"]

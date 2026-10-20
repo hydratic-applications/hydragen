@@ -1,0 +1,7 @@
+{
+  "author": { "email": "only@example.com" },
+  "contributors": ["Contributor"],
+  "maintainers": [{ "name": "Maintainer" }],
+  "workspaces": ["child"],
+  "dependencies": { "dependency": "file:child" }
+}

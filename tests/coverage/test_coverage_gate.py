@@ -591,6 +591,67 @@ class UploadValidatorTests(RepoCase):
             self.validate_current()
 
 
+def llvm_cov_0_9_1_source_filter(workspace_root):
+    # Relevant parts of the pinned tool's Linux, non-remapped default export filter:
+    # https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/src/report.rs#L938-L949
+    # Other defaults concern external/build sources, not tracked src/ paths.
+    root = re.escape(str(workspace_root))
+    return re.compile(
+        rf"^{root}(/.*)?/(tests|examples|benches)/"
+        rf"|^{root}(/.*)?/(tests\.rs|[0-9a-zA-Z_-]+[_-]tests\.rs)$")
+
+
+class SourceFilterCompatibilityTests(unittest.TestCase):
+    """Version-bound export compatibility, not source exclusions or completeness proof."""
+
+    def test_source_filter_model_matches_actual_workflow_tool_pin(self):
+        text = (ROOT / ".github/workflows/coverage.yml").read_text()
+        pins = re.findall(r"^\s+tool:\s*(cargo-llvm-cov@[^\s#]+)\s*(?:#.*)?$", text, re.MULTILINE)
+        self.assertEqual(pins, ["cargo-llvm-cov@0.9.1"],
+                         "Review the version-bound source-filter model when changing the tool pin")
+
+    def test_pinned_default_source_filter_positive_and_negative_controls(self):
+        root = Path("/workspace/project.with-regex+chars")
+        pattern = llvm_cov_0_9_1_source_filter(root)
+        excluded = [
+            "src/tests.rs", "src/interaction/author_tests.rs", "src/interaction/author-tests.rs",
+            "src/A9_-tests.rs", "src/__tests.rs", "src/--tests.rs", "src/0_tests.rs",
+        ]
+        for directory in ("tests", "examples", "benches"):
+            excluded += [f"{directory}/helper.rs", f"src/{directory}/helper.rs",
+                         f"src/nested/{directory}/helper.rs"]
+        included = [
+            "src/interaction/author_terminal.rs", "src/test.rs", "src/Tests.rs",
+            "src/author_test.rs", "src/_tests.rs", "src/-tests.rs", "src/author.tests.rs",
+            "src/.author_tests.rs", "src/配置_tests.rs", "src/author_tests.rs.bak",
+            "src/test/helper.rs", "src/example/helper.rs", "src/bench/helper.rs",
+            "src/tests_support/helper.rs", "src/mytests/helper.rs",
+            "src/examples_more/helper.rs", "src/benches_extra/helper.rs",
+        ]
+        for path in excluded:
+            with self.subTest(excluded=path):
+                self.assertIsNotNone(pattern.search(str(root / path)))
+        for path in included:
+            with self.subTest(included=path):
+                self.assertIsNone(pattern.search(str(root / path)))
+        self.assertIsNone(pattern.search("/workspace/projectXwith-regex+chars/src/tests.rs"))
+        self.assertIsNone(pattern.search(str(root) + "-other/src/tests.rs"))
+
+    def test_cached_tracked_sources_avoid_pinned_default_export_filters(self):
+        # Explicit cwd keeps this on the actual checkout even inside RepoCase fixtures.
+        # The index sees staged additions/renames; report completeness still uses the
+        # helper's unchanged immutable-head inventory and actual LCOV validation.
+        result = subprocess.run(["git", "ls-files", "--cached", "-z", "--", "src/"],
+                                cwd=ROOT, capture_output=True, check=True, timeout=30)
+        paths = [path for path in result.stdout.decode("utf-8").split("\0") if path.endswith(".rs")]
+        self.assertTrue(paths, "Expected cached tracked Rust sources under src/")
+        pattern = llvm_cov_0_9_1_source_filter(ROOT)
+        omitted = sorted(path for path in paths if pattern.search(str(ROOT / path)))
+        self.assertEqual(omitted, [],
+                         "cargo-llvm-cov 0.9.1 default export filters omit tracked src/ paths: "
+                         + ", ".join(omitted))
+
+
 class WorkflowTests(unittest.TestCase):
     def test_independent_jobs_and_privilege_boundary(self):
         text = (ROOT / ".github/workflows/coverage.yml").read_text()

@@ -1,0 +1,12 @@
+[package]
+authors = [
+    "Cargo First <first@example.com>",
+    42,
+    { name = "Unsupported Cargo Object" },
+    "email-only@example.com",
+    "   ",
+    "Unsafe\nName",
+    "Unsafe\u2028Name",
+    "Cargo (Research)",
+    "Cargo First <duplicate@example.com>",
+]

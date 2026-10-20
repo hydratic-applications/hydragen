@@ -182,12 +182,46 @@ design everything upfront.
      The explicit and automatic non-interactive policy still prevents prompts in
      unattended environments. Supplying name is optional: both routes default it
      to the current directory's name, with Enter accepting the displayed prompt
-     default. The layer manifest still requires a non-blank name. See the
+     default when it satisfies the shared lowercase layer-name policy. An invalid
+     directory default fails before prompts or author preparation, with guidance
+     to supply a valid `--name`; that override selects flag-only input and bypasses
+     default derivation. Author and description retain their non-blank string rules,
+     not the layer-name restrictions. See the
+     [shared name policy](changes/archive/2026-10-18-add-local-layer-dependencies/design.md#adopt-an-explicit-lowercase-name-policy-through-the-maintained-schema)
+     and the historical
      [directory-name default decision](changes/archive/2026-10-16-add-interactive-init/design.md#default-name-to-the-current-directory).
      Historical context: the [separate-input-route decision](changes/archive/2026-10-16-add-interactive-init/design.md#separate-guided-and-flag-only-input),
      [mode-selection decision](changes/archive/2026-10-16-add-interactive-init/design.md#select-interactive-mode-conservatively),
      and [future-command convention](changes/archive/2026-10-16-add-interactive-init/design.md#keep-the-convention-reusable-without-adding-future-commands).
      This does not select an MCP server or skills as an agent-specific interface.
+   - **Guided-author decision:** Prefer directly declared authors in the init
+     directory's `package.json`, `Cargo.toml`, and `pyproject.toml`, followed by
+     Git/account names and optional GitHub profile/organisation names through
+     existing `gh` authentication. Group equal values into single choices with
+     combined source hints. When names exist, show a single-choice selector with
+     those names, Enter another
+     author, and Skip. Skip omits author and moves to Description. With no names,
+     or after choosing Enter another author, reuse one empty optional text prompt;
+     an empty submission also omits author and moves to Description. GitHub lookup
+     uses one selected host/account and bounded background preparation; it never starts
+     login or requests permissions. GitHub-membership-only choices are never
+     selected initially, but a project-declared organisation is eligible.
+     All discovery is best effort and disabled entirely for flag-only execution;
+     offline use remains supported. See the planned
+     [source order](changes/archive/2026-10-20-suggest-init-author/design.md#order-project-and-identity-sources),
+     [project author discovery](changes/archive/2026-10-20-suggest-init-author/design.md#read-directly-declared-authors-from-project-files),
+     [optional GitHub discovery](changes/archive/2026-10-20-suggest-init-author/design.md#add-optional-github-candidates-through-existing-gh-authentication),
+     [early preparation and Author waiting](changes/archive/2026-10-20-suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered),
+     [grouping](changes/archive/2026-10-20-suggest-init-author/design.md#group-equal-names-and-retain-their-sources),
+     and [conditional author interaction](changes/archive/2026-10-20-suggest-init-author/design.md#show-a-selector-only-when-there-are-names-to-choose-from).
+   - **Author presentation refinement:** Show sources only beside the focused
+     name, in inline parentheses with natural-language list punctuation. Use one
+     aligned source-evidence icon per choice, an emoji pencil for custom entry,
+     and a consistent two-space gap before labels. Omit the redundant public
+     GitHub hostname but retain Enterprise hosts. This changes presentation, not
+     discovery or author values. See the
+     [focused-source decision](changes/refine-author-choice-presentation/design.md#reveal-sources-inline-only-on-focus)
+     and [icon decision](changes/refine-author-choice-presentation/design.md#use-one-icon-for-source-evidence-not-a-guessed-entity-type).
    - **Initial add interaction decision:** Require source arguments and no guided
      flow, in terminals and automation alike. Defer registry-backed search,
      autocomplete, existence checking, and available-version selection until
@@ -299,7 +333,17 @@ design everything upfront.
       wording-deduplication target. See the [reporting boundary](changes/amend-local-add-review-findings/design.md#bound-completion-reporting-without-changing-diagnostic-delivery)
       and [diagnostic-audience rationale](changes/amend-local-add-review-findings/design.md#correct-diagnostic-facts-without-changing-audiences-or-api-shapes).
 11. **Performance targets.** What response times and resource limits should startup
-    and common operations meet, and for what project sizes?
+     and common operations meet, and for what project sizes?
+    - **Responsiveness decision:** Prepare safe, likely later-step information
+      during earlier input rather than moving optional delays to startup. Limit
+      background lifetime/resources separately from the short wait starting when
+      results are needed, with meaningful progress, cancellation, stable choices,
+      and cleanup. The init increment uses a 15-second preparation lifetime and
+      at most 1,500 ms additional Author wait; these are scoped values, not global
+      targets for all commands. See the
+      [preparation decision](changes/archive/2026-10-20-suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered)
+      and the existing [DX/performance values](../FOUNDATIONS.md#guiding-values).
+      Broader command targets and project-size benchmarks remain open.
 12. **Patch structure.** What internal structure should `.patch` files use to
     describe modifications to inherited files? The filename suffix does not select
     an existing patch format. See [Patch](../GLOSSARY.md#patch) for the agreed meaning.

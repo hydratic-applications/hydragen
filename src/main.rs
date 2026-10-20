@@ -1,3 +1,4 @@
+mod author_discovery;
 mod diagnostic_body;
 mod diagnostics;
 mod interaction;
@@ -28,6 +29,8 @@ Input:
   Name defaults to the current directory name. Author and description are optional and omitted when not supplied.
   Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum). Unscoped names and scopes cannot start with a dot or underscore.
   Invalid names are not rewritten; supply --name to override an invalid directory default.
+  Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups, with grouped source hints. Choose a name, Enter another author, or Skip. With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author.
+  Optional GitHub requests use only existing gh authentication, never login or extra permissions. Offline use and use without gh are supported. Flag-only input performs no author discovery.
   Format defaults to yaml (layer.yaml). --format selects only the newly created layer manifest, not read-time priority.
   --non-interactive always disables prompts."#;
 
@@ -190,38 +193,63 @@ where
 
 fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn Error>> {
     // Keep command-specific control flow and carry typed facts to shared composition.
-    if let Command::Add(arguments) = cli.command {
-        let directory =
-            std::env::current_dir().map_err(diagnostics::AddCommandError::CurrentDirectory)?;
-        return run_add(
-            &directory,
-            &arguments.sources,
-            presentation,
-            &mut io::stdout().lock(),
-        )
-        .map_err(Into::into);
-    }
-    let directory = std::env::current_dir()
-        .map_err(|source| diagnostics::CliIoError::CurrentDirectory { source }.into_io())?;
+    let directory = match &cli.command {
+        Command::Add(_) => {
+            std::env::current_dir().map_err(diagnostics::AddCommandError::CurrentDirectory)?
+        }
+        Command::Init(_) => std::env::current_dir()
+            .map_err(|source| diagnostics::CliIoError::CurrentDirectory { source }.into_io())?,
+    };
+    run_in(
+        cli,
+        &directory,
+        presentation,
+        Mode::detect,
+        author_discovery::Preparation::start,
+        interaction::collect_init_input,
+    )
+}
+
+// The same boundary is injected in tests to observe *all* discovery startup,
+// including file/account work that a fake git/gh executable cannot see.
+fn run_in(
+    cli: Cli,
+    directory: &std::path::Path,
+    presentation: presentation::Presentation,
+    select_mode: impl FnOnce(bool, bool) -> Mode,
+    start: impl FnOnce(&std::path::Path) -> io::Result<author_discovery::Preparation>,
+    collect: impl FnOnce(
+        &str,
+        &interaction::GuidedSession,
+        &author_discovery::Preparation,
+    ) -> io::Result<interaction::InitInput>,
+) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Command::Init(arguments) => {
             let input_flags = arguments.name.is_some()
                 || arguments.author.is_some()
                 || arguments.description.is_some()
                 || arguments.format.is_some();
-            let mode = Mode::detect(input_flags, cli.non_interactive);
-            let inspection = inspect_init(&directory)?;
+            let mode = select_mode(input_flags, cli.non_interactive);
+            let inspection = inspect_init(directory)?;
             diagnostics::warn_duplicates(inspection.discovery(), presentation);
             let prepared = inspection.prepare()?;
-            hydragen::layer_manifest::schema::ensure_ready()?;
+            let author = prepare_author(
+                mode,
+                directory,
+                hydragen::layer_manifest::schema::ensure_ready,
+                start,
+            )?;
             // Keep the theme through selection, writing, and the guided outro;
             // dropping it resets cliclack on every success or error path.
             let session =
                 (mode == Mode::Guided).then(|| interaction::GuidedSession::install(presentation));
             let interaction::InitInput { metadata, format } = if mode == Mode::Guided {
-                interaction::collect_init_input(
-                    &interaction::directory_name(&directory)?,
+                let (default_name, preparation) = author.as_ref().expect("guided preparation");
+                collect(
+                    default_name,
                     session.as_ref().expect("guided mode installs its theme"),
+                    preparation,
                 )?
             } else {
                 let format = arguments.format.as_deref().map_or_else(
@@ -234,7 +262,7 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
                     },
                 );
                 interaction::InitInput {
-                    metadata: flag_metadata(arguments, &directory)?,
+                    metadata: flag_metadata(arguments, directory)?,
                     format,
                 }
             };
@@ -246,9 +274,32 @@ fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn
             diagnostics::report_observation(&created, presentation);
             interaction::finish(mode, &created.path, presentation)?;
         }
-        Command::Add(_) => unreachable!("add dispatched before init"),
+        Command::Add(arguments) => {
+            return run_add(
+                directory,
+                &arguments.sources,
+                presentation,
+                &mut io::stdout().lock(),
+            )
+            .map_err(Into::into);
+        }
     }
     Ok(())
+}
+
+fn prepare_author(
+    mode: Mode,
+    directory: &std::path::Path,
+    ready: impl FnOnce() -> Result<(), hydragen::layer_manifest::schema::Error>,
+    start: impl FnOnce(&std::path::Path) -> io::Result<author_discovery::Preparation>,
+) -> io::Result<Option<(String, author_discovery::Preparation)>> {
+    ready().map_err(io::Error::other)?;
+    if mode == Mode::FlagOnly {
+        return Ok(None);
+    }
+    let default_name = interaction::directory_name(directory)?;
+    let preparation = start(directory)?;
+    Ok(Some((default_name, preparation)))
 }
 
 fn run_add(
@@ -690,6 +741,15 @@ mod tests {
                             "Input flags are --name, --author, --description and --format.",
                             "stdin, stdout and stderr are terminals and CI is disabled.",
                             "Author and description are optional and omitted when not supplied.",
+                            "Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum).",
+                            "Unscoped names and scopes cannot start with a dot or underscore.",
+                            "Invalid names are not rewritten; supply --name to override an invalid directory default.",
+                            "Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups, with grouped source hints.",
+                            "Choose a name, Enter another author, or Skip.",
+                            "With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author.",
+                            "Optional GitHub requests use only existing gh authentication, never login or extra permissions.",
+                            "Offline use and use without gh are supported.",
+                            "Flag-only input performs no author discovery.",
                             "Format defaults to yaml (layer.yaml).",
                             "--format selects only the newly created layer manifest, not read-time priority.",
                             "--non-interactive always disables prompts.",
@@ -752,6 +812,232 @@ mod tests {
         for name in ["Shared-Config", " shared-config ", "配置", "_config"] {
             let error = flag_metadata(arguments(name), Path::new("valid-directory")).unwrap_err();
             assert!(error.to_string().contains("--name"));
+        }
+    }
+
+    #[test]
+    fn production_route_starts_no_discovery_for_flags_or_disabled_interaction() {
+        use std::cell::Cell;
+        for arguments in [
+            vec!["hydragen", "init"],
+            vec!["hydragen", "init", "--name", "explicit"],
+            vec!["hydragen", "init", "--author", " Explicit author "],
+            vec!["hydragen", "init", "--description", "description"],
+            vec!["hydragen", "init", "--format", "json"],
+        ] {
+            for non_interactive in [false, true] {
+                for terminals in [
+                    [true; 3],
+                    [false, true, true],
+                    [true, false, true],
+                    [true, true, false],
+                ] {
+                    for ci in [None, Some(std::ffi::OsStr::new("true"))] {
+                        let parent = tempfile::tempdir().unwrap();
+                        let directory = tempfile::Builder::new()
+                            .prefix("layer")
+                            .rand_bytes(0)
+                            .tempdir_in(parent.path())
+                            .unwrap();
+                        let starts = Cell::new(0);
+                        let mut cli = Cli::try_parse_from(&arguments).unwrap();
+                        cli.non_interactive = non_interactive;
+                        let guided = arguments.len() == 2
+                            && !non_interactive
+                            && terminals == [true; 3]
+                            && ci.is_none();
+                        let _ = run_in(
+                            cli,
+                            directory.path(),
+                            presentation::Presentation {
+                                decorated: false,
+                                basic: true,
+                            },
+                            |flags, non_interactive| {
+                                Mode::select(flags, non_interactive, terminals, ci)
+                            },
+                            |actual| {
+                                assert_eq!(actual, directory.path());
+                                starts.set(starts.get() + 1);
+                                Err(io::Error::other("observed discovery startup"))
+                            },
+                            |_, _, _| panic!("injected startup never returns a handle"),
+                        );
+                        assert_eq!(
+                            starts.get(),
+                            usize::from(guided),
+                            "{arguments:?}, {terminals:?}, {ci:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn early_exit_boundaries_never_start_discovery() {
+        use std::cell::Cell;
+        let starts = Cell::new(0);
+        let parent = tempfile::tempdir().unwrap();
+        let directory = tempfile::Builder::new()
+            .prefix("layer")
+            .rand_bytes(0)
+            .tempdir_in(parent.path())
+            .unwrap();
+        for arguments in [
+            vec!["hydragen", "--help"],
+            vec!["hydragen", "init", "--help"],
+            vec!["hydragen", "add", "--help"],
+            vec!["hydragen", "--version"],
+            vec!["hydragen", "init", "--unknown"],
+            vec!["hydragen", "init", "--format", "invalid"],
+            vec!["hydragen", "add"],
+            vec!["hydragen", "add", "--unknown"],
+        ] {
+            let dispatched = parse_cli(
+                arguments,
+                presentation::Presentation {
+                    decorated: false,
+                    basic: true,
+                },
+            )
+            .map(|cli| {
+                run_in(
+                    cli,
+                    directory.path(),
+                    presentation::Presentation {
+                        decorated: false,
+                        basic: true,
+                    },
+                    |_, _| Mode::Guided,
+                    |_| {
+                        starts.set(starts.get() + 1);
+                        Err(io::Error::other("unexpected discovery startup"))
+                    },
+                    |_, _, _| panic!("early argument exits cannot prompt"),
+                )
+            });
+            assert!(dispatched.is_err());
+        }
+        std::fs::write(directory.path().join("layer.json"), "occupied").unwrap();
+        assert!(
+            run_in(
+                Cli::try_parse_from(["hydragen", "init"]).unwrap(),
+                directory.path(),
+                presentation::Presentation {
+                    decorated: false,
+                    basic: true
+                },
+                |_, _| Mode::Guided,
+                |_| {
+                    starts.set(starts.get() + 1);
+                    panic!("preflight must precede startup")
+                },
+                |_, _, _| panic!("preflight must precede input")
+            )
+            .is_err()
+        );
+        assert!(
+            prepare_author(
+                Mode::Guided,
+                Path::new("/"),
+                || Ok(()),
+                |_| {
+                    starts.set(starts.get() + 1);
+                    panic!("directory default must validate before startup")
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            prepare_author(
+                Mode::Guided,
+                Path::new("valid-directory"),
+                || {
+                    Err(hydragen::layer_manifest::schema::Error::Setup {
+                        message: "injected readiness failure".into(),
+                        detail: None,
+                    })
+                },
+                |_| {
+                    starts.set(starts.get() + 1);
+                    panic!("schema readiness must precede startup")
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(starts.get(), 0);
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("layer.json")).unwrap(),
+            "occupied"
+        );
+    }
+
+    #[test]
+    fn add_dispatch_bypasses_init_mode_selection_preparation_and_prompts() {
+        let directory = tempfile::tempdir().unwrap();
+        let result = run_in(
+            Cli::try_parse_from(["hydragen", "add", "../source"]).unwrap(),
+            directory.path(),
+            presentation::Presentation {
+                decorated: false,
+                basic: true,
+            },
+            |_, _| panic!("add must not select an init input route"),
+            |_| panic!("add must not start author discovery"),
+            |_, _, _| panic!("add must not collect init input"),
+        );
+        let error = result.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<diagnostics::AddCommandError>(),
+            Some(diagnostics::AddCommandError::Verification { .. })
+        ));
+        assert!(
+            diagnostics::error_message(error.as_ref())
+                .starts_with("No layer manifest found in this directory or its parents.")
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn invalid_guided_directory_defaults_stop_before_discovery_without_rewriting() {
+        for name in ["Uppercase", " layer ", "配置", ".tmp-layer"] {
+            let error = prepare_author(
+                Mode::Guided,
+                Path::new(name),
+                || Ok(()),
+                |_| panic!("invalid directory default must not start discovery"),
+            )
+            .err()
+            .expect("the directory name must fail validation");
+            assert!(error.to_string().contains("Supply --name explicitly"));
+            let context = error
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<diagnostics::CliIoError>()
+                .unwrap();
+            assert!(matches!(context,
+                diagnostics::CliIoError::DirectoryName { directory, .. }
+                    if directory == Path::new(name)));
+        }
+    }
+
+    #[test]
+    fn flag_metadata_preserves_arbitrary_author_and_description_with_a_valid_name() {
+        for value in ["  Équipe 配置 🦀  ", "quoted \"value\"", "\u{feff}"] {
+            let metadata = flag_metadata(
+                InitArgs {
+                    name: Some("@example/shared-config".into()),
+                    author: Some(value.into()),
+                    description: Some(value.into()),
+                    format: None,
+                },
+                Path::new("Invalid Directory"),
+            )
+            .unwrap();
+            assert_eq!(metadata.name, "@example/shared-config");
+            assert_eq!(metadata.author.as_deref(), Some(value));
+            assert_eq!(metadata.description.as_deref(), Some(value));
         }
     }
 }

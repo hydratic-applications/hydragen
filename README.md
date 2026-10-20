@@ -78,10 +78,38 @@ In an interactive terminal:
 hydragen init
 ```
 
-The prompts ask for a name, optional author and description, then a layer manifest
-format. Press Enter to use the directory's name, skip either optional field,
-or accept the default format, YAML (`layer.yaml`). Escape or Ctrl-C cancels
-without creating a file.
+The prompts ask for Name, optional Author and Description, then Layer manifest
+format. Name defaults to the current directory's name, not a fetched project or
+account name; press Enter to accept it or type another name.
+
+Author offers names directly declared in the directory's `package.json`,
+`Cargo.toml`, and `pyproject.toml` before Git, GitHub, and system-account suggestions.
+Identical names appear once; focus a name to see its sources beside it. Choose a name,
+**Enter another author**, or **Skip**. Enter accepts the current selection; Skip
+omits author and moves to Description. With no suggestions, or after choosing
+Enter another author, an empty optional text prompt lets you type a name or press
+Enter to omit author. GitHub organisation membership alone does not make a name
+the initial selection, though an organisation explicitly credited by the project
+is eligible.
+
+**Current limitation:** If the only suggestions are seven or more GitHub
+organisation membership names, the initially selected **Enter another author**
+can be off-screen. Moving Up can also leave a selected name off-screen and omit
+it from the completed prompt's feedback. The selected value and stored author
+remain correct. This display defect is tracked in
+[cliclack issue #115](https://github.com/fadeevab/cliclack/issues/115).
+
+Suggestions are prepared while you answer Name. If they are not ready at Author,
+a short wait shows progress before continuing with the available names; choices
+do not change once displayed. Optional GitHub profile and organisation lookups may
+make network requests through the GitHub CLI (`gh`), using only its existing
+authentication. Hydragen never starts login or requests extra permissions. Lookup
+failures are silent; init still works offline and without `gh`.
+
+Press Enter in the empty Description prompt to omit it, or in the format selector
+to accept YAML (`layer.yaml`). Escape or Ctrl-C cancels prompts or suggestion
+waiting without creating a project file. Nothing is written until all answers,
+including format, are complete.
 
 To use the directory-name default, it must satisfy the
 [layer-name rules](#the-layer-manifest). If it contains uppercase letters or
@@ -93,7 +121,8 @@ silently convert the name.
 
 Supply any of `--name`, `--author`, `--description`, or `--format` to run without
 questions. Omitted name defaults to the directory's name, author and description
-are left out, and format defaults to YAML.
+are left out, and format defaults to YAML. This route performs no author
+discovery; an explicit `--author` is validated and preserved as supplied.
 
 ```sh
 hydragen init --name shared-agent-rules \
@@ -123,7 +152,8 @@ hydragen init --non-interactive
 
 Without input flags, this uses the directory's name and YAML format, omitting
 author and description. Prompts are also disabled in CI or when any standard
-stream is not a terminal; init does not read piped answers.
+stream is not a terminal. These modes perform no author discovery, and init does
+not read piped answers.
 
 Init confirms the created layer manifest filename once. Guided feedback uses
 standard error; flag-only success uses standard output.

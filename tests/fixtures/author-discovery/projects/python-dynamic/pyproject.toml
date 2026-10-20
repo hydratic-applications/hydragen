@@ -1,0 +1,6 @@
+[project]
+dynamic = ["authors"]
+authors = [{ name = "Static Python Author" }, { email = "only@example.com" }]
+
+[tool.poetry]
+authors = ["Poetry Author <poetry@example.com>"]

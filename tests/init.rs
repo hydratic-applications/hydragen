@@ -513,6 +513,13 @@ fn help_explains_defaults_and_optional_metadata_without_writes() {
                 "yaml, yml, toml, json, jsonc",
                 "Format defaults to yaml (layer.yaml)",
                 "Any input flag",
+                "Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups",
+                "with grouped source hints",
+                "Choose a name, Enter another author, or Skip",
+                "With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author",
+                "Optional GitHub requests use only existing gh authentication, never login or extra permissions",
+                "Offline use and use without gh are supported",
+                "Flag-only input performs no author discovery",
             ] {
                 assert!(prose.contains(expected), "{help}");
             }
@@ -817,8 +824,12 @@ fn concurrent_init_has_one_winner_without_overwriting_it() {
 #[test]
 fn runs_without_stdin_git_or_service_configuration() {
     let directory = tempdir().unwrap();
-    let output = command(directory.path())
-        .env_clear()
+    let mut isolated = command(directory.path());
+    isolated.env_clear();
+    if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+        isolated.env("LLVM_PROFILE_FILE", profile);
+    }
+    let output = isolated
         .env("PATH", directory.path())
         .args(["init", "--name", "example"])
         .output()

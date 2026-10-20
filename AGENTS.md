@@ -225,6 +225,24 @@ once; one-shot actions use compact feedback. Keep terminal presentation outside
 the layer manifest and filesystem logic, and use supported cliclack theme hooks
 rather than replace its interaction handling.
 
+Apply the foundations' responsiveness principle when preparing later CLI steps.
+Start safe, useful read-only preparation during earlier interaction when its
+inputs are already known, after interaction selection and required safety checks.
+Do not postpone the first useful prompt to await optional preparation. Separate
+the background work's finite lifetime/resource limits from a short user-visible
+wait budget that starts only when its result is needed. For a guided wait that
+cannot be avoided, use suitable cliclack progress feedback on standard error and
+preserve cancellation; show no loading indicator behind another active prompt or
+for results already ready. Keep one owner of terminal rendering and input.
+Stop unneeded work and clean up owned child processes on cancellation, timeout,
+or leaving the dependent step. Freeze displayed choices before interaction rather
+than reordering them as late results arrive, and never use preparation to bypass
+confirmation, automation policy, or permission boundaries. Test time spent visibly
+waiting, early prompt availability, input responsiveness, progress feedback, late
+results, and cleanup, not just total command duration. This is a design principle,
+not a requirement to add background work to every command or a generic framework
+before a concrete need exists.
+
 When a command offers guided input and input flags, keep those routes separate.
 With no input flags, allow a guided flow when interaction is available; any input
 flag selects flag-only execution without questions to complete it. For init, the input
@@ -233,15 +251,77 @@ alone selects flag-only execution; the inferred YAML default does not count as a
 input flag. Global controls such as `--non-interactive` are not input flags.
 Preserve flags for input overrides, apply documented defaults without prompting,
 and reject missing input that has no default. Init defaults omitted name to the
-current directory's name; its guided
-name prompt shows that default and accepts it on Enter. Omit unsupplied author
-and description instead of prompting for them in flag-only execution. Omitted
-format defaults to `yaml` (`layer.yaml`). Guided init asks Name, Author,
-Description, then Layer manifest format, with choices labelled by extensions
-without a leading dot in priority order: `yaml`, `yml`, `toml`, `json`, `jsonc`.
+current directory's name. Its guided name prompt shows that default and accepts
+it on Enter; author discovery must not replace this default with a project or
+account name. Flag-only execution performs no author discovery: do not read
+project authors, look up local identity, probe
+`gh` or its authentication, or make GitHub requests. Preserve and validate an
+explicit `--author` unchanged; omit unsupplied author and description instead of
+prompting for them. Omitted format defaults to `yaml` (`layer.yaml`). Guided init
+asks Name, Author, Description, then Layer manifest format, with choices labelled
+by extensions without a leading dot in priority order: `yaml`, `yml`, `toml`,
+`json`, `jsonc`.
 The selector starts on `yaml`, accepted by Enter. Each choice still creates its
 fixed `layer.<extension>` filename. Format is separate from
 layer manifest metadata and does not override read-time priority.
+
+Guided init offers directly declared authors from the init directory's
+`package.json`, `Cargo.toml`, and `pyproject.toml` before Git, GitHub profile, and
+local-account names, with GitHub organisation memberships last. Collect all usable
+names rather than stopping at the first source, and group names by exact equality
+after trimming surrounding whitespace, retaining all distinct source hints. Read
+project declarations as data only: do not execute project tools, follow symlinks,
+search other directories, or resolve inherited or dynamic authors. Optional
+read-only GitHub requests use only `gh`'s existing authentication for the selected
+host/account; never initiate login, request permissions, or change accounts.
+Missing tools, credentials, connectivity, permissions, or usable source data are
+silent, non-fatal discovery failures; retain other names and support offline use.
+Keep credentials and source/membership records out of the layer manifest. Use the
+maintained schema's author definition for discovered names; internal schema
+failures remain errors, not an empty discovery result. The
+[author-suggestion design](openspec/changes/archive/2026-10-20-suggest-init-author/design.md) defines
+the supported fields, complete source order, host selection, and resource limits.
+
+When names exist, use the native single-choice `Author (optional)` selector with
+grouped names, then `Enter another author` and `Skip`. Initially select the
+first project-declared or developer-identity name, including a project-declared
+organisation. A name supported only by GitHub membership is not evidence of
+authorship and must not be initially selected; if only such names exist, start on
+`Enter another author`. Accepting a name proceeds directly to Description; `Skip`
+omits author and does the same without another prompt. With no names, bypass the
+selector and use the same empty optional Author text-input function as
+`Enter another author`. Empty submission omits author and proceeds to Description,
+without restoring a suggestion or returning to the selector. Keep action values
+separate from name strings, use native scrolling for long lists, and show the
+accepted name or `Skipped`, never source hints or action labels as metadata.
+
+Show the complete source hint only beside the focused active candidate, in dimmed
+inline parentheses, without a separate detail row or truncation. Join pairs with
+`and` and longer source lists with an Oxford comma. Retain one aligned icon for
+source evidence per option, the emoji pencil for custom entry, and two separator
+spaces before every label. Do not guess an entity type from a name. Omit
+`on github.com` for the public host but retain other GitHub hosts. Preserve native
+wrapping/redraw, basic-terminal fallbacks and colour controls; completed answers
+omit added icons and sources. The
+[author-presentation design](openspec/changes/refine-author-choice-presentation/design.md)
+defines the glyphs, provenance rules and display-only boundaries.
+
+Start author preparation once, only after selecting guided input and completing
+target safety checks, schema readiness, and directory-name default validation.
+Do not wait for it before displaying Name or restart it on input retries. Bound
+preparation to 15 seconds from its start, separately from at most 1,500 ms of
+additional waiting once Author is reached; completion or either deadline ends
+waiting. Keep local and GitHub work independent and bounded. Ready or expired
+results need no indicator or artificial delay. During actual Author waiting only,
+use the native cliclack spinner on standard error with
+`Finding author suggestions…`, keeping Escape/Ctrl-C cancellation available
+through foreground input handling. Clear it before any next prompt or
+cancellation/error report, without a synthetic lookup-success line or timeout
+warning. Freeze the collected
+choices before opening Author, ignore late results, and stop unneeded work with
+owned child-process cleanup on timeout, cancellation, failure, or session exit.
+Workers must not read terminal input, render output, or modify project/identity
+files; cleanup must not introduce an unbounded foreground wait.
 
 Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal
 standard stream disables guided input. Do not reopen a terminal or read piped
