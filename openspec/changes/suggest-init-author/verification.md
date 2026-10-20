@@ -1,5 +1,106 @@
 # Verification: guided init author suggestions
 
+## Historical snapshot and newer integration status
+
+The original assessment below records the 2026-10-20 review of runtime
+[`734ce99`](https://github.com/hydratic-applications/hydragen/tree/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014)
+and the subsequent documentation sync committed in `11da971`. Its test counts,
+scenario inventory, preservation comparisons and line references belong to those
+snapshots, not the newer integration with main
+`328644ec72012e11ae01ffbf7213694ebd40e7be` now in progress. Relative source links
+still open the current checkout; use the pinned runtime snapshot for the cited
+historical line numbers. These references are not claims about current line
+locations or fresh tests.
+
+The newer integration retains main's already-agreed lowercase layer-name policy
+and shared diagnostics alongside author suggestions. Historical evidence that
+Name accepted whitespace or Unicode does not describe the current name contract:
+directory defaults and typed names must satisfy the maintained name definition
+without conversion. Author and description keep their arbitrary non-blank string
+rules. The reconciled guided-collection specification adds three scenarios for
+invalid defaults, invalid guided names and preserved optional metadata; the
+historical 70-scenario inventory below has not been rewritten as new evidence.
+
+### Current integration validation
+
+The orchestrator's completed validation hooks and accepted independent reviews
+cover the working merge candidate `HEAD 11da971` plus main
+`328644ec72012e11ae01ffbf7213694ebd40e7be`, with the reviewed conflict resolutions.
+No runtime edits followed those tests. These are fresh candidate results, not a
+reuse of the historical 288-test result; this documentation update did not rerun
+the runtime suites.
+
+| Check | Current candidate result |
+| --- | --- |
+| `cargo build --locked`, `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D warnings` | All passed. |
+| `cargo test --locked` | **673 passed, 0 failed, 3 ignored** across 23 nonempty suites; 0 doctests. Passed tests comprise 112 library, 207 binary and 354 integration tests. The binary suite has 210 entries, including the two #115 deferrals and child-only driver. Relevant passing subsets include 46 init, 47 interactive-init and 15 author-route tests, plus 12 active controlled-terminal tests within the binary suite. |
+| `cargo test --locked --bin hydragen long_membership -- --ignored` | **0 passed, 2 expected visibility failures in 0.09 seconds**; correct returned metadata and no fixture failure. |
+| Coverage-policy tests | **39 passed**, using the existing diff-cover 10.6.0 virtual environment and canonical `TMPDIR`; no installation. These are policy checks, not measured coverage. |
+| Strict OpenSpec validation | All **9 main specs** and this change passed. The aggregate run reported **12 passed, 1 failed**, solely the pre-existing `add-validate-command` change with no delta specs. |
+| Independent integration reviews | Runtime and test/document/index reviews accepted with no blockers. **Final publication review of the updated report remains pending**; no push or PR is claimed. |
+
+Tasks 3.3/4.5 remain open for the accepted #115 exception, with **25/27 complete**.
+The direct equal-Git/valid-GitHub-profile grouping fixture gap remains an open
+project follow-up, not a newly demonstrated runtime defect. Full conformance and
+archive readiness are not established. Windows and actual hosted Linux coverage
+remain unverified until the corresponding platform/CI evidence is available.
+
+Documentation checks on this in-progress integration passed strict validation for
+the reconciled `cli-interaction` main spec and `suggest-init-author` change, plus
+scoped whitespace checks. Read-only comparison with both parents retained all
+requirement and scenario headings: 20 unrelated main requirement blocks and all
+4 feature-only author requirement blocks are verbatim. The reconciled main spec
+has 25 requirements and 127 scenarios; all 5 interaction delta blocks match it
+exactly, and a second sync changes nothing. These are document checks, not runtime
+or independent integration-review results.
+
+### Current integration requirement inventory
+
+The current change has **8 delta requirements and 76 named scenarios** across
+three capabilities: 5 interaction requirements / 69 scenarios, 2 experience-
+principle requirements / 4 scenarios, and 1 modified initialisation requirement /
+3 scenarios. This replaces the historical 7-requirement/70-scenario inventory only
+for the current integration; it does not change what was tested at `734ce99`.
+The initialisation delta explicitly supersedes the former blanket Git-command
+prohibition with the already-agreed eligible-guided, optional read-only lookup
+exception. All other initialisation requirements remain unchanged.
+
+The three name/optional-metadata reconciliation scenarios now have direct passing
+evidence in the current suite:
+
+- Invalid directory defaults: `invalid_guided_directory_defaults_stop_before_discovery_without_rewriting`
+  in `src/main.rs`, and `invalid_directory_defaults_fail_before_guided_prompts_and_allow_explicit_overrides`
+  in `tests/interactive_init.rs`.
+- Invalid guided names: `guided_name_policy_errors_explain_correction_without_flags`
+  in `src/interaction.rs`, and `invalid_guided_name_rules_explain_correction_and_retry_before_any_write`
+  in `tests/interactive_init.rs`.
+- Preserved arbitrary author/description: `flag_metadata_preserves_arbitrary_author_and_description_with_a_valid_name`
+  in `src/main.rs`, plus the optional-field terminal cases in
+  `tests/interactive_init.rs`, including Unicode acceptance without normalisation.
+
+The existing initialisation evidence routes below also ran in the current full
+suite. Source inspection supplements them; the local-Git/offline scenario retains
+its composed-evidence qualification rather than claiming a dedicated end-to-end
+test:
+
+| Initialisation scenario | Existing evidence route and qualification |
+| --- | --- |
+| Run in an offline non-interactive environment | `runs_without_stdin_git_or_service_configuration` in `tests/init.rs` clears the child environment and supplies an empty tool path. The captured route tests in `tests/author_discovery_routes.rs` check input flags, non-interactive/CI/redirection and early-exit canaries. This scenario is preserved verbatim. |
+| Guided init can suggest a local Git author while offline | `real_git_honours_scopes_includes_conditions_worktrees_and_command_values` in `src/author_discovery/identity.rs` exercises local scoped/include configuration and lookup outside a repository. Production `git_arguments` constructs only a configuration read. Together with the existing guided selector tests, this is composed evidence, not a dedicated offline end-to-end Git-author selection test. Its test-only Git setup is not an init runtime action. |
+| Guided init works without Git or GitHub access | `missing_git_and_gh_still_allow_empty_custom_author_without_restoring_suggestions` in `tests/interactive_init.rs` removes both fixture executables, exercises custom omission and completes init without warning or extra project files. Other sources may still offer names; this is not a claim that missing tools force an empty snapshot. |
+
+After this reconciliation, strict validation passed for all 9 main specs and the
+change. Read-only checks confirmed exact alignment and second-sync idempotence
+for all 8 current delta requirements. Initialisation remains at 9 requirements
+and grows from 46 to 48 scenarios; its other 8 requirement blocks, Purpose and
+existing offline scenario are preserved verbatim. Scoped whitespace checks passed.
+
+The current validation results above supersede the earlier pending-runtime status,
+not the historical evidence below. Runtime validation and the scoped independent
+integration reviews are complete; final publication review of this updated report
+remains pending. The #115 exception, open fixture follow-up and platform/coverage
+limits remain explicit.
+
 ## Assessment and scope
 
 Reviewed on 2026-10-20 against integrated runtime HEAD

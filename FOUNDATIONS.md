@@ -194,6 +194,15 @@ Hydragen uses layers both for content maintained primarily for reuse and for
 functioning projects. These are not separate kinds of layer: any layer can serve
 as another layer's dependency.
 
+A **[local dependency](GLOSSARY.md#local-dependency)** refers to a directory's
+current contents rather than a selected version. Editing that shared directory
+changes the source available to its dependent layers without choosing a new
+version. A **[published dependency](GLOSSARY.md#published-dependency)** instead
+selects a source by name and one exact version, making adoption of a different
+version an explicit choice. Both retain the reuse relationship; a local path is
+not a version pin. Recognising a published declaration does not itself verify
+that its source exists or retrieve its content.
+
 A layer's **[contributions](GLOSSARY.md#contribution)** are what it supplies itself
 rather than inherits. The three
 **[contribution types](GLOSSARY.md#contribution-type)** are additions,
@@ -541,6 +550,14 @@ returns to one after a break. Several use the same technology, but configure it
 differently or organise similar code in different ways. Before making a change,
 the developer must rebuild their understanding of how this particular project
 works.
+
+The same attention cost can arise within Hydragen itself. In an earlier CLI
+version, the project author ran `hydragen init`, then `hydragen add ../shared`,
+and found the YAML layer manifest's `name` below the newly added `dependencies`
+section. Having to look past dependencies to identify the layer disrupted the
+familiar layout created by init. Tool-written changes should make layer manifests
+consistently easy to scan across projects, without imposing one layout on
+hand-written files or rearranging a developer's existing choices.
 
 Shared approaches should make matching parts familiar across projects, reducing
 time spent rediscovering setup and rebuilding that understanding. When adding a

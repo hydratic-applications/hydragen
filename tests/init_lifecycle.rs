@@ -1,6 +1,9 @@
 use std::fs;
 
-use hydragen::{InitError, LayerManifestFormat, Metadata, create_init, initialize, inspect_init};
+use hydragen::{
+    InitCreationState, InitError, LayerManifestFormat, Metadata, create_init, initialize,
+    inspect_init,
+};
 
 fn metadata(name: &str) -> Metadata {
     Metadata {
@@ -75,6 +78,7 @@ fn exact_target_collision_retains_error_and_duplicate_diagnostics_without_retry(
             fs::write(directory.path().join(candidate.filename()), "keep").unwrap();
         }
         let failure = create_init(prepared, &metadata("replacement"), format).unwrap_err();
+        assert_eq!(failure.state, InitCreationState::NotCreated);
         assert!(
             matches!(failure.error, InitError::ExistingLayerManifest { ref path } if path.file_name().unwrap() == format.filename())
         );
@@ -109,6 +113,7 @@ fn exact_target_directory_and_dangling_symlink_collisions_preserve_entries() {
                 fs::create_dir(&path).unwrap();
             }
             let failure = create_init(prepared, &metadata("new"), format).unwrap_err();
+            assert_eq!(failure.state, InitCreationState::NotCreated);
             assert!(matches!(
                 failure.error,
                 InitError::ExistingLayerManifest { .. }
@@ -153,12 +158,30 @@ fn prepared_creation_validates_before_opening_the_target() {
         let directory = tempfile::tempdir().unwrap();
         let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
         let failure = create_init(prepared, &metadata(""), format).unwrap_err();
+        assert_eq!(failure.state, InitCreationState::NotCreated);
         assert!(matches!(
             failure.error,
             InitError::InvalidMetadata { field: "name" }
         ));
         assert!(failure.discovery.is_none());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn prepared_creation_rejects_invalid_name_candidates_without_opening_the_target() {
+    for format in LayerManifestFormat::ALL {
+        for name in ["Shared-config", "two words", "_config", "@Scope/config"] {
+            let directory = tempfile::tempdir().unwrap();
+            let prepared = inspect_init(directory.path()).unwrap().prepare().unwrap();
+            let failure = create_init(prepared, &metadata(name), format).unwrap_err();
+            assert_eq!(failure.state, InitCreationState::NotCreated);
+            let diagnostic = failure.error.to_string();
+            assert!(diagnostic.contains("--name"), "{diagnostic}");
+            assert!(!diagnostic.contains("non-whitespace"), "{diagnostic}");
+            assert!(failure.discovery.is_none());
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
     }
 }
 

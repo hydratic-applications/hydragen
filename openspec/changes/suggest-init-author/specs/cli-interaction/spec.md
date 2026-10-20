@@ -541,11 +541,20 @@ finds no names, init MUST bypass the Author selector entirely and open that shar
 text prompt directly. Action identity MUST be separate from candidate name text.
 Omission MUST NOT depend on special input tokens or undocumented key combinations.
 
-The name prompt MUST display the current directory's name as a default and accept
-it when the user presses Enter without text. A typed name MUST override that
-default. The resolved name MUST be non-blank; a typed whitespace-only name MUST
-receive inline validation feedback and another opportunity to answer. Author and
-description MUST be optional independently. An empty text answer MUST skip the
+Before prompts or author preparation, the directory-name default MUST satisfy the
+maintained schema's shared lowercase layer-name definition. An invalid default
+MUST fail with guidance to supply a valid `--name`, without silently trimming,
+lowercasing, or sanitising it. A valid explicit `--name` MUST bypass default
+derivation and select flag-only execution rather than author discovery.
+
+The name prompt MUST display the schema-valid current directory's name as a
+default and accept it when the user presses Enter without text. A typed name MUST
+override that default and satisfy the same schema definition without silent
+conversion. Any schema-invalid typed name, including a whitespace-only answer,
+MUST receive field-specific inline correction feedback and another opportunity
+to answer. Author and description MUST remain arbitrary non-blank strings,
+including Unicode and surrounding whitespace, not subject to layer-name syntax.
+They MUST be optional independently. An empty text answer MUST skip the
 optional field, while a non-empty whitespace-only answer MUST be rejected with
 inline feedback. Accepted answers MUST be preserved unchanged, and skipped fields
 MUST be absent from the layer manifest rather than written as empty strings or
@@ -556,8 +565,8 @@ italic `Skipped` indicator rather than a blank answer. This is presentation only
 it MUST NOT become a default or a stored metadata value, appear before submission,
 or mark an accepted name, cancellation, or a format choice as a skip.
 
-The final Layer manifest format question MUST be a selector with choices labelled by
-the extensions `yaml`, `yml`, `toml`, `json`, and `jsonc`, without a leading dot or
+The final `Layer manifest format` question MUST be a selector with choices labelled
+by the extensions `yaml`, `yml`, `toml`, `json`, and `jsonc`, without a leading dot or
 `layer.` prefix, in priority order. `yaml` MUST be initially selected and accepted
 by Enter. The completed prompt MUST also show the extension alone.
 The selector MUST NOT allow arbitrary filenames or rename the fixed basename.
@@ -604,6 +613,24 @@ to retry valid metadata or mislabelling them as invalid answers.
 - **WHEN** exactly one distinct name eligible for initial selection is found and no other distinct names are found
 - **THEN** the selector offers that name, Enter another author, and Skip
 - **AND** the discovered name is initially selected
+
+#### Scenario: Invalid directory default stops before author discovery
+
+- **WHEN** guided init would otherwise be eligible but the directory-name default violates the shared name definition, including uppercase or spaces
+- **THEN** init fails before prompts, author preparation, or writes with guidance to supply a valid `--name`
+- **AND** it does not lowercase, trim, sanitise, or replace the directory name with a discovered author
+
+#### Scenario: Reject an invalid guided name without changing it
+
+- **WHEN** the directory default is valid but the developer types a name such as `Shared-Config` or `café`
+- **THEN** schema-derived inline feedback explains how to correct Name without referring to flags
+- **AND** the answer remains available for editing rather than being silently converted, no file is written, and author preparation is not restarted
+
+#### Scenario: Preserve arbitrary accepted author and description
+
+- **WHEN** author or description contains Unicode, uppercase, or surrounding whitespace and satisfies its non-blank schema definition alongside a valid layer name
+- **THEN** the accepted optional metadata is preserved unchanged rather than subjected to layer-name restrictions
+- **AND** normalization of discovered author candidates does not transform explicit author or description input
 
 #### Scenario: Accept the initially selected author
 
@@ -662,7 +689,8 @@ to retry valid metadata or mislabelling them as invalid answers.
 #### Scenario: Flag-only validation retains flag context
 
 - **WHEN** a metadata flag is supplied with an empty or whitespace-only value
-- **THEN** the plain diagnostic identifies that flag and the invocation fails without asking a replacement question
+- **THEN** its diagnostic identifies that flag and the invocation fails without asking a replacement question
+- **AND** it uses compact terminal error styling or plain captured/unattended output as appropriate
 - **AND** no files are created
 
 #### Scenario: Guided validation without colour

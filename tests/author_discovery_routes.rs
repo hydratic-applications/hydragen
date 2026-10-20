@@ -545,7 +545,7 @@ fn help_version_and_usage_errors_do_not_invoke_sources_or_change_files() {
             assert!(output.stderr.is_empty(), "{output:?}");
             assert!(!output.stdout.is_empty(), "{output:?}");
         } else {
-            assert_failure(&output, "error:");
+            assert_failure(&output, "Error:");
         }
         assert_eq!(snapshot(&fixture.target), before);
     }

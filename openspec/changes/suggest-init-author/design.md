@@ -437,6 +437,54 @@ A special input such as `-` makes omission depend on remembering syntax and adds
 prompt noise. The native selector makes all actions visible; its tradeoff is one
 additional step only when entering a custom author after names were discovered.
 
+### Preserve agreed main contracts during integration
+
+Integration with main `328644ec72012e11ae01ffbf7213694ebd40e7be` applies
+already-agreed constraints, not a new author-suggestion product design. The
+[shared name policy](../../specs/layer-manifest/spec.md) restricts layer names to
+the maintained schema's lowercase definition. Directory defaults must pass that
+definition before prompts or author preparation; failure gives `--name` override
+guidance rather than trimming, lowercasing, or sanitising the directory name.
+A valid explicit name bypasses default derivation and selects flag-only input,
+with no discovery. A rejected guided name stays editable with schema-derived
+correction, without restarting author preparation.
+
+This layer-name restriction does not apply to author or description: explicit
+accepted strings retain Unicode, uppercase and surrounding whitespace unchanged.
+Only discovered candidates are trimmed and checked for safe display before the
+existing author-schema validation and exact grouping. Project-first ordering,
+membership eligibility, native selection, preparation deadlines and the accepted
+#115 limitation remain unchanged.
+
+Main's [shared CLI diagnostic contract](../../specs/cli-interaction/spec.md) also
+remains in force. Parsing outcomes precede current-directory resolution, layer
+discovery, schema preparation, prompts and writes. Explicit help/version remain
+plain and successful; parser and operational failures use eligible compact
+styling or plain output, structured causes, shared block layout with literally
+empty separators, established streams/statuses and truthful write/reporting state.
+Guided rejection and cancellation retain their cliclack interaction variants.
+Do not restore the former plain-usage-error exception or apply Name's constraints
+to optional metadata while reconciling these flows. Main's argument-only local
+dependency addition and its source-preserving write rules remain independent of
+guided author discovery.
+
+The [initialisation runtime-service requirement](../../specs/layer-initialization/spec.md#requirement-initialisation-works-without-external-runtime-services)
+previously prohibited all Git commands. This change explicitly supersedes that
+blanket prohibition only for the optional read-only Git configuration queries
+already selected for eligible guided author discovery. It also records the
+already-selected optional GitHub requests through existing `gh` authentication.
+Neither becomes a required runtime service: offline/no-Git operation, flag-only
+and early-exit isolation, and optional author entry/omission remain intact. Git
+initialisation, repository mutation, other Git commands, project-tool execution,
+login, permission requests and account switching remain forbidden. The focused
+`layer-initialization` delta reconciles the specifications; it does not introduce
+a new discovery source or redesign the agreed interaction.
+
+The validation recorded for `734ce99` is historical evidence for the earlier
+integration with main `4a82827`, not a test result for this newer integration.
+Repeat runtime validation and independent review against the resolved candidate;
+record those results separately in [verification.md](verification.md).
+
 ### Keep validation and file creation unchanged
 
 Use the same field validation and full-candidate schema validation as existing

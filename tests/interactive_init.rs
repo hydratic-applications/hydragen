@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::io::{Read, Write};
-use std::os::fd::BorrowedFd;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Mutex, MutexGuard};
@@ -14,7 +13,9 @@ use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, native_pty_system,
 };
 use serde_json::{Value, json};
-use tempfile::tempdir;
+mod diagnostic_body_support;
+mod support;
+use support::tempdir;
 
 #[path = "support/terminal_identity.rs"]
 mod terminal_identity;
@@ -73,6 +74,110 @@ fn noncanonical_input_ready(
     Ok(mode == InputMode::Noncanonical)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SharedInputMode {
+    Protected,
+    ConsoleRaw,
+}
+
+fn shared_input_mode_from_flags(
+    supports_iexten: bool,
+    active_flags: &[&str],
+) -> Result<SharedInputMode, String> {
+    if !supports_iexten {
+        return Err("Shared input PTY does not expose the required named IEXTEN flag".into());
+    }
+    if active_flags
+        .iter()
+        .any(|name| matches!(*name, "ICANON" | "ECHO" | "ISIG"))
+    {
+        return Err(format!(
+            "Shared input PTY protected baseline was not established: {active_flags:?}"
+        ));
+    }
+    Ok(if active_flags.contains(&"IEXTEN") {
+        SharedInputMode::Protected
+    } else {
+        SharedInputMode::ConsoleRaw
+    })
+}
+
+fn shared_input_mode(input: &dyn MasterPty) -> Result<SharedInputMode, String> {
+    let settings = input.get_termios().ok_or_else(|| {
+        "Could not observe shared input PTY termios: get_termios returned None".to_owned()
+    })?;
+    let known = settings.local_flags | settings.local_flags.complement();
+    let supports_iexten = known.iter_names().any(|(name, _)| name == "IEXTEN");
+    let active = settings
+        .local_flags
+        .iter_names()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    shared_input_mode_from_flags(supports_iexten, &active)
+}
+
+fn shared_input_ready(
+    mode: Result<SharedInputMode, String>,
+    child_status: Option<&ExitStatus>,
+    before_deadline: bool,
+) -> Result<bool, String> {
+    let mode = mode?;
+    if let Some(status) = child_status {
+        return Err(format!(
+            "Terminal child exited before shared input PTY readiness: {status:?}"
+        ));
+    }
+    if !before_deadline {
+        return Err(format!(
+            "Timed out waiting for console raw input on shared PTY; last mode: {mode:?}"
+        ));
+    }
+    Ok(mode == SharedInputMode::ConsoleRaw)
+}
+
+#[test]
+fn shared_input_readiness_distinguishes_protected_baseline_from_console_raw() {
+    let protected = shared_input_mode_from_flags(true, &["IEXTEN"]).unwrap();
+    let raw = shared_input_mode_from_flags(true, &[]).unwrap();
+    assert_eq!(protected, SharedInputMode::Protected);
+    assert_eq!(raw, SharedInputMode::ConsoleRaw);
+    assert_eq!(shared_input_ready(Ok(protected), None, true), Ok(false));
+    assert_eq!(shared_input_ready(Ok(raw), None, true), Ok(true));
+    assert!(
+        shared_input_mode_from_flags(false, &[])
+            .unwrap_err()
+            .contains("IEXTEN")
+    );
+    for flag in ["ICANON", "ECHO", "ISIG"] {
+        assert!(
+            shared_input_mode_from_flags(true, &["IEXTEN", flag])
+                .unwrap_err()
+                .contains("baseline")
+        );
+    }
+}
+
+#[test]
+fn shared_input_readiness_rejects_missing_state_exit_and_expiry_before_ready() {
+    assert_eq!(
+        shared_input_ready(Err("missing termios".into()), None, true),
+        Err("missing termios".into())
+    );
+    let status = ExitStatus::with_exit_code(0);
+    for mode in [SharedInputMode::Protected, SharedInputMode::ConsoleRaw] {
+        assert!(
+            shared_input_ready(Ok(mode), Some(&status), true)
+                .unwrap_err()
+                .contains("child exited")
+        );
+        assert!(
+            shared_input_ready(Ok(mode), None, false)
+                .unwrap_err()
+                .contains("Timed out")
+        );
+    }
+}
+
 #[test]
 fn noncanonical_input_readiness_distinguishes_pending_ready_and_expired_states() {
     assert_eq!(
@@ -121,6 +226,7 @@ struct TerminalSettings {
     no_color: Option<&'static str>,
     clicolor: Option<&'static str>,
     identity: Option<IdentityFixture>,
+    baseline_probe: bool,
 }
 
 impl Default for TerminalSettings {
@@ -133,6 +239,7 @@ impl Default for TerminalSettings {
             no_color: None,
             clicolor: None,
             identity: None,
+            baseline_probe: false,
         }
     }
 }
@@ -144,6 +251,7 @@ struct Session {
     _terminal_session: MutexGuard<'static, ()>,
     child: Box<dyn Child + Send + Sync>,
     writer: Option<Box<dyn Write + Send>>,
+    prompt_terminal: Option<Box<dyn portable_pty::MasterPty + Send>>,
     stdout_terminal: Option<PtyPair>,
     events: Receiver<Event>,
     readers: Vec<JoinHandle<()>>,
@@ -217,10 +325,15 @@ impl Session {
         // queued Backspace/Ctrl-C without changing output newline handling. Use
         // the system utility explicitly: PATH contains only fixture executables.
         // Run before redirection so a dedicated stdin PTY stays canonical until
-        // console actually selects it for input.
+        // console actually selects it for input. IEXTEN distinguishes the
+        // protected baseline from console's per-read raw mode.
         command.args([
             "-c",
-            "/bin/stty -icanon -echo -isig min 1 time 0 || exit
+            "/bin/stty -icanon -echo -isig iexten min 1 time 0 || exit
+if [ \"$BASELINE_PROBE\" = 1 ]; then
+  printf 'PTY protected baseline established\\n' >&2
+  IFS= read -r baseline_ack || exit
+fi
 case \"$REDIRECT\" in
 stdin) exec \"$@\" </dev/null >\"$RESULT_TTY\";;
 stdin-eof) exec \"$@\" <\"$CAPTURE\" >\"$RESULT_TTY\";;
@@ -237,6 +350,10 @@ esac",
         command.env("RESULT_TTY", stdout_terminal.master.tty_name().unwrap());
         command.env_remove("CI");
         command.env_remove("REDIRECT");
+        command.env(
+            "BASELINE_PROBE",
+            if settings.baseline_probe { "1" } else { "0" },
+        );
         command.env_remove("COLUMNS");
         command.env_remove("CLICOLOR_FORCE");
         command.env_remove("NO_COLOR");
@@ -298,6 +415,7 @@ esac",
             _terminal_session: terminal_session,
             child,
             writer,
+            prompt_terminal: Some(terminal.master),
             stdout_terminal: Some(stdout_terminal),
             events,
             readers,
@@ -333,6 +451,157 @@ esac",
         let writer = self.writer.as_mut().unwrap();
         writer.write_all(input).unwrap();
         writer.flush().unwrap();
+    }
+
+    /// A complete frame is observable before console enters its next raw read.
+    /// IEXTEN distinguishes console's raw setup from our protected between-read
+    /// baseline. This does not claim that a read syscall is already blocked.
+    /// Used only with the normal shared stdin/stderr PTY, not redirected input.
+    fn send_key_when_reading(&mut self, input: &[u8]) -> usize {
+        assert_eq!(std::str::from_utf8(input).unwrap().chars().count(), 1);
+        self.wait_for_shared_input();
+        let checkpoint = self.stderr.len();
+        self.send(input);
+        checkpoint
+    }
+
+    fn wait_for_shared_input(&mut self) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let mode = shared_input_mode(self.prompt_terminal.as_ref().unwrap().as_ref());
+            let status = self
+                .child
+                .try_wait()
+                .expect("Could not observe terminal child status");
+            match shared_input_ready(mode, status.as_ref(), Instant::now() < deadline) {
+                Ok(true) => return,
+                Ok(false) => self.receive(Duration::from_millis(1)),
+                Err(error) => panic!("{error}; stderr: {}", visible_text(&self.stderr)),
+            }
+        }
+    }
+
+    /// The input-loss fixture redirects stdin to a DIFFERENT PTY. Observe and
+    /// write that input terminal, never the still-open prompt terminal.
+    fn send_key_on_input(
+        &mut self,
+        terminal: &dyn portable_pty::MasterPty,
+        writer: &mut dyn Write,
+        input: &[u8],
+    ) -> usize {
+        assert_eq!(std::str::from_utf8(input).unwrap().chars().count(), 1);
+        self.wait_for_noncanonical_input(terminal);
+        let checkpoint = self.stderr.len();
+        writer.write_all(input).unwrap();
+        writer.flush().unwrap();
+        checkpoint
+    }
+
+    fn prepare_selector_on_input(
+        &mut self,
+        terminal: &dyn portable_pty::MasterPty,
+        writer: &mut dyn Write,
+    ) {
+        self.wait_for_frame_since(0, "◆", "Name", "");
+        self.answer_text_on_input(terminal, writer, "Name", "example", "Author (optional)");
+        self.custom_author_on_input(terminal, writer);
+        for (field, answer, next) in [
+            ("Author (optional)", "Team", "Description (optional)"),
+            (
+                "Description (optional)",
+                "Description",
+                "Layer manifest format",
+            ),
+        ] {
+            self.answer_text_on_input(terminal, writer, field, answer, next);
+        }
+    }
+
+    fn answer_text_on_input(
+        &mut self,
+        terminal: &dyn portable_pty::MasterPty,
+        writer: &mut dyn Write,
+        field: &str,
+        answer: &str,
+        next: &str,
+    ) {
+        for character in answer.chars() {
+            let mut bytes = [0; 4];
+            let checkpoint = self.send_key_on_input(
+                terminal,
+                writer,
+                character.encode_utf8(&mut bytes).as_bytes(),
+            );
+            self.wait_for_frame_since(checkpoint, "◆", field, "");
+        }
+        let checkpoint = self.send_key_on_input(terminal, writer, b"\r");
+        self.wait_for_frame_since(checkpoint, "◆", next, "");
+    }
+
+    fn custom_author_on_input(
+        &mut self,
+        terminal: &dyn portable_pty::MasterPty,
+        writer: &mut dyn Write,
+    ) {
+        let mut frame = self.author_frame();
+        for _ in 0..128 {
+            let selected = frame
+                .lines()
+                .find_map(|line| line.split_once('●').map(|(_, item)| item.trim()))
+                .expect("Author must be a native selector");
+            self.wait_for_noncanonical_input(terminal);
+            let checkpoint = self.stderr.len();
+            if selected == "Enter another author" {
+                writer.write_all(b"\r").unwrap();
+                writer.flush().unwrap();
+                self.wait_for_frame_since(checkpoint, "◆", "Author (optional)", "");
+                let frame = visible_text(&self.stderr[checkpoint..]);
+                assert!(!frame.contains('●'), "{frame}");
+                return;
+            }
+            writer.write_all(b"\x1b[B").unwrap();
+            writer.flush().unwrap();
+            frame = self.author_frame_since(checkpoint);
+        }
+        panic!("Could not select custom Author on dedicated input PTY: {frame}");
+    }
+
+    /// Require a fresh, complete frame, not a label/correction retained anywhere
+    /// in transcript history. The footer newline acknowledges the whole redraw.
+    fn wait_for_frame_since(&mut self, checkpoint: usize, marker: &str, field: &str, footer: &str) {
+        let deadline = Instant::now() + TIMEOUT;
+        let header = format!("{marker}  {field}\n");
+        let footer_prefix = format!("└  {footer}");
+        loop {
+            let fresh = visible_text(&self.stderr[checkpoint..]).replace('\r', "");
+            if let Some((_, frame)) = fresh.rsplit_once(&header)
+                && frame.split_inclusive('\n').any(|line| {
+                    line.ends_with('\n')
+                        && if footer.is_empty() {
+                            line == "└  \n"
+                        } else {
+                            line.starts_with(&footer_prefix)
+                        }
+                })
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Timed out waiting for fresh {marker} {field} frame after byte {checkpoint}: {}",
+                visible_text(&self.stderr)
+            );
+            self.receive(Duration::from_millis(10));
+        }
+    }
+
+    fn edit_text(&mut self, field: &str, text: &str) {
+        for character in text.chars() {
+            let mut bytes = [0; 4];
+            let checkpoint =
+                self.send_key_when_reading(character.encode_utf8(&mut bytes).as_bytes());
+            self.wait_for_frame_since(checkpoint, "◆", field, "");
+        }
     }
 
     fn wait_for_noncanonical_input(&mut self, input: &dyn MasterPty) {
@@ -441,6 +710,7 @@ esac",
             }
             if let Some(status) = &status {
                 self.writer.take();
+                self.prompt_terminal.take();
                 self.stdout_terminal.take();
                 if self.closed == self.readers.len() {
                     self.finished = true;
@@ -516,6 +786,21 @@ esac",
         assert!(!text.contains("Initialised layer:"), "{text}");
     }
 
+    fn evidence(&self, label: &str) {
+        if let Some(directory) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+            fs::create_dir_all(&directory).unwrap();
+            for (stream, bytes) in [("stdout", &self.stdout), ("stderr", &self.stderr)] {
+                let base = Path::new(&directory).join(format!("{label}.{stream}"));
+                fs::write(base.with_extension(format!("{stream}.ansi.txt")), bytes).unwrap();
+                fs::write(
+                    base.with_extension(format!("{stream}.plain.txt")),
+                    visible_text(bytes).replace('\r', ""),
+                )
+                .unwrap();
+            }
+        }
+    }
+
     fn assert_compact_success(&self, format: LayerManifestFormat, styled: bool) {
         self.assert_no_prompts();
         assert!(self.stderr.is_empty());
@@ -561,6 +846,7 @@ impl Drop for Session {
             }
         }
         self.writer.take();
+        self.prompt_terminal.take();
         self.stdout_terminal.take();
         for reader in self.readers.drain(..) {
             // A descendant retaining the PTY must not hang the test runner.
@@ -569,6 +855,19 @@ impl Drop for Session {
             }
         }
     }
+}
+
+// A physical hangup must not use the library writer's synthetic EOT-on-drop.
+fn close_only_pty_writer(terminal: &dyn portable_pty::MasterPty) -> fs::File {
+    use std::os::fd::BorrowedFd;
+    // portable-pty's take_writer() sends newline + VEOF in its Drop. That can
+    // submit a selector BEFORE the master hangs up. A plain duplicated File
+    // closes without injecting any input. The original master remains owned by
+    // the caller throughout this immediate duplication.
+    let descriptor = terminal.as_raw_fd().expect("Unix PTY master descriptor");
+    // SAFETY: terminal owns descriptor and stays borrowed until dup completes.
+    let descriptor = unsafe { BorrowedFd::borrow_raw(descriptor) };
+    fs::File::from(descriptor.try_clone_to_owned().unwrap())
 }
 
 // Match visible text even when cliclack styles parts of labels or defaults.
@@ -771,8 +1070,10 @@ fn assert_occupied_feedback(stderr: &[u8]) {
         "{text}"
     );
     let refusal = text.split_once("Error: ").unwrap().1;
-    assert_eq!(refusal.lines().count(), 2, "{text}");
-    let advice = refusal.lines().nth(1).unwrap().trim();
+    diagnostic_body_support::assert_compact(&format!("Error: {}", refusal.replace('\r', "")));
+    assert_eq!(refusal.lines().count(), 3, "{text}");
+    assert!(refusal.lines().nth(1).unwrap().trim().is_empty(), "{text}");
+    let advice = refusal.lines().nth(2).unwrap().trim();
     assert_eq!(
         advice,
         "Initialisation creates a new layer manifest; it won’t overwrite an existing one."
@@ -1143,7 +1444,7 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
 }
 
 #[test]
-fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
+fn terminal_version_stays_plain_and_argument_errors_use_shared_style_without_writes() {
     for (arguments, success) in [
         (vec!["--version"], true),
         (vec!["-V"], true),
@@ -1163,10 +1464,10 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
                 ..Default::default()
             },
         );
-        assert_eq!(session.finish().success(), success);
+        let status = session.finish();
+        assert_eq!(status.success(), success);
         session.assert_no_header();
         assert!(!session.stdout.contains(&b'\x1b'));
-        assert!(!session.stderr.contains(&b'\x1b'));
         if success {
             assert!(session.stderr.is_empty());
             assert_eq!(
@@ -1174,7 +1475,14 @@ fn terminal_version_and_argument_errors_remain_plain_and_write_free() {
                 format!("{}\r\n", env!("CARGO_PKG_VERSION"))
             );
         } else {
+            assert_eq!(status.exit_code(), 2);
             assert!(session.stdout.is_empty());
+            let stderr = String::from_utf8_lossy(&session.stderr);
+            assert!(stderr.contains("\x1b[31m"), "{stderr:?}");
+            assert!(visible_text(&session.stderr).starts_with("✕ Error:"));
+            for line in stderr.lines().skip(1) {
+                assert!(!line.contains('\x1b'), "{line:?}");
+            }
             assert!(visible_text(&session.stderr).contains("help"));
         }
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
@@ -1188,16 +1496,16 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
     session.wait_for("Name");
     let guidance = "Enter accepts the current selection or default; empty optional text skips.";
     assert!(visible_text(&session.stderr).contains(guidance));
-    session.send("  配置 🦀  \r".as_bytes());
+    session.send(b"@example/.config\r");
     session.custom_author();
-    session.send(b"  Example team  \r");
+    session.send("  Example team 配置 🦀  \r".as_bytes());
     session.wait_for("Description (optional");
     session.send(b"Description\r");
     session.choose_format(directory.path(), LayerManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(
         layer_manifest(directory.path()),
-        json!({"name": "  配置 🦀  ", "author": "  Example team  ", "description": "Description"})
+        json!({"name": "@example/.config", "author": "  Example team 配置 🦀  ", "description": "Description"})
     );
     session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
     let transcript = visible_text(&session.stderr);
@@ -1211,7 +1519,7 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
 #[test]
 fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     let parent = tempdir().unwrap();
-    let directory = parent.path().join(" My Project 配置 🦀 ");
+    let directory = parent.path().join("my-project.v2_config");
     fs::create_dir(&directory).unwrap();
     let default_name = directory.file_name().unwrap().to_str().unwrap();
     let mut session = Session::new(&directory, &["init"], None);
@@ -1224,6 +1532,102 @@ fn guided_name_shows_the_directory_default_and_enter_accepts_it() {
     session.choose_format(&directory, LayerManifestFormat::Yaml);
     assert!(session.finish().success());
     assert_eq!(layer_manifest(&directory), json!({"name": default_name}));
+}
+
+#[test]
+fn invalid_directory_defaults_fail_before_guided_prompts_and_allow_explicit_overrides() {
+    for name in [
+        "MyProject",
+        "my project",
+        "   ",
+        "配置",
+        ".project",
+        "_project",
+    ] {
+        let parent = tempdir().unwrap();
+        let directory = parent.path().join(name);
+        fs::create_dir(&directory).unwrap();
+        let mut session = Session::new(&directory, &["init"], None);
+        assert!(!session.finish().success());
+        session.assert_no_prompts();
+        assert!(session.stdout.is_empty());
+        assert!(visible_text(&session.stderr).contains("Supply --name explicitly"));
+        assert_no_layer_manifests(&directory);
+        assert_only_files(&directory, &[]);
+        // Drop the finished session to release the shared terminal-allocation lock.
+        drop(session);
+        let mut session = Session::new(&directory, &["init", "--name", "@scope/.config"], None);
+        assert!(session.finish().success());
+        session.assert_compact_success(LayerManifestFormat::Yaml, true);
+        assert_eq!(
+            layer_manifest(&directory),
+            json!({"name": "@scope/.config"})
+        );
+        assert_only_files(&directory, &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn invalid_guided_name_rules_explain_correction_and_retry_before_any_write() {
+    for invalid in [
+        "Shared-config",
+        "two words",
+        ".config",
+        "@Scope/config",
+        "配置",
+    ] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        session.send(format!("{invalid}\r").as_bytes());
+        session.wait_for("Name is invalid.");
+        let transcript = visible_text(&session.stderr);
+        assert!(transcript.contains("lowercase"), "{transcript}");
+        assert!(!transcript.contains("non-blank"), "{transcript}");
+        assert!(!transcript.contains("--name"), "{transcript}");
+        assert!(!transcript.contains("Author (optional"), "{transcript}");
+        assert_style(&session.stderr, "✕", |style| style.foreground == Some(31));
+        assert_no_layer_manifests(directory.path());
+        // The editor keeps rejected input. Clear exactly its characters, not bytes.
+        session
+            .send(format!("{}@scope/_config\r", "\x7f".repeat(invalid.chars().count())).as_bytes());
+        session.skip_author();
+        session.wait_for("Description (optional");
+        session.send(b"\r");
+        session.choose_format(directory.path(), LayerManifestFormat::Yaml);
+        assert!(session.finish().success());
+        session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name": "@scope/_config"})
+        );
+        assert_only_files(directory.path(), &["layer.yaml"]);
+    }
+}
+
+#[test]
+fn invalid_guided_name_can_be_cancelled_without_any_file_changes() {
+    for key in [b"\x1b".as_slice(), b"\x03"] {
+        let directory = tempdir().unwrap();
+        let mut session = Session::new(directory.path(), &["init"], None);
+        session.wait_for("Name");
+        session.send(b"Shared-config\r");
+        session.wait_for("Name is invalid.");
+        assert_no_layer_manifests(directory.path());
+        session.send(key);
+        assert!(!session.finish().success());
+        let text = visible_text(&session.stderr);
+        assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+        assert_eq!(
+            text.to_lowercase().matches("no files were changed").count(),
+            1,
+            "{text}"
+        );
+        assert!(!text.contains("Error:"), "{text}");
+        assert!(!text.contains("Layer initialised"), "{text}");
+        assert!(session.stdout.is_empty());
+        assert_only_files(directory.path(), &[]);
+    }
 }
 
 #[test]
@@ -1731,7 +2135,7 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
                 }));
             }
             assert_no_layer_manifests(directory.path());
-            session.send("\x7f  配置 🦀  \r".as_bytes());
+            session.send(b"\x7f@example/_config\r");
             session.custom_author();
             session.send(b" \r");
             session
@@ -1759,9 +2163,9 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             session.choose_format(directory.path(), LayerManifestFormat::Yaml);
             assert!(session.finish().success());
             let expected = if supply_author {
-                json!({"name": "  配置 🦀  ", "author": "  Team 配置  "})
+                json!({"name": "@example/_config", "author": "  Team 配置  "})
             } else {
-                json!({"name": "  配置 🦀  ", "description": "  Description 配置  "})
+                json!({"name": "@example/_config", "description": "  Description 配置  "})
             };
             assert_eq!(layer_manifest(directory.path()), expected);
             assert_only_files(directory.path(), &["layer.yaml"]);
@@ -1789,19 +2193,19 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank name.");
     assert_no_layer_manifests(directory.path());
-    session.send("\x7f\u{feff}\r".as_bytes());
+    session.send(b"\x7fexample\r");
     session.custom_author();
     session.send("\u{85}\r".as_bytes());
     session.wait_for("Enter a non-blank author, or clear the field and press Enter to skip.");
     assert_no_layer_manifests(directory.path());
-    session.send(b"\x7f\r");
+    session.send("\x7f\u{feff}\r".as_bytes());
     session.wait_for("Description (optional");
     session.send("\u{85}visible 配置 🦀\u{2003}\r".as_bytes());
     session.choose_format(directory.path(), LayerManifestFormat::Jsonc);
     assert!(session.finish().success());
     assert_eq!(
         layer_manifest_in_format(directory.path(), LayerManifestFormat::Jsonc),
-        json!({"name": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
+        json!({"name": "example", "author": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
     );
     assert_only_files(directory.path(), &["layer.jsonc"]);
     session.assert_guided_success(directory.path(), LayerManifestFormat::Jsonc);
@@ -1931,22 +2335,28 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
     for arguments in [
         vec!["init", "--author", " "],
         vec!["init", "--name", ""],
+        vec!["init", "--name", "Shared-config"],
+        vec!["init", "--name", "two words"],
         vec!["init", "--name", "example", "--author", " "],
         vec!["init", "--format", "invalid"],
         vec!["init", "--format"],
     ] {
         let directory = tempdir().unwrap();
         let mut session = Session::new(directory.path(), &arguments, None);
-        assert!(!session.finish().success());
+        let status = session.finish();
+        assert_eq!(
+            status.exit_code(),
+            if arguments.contains(&"--format") {
+                2
+            } else {
+                1
+            }
+        );
         session.assert_no_prompts();
         assert!(session.stdout.is_empty());
-        if arguments.contains(&"--format") {
-            session.assert_plain();
-        } else {
-            assert_style(&session.stderr, "✕ Error:", |style| {
-                style.foreground == Some(31)
-            });
-        }
+        assert_style(&session.stderr, "✕ Error:", |style| {
+            style.foreground == Some(31)
+        });
         assert_no_layer_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
     }
@@ -2012,6 +2422,10 @@ fn escape_and_ctrl_c_cancel_before_or_after_metadata_and_at_format() {
             session.send(key);
             assert!(!session.finish().success());
             let text = visible_text(&session.stderr);
+            assert!(
+                text.contains("Layer initialisation cancelled. No files were changed."),
+                "{text}"
+            );
             assert_eq!(text.matches("cancelled").count(), 1, "{text}");
             assert_eq!(
                 text.to_lowercase().matches("no files were changed").count(),
@@ -2299,7 +2713,14 @@ fn absolute_stty_preamble_preserves_queued_keys_with_fixture_only_path() {
 
 #[test]
 fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
-    for stop_at in ["name", "author-selector", "author-text", "format"] {
+    for (stop_at, cols, colour) in ["name", "author-selector", "author-text", "format"]
+        .into_iter()
+        .flat_map(|stop_at| {
+            [40, 80, 100, 120]
+                .into_iter()
+                .flat_map(move |cols| [false, true].map(move |colour| (stop_at, cols, colour)))
+        })
+    {
         let directory = tempdir().unwrap();
         let terminal_session = TERMINAL_SESSION
             .lock()
@@ -2307,7 +2728,7 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
         let input = native_pty_system()
             .openpty(PtySize {
                 rows: 24,
-                cols: 120,
+                cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
@@ -2318,61 +2739,109 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
             "Dedicated input PTY must have a canonical baseline before child spawn"
         );
         let input_path = input.master.tty_name().unwrap();
-        // portable-pty's writer sends a newline and EOT on drop. A plain
-        // duplicate closes silently, so dropping it tests disconnection instead
-        // of accidentally submitting the current prompt.
-        // SAFETY: input.master owns this descriptor and outlives the borrow;
-        // try_clone_to_owned creates an independently owned descriptor.
-        let input_fd = unsafe { BorrowedFd::borrow_raw(input.master.as_raw_fd().unwrap()) };
-        let mut input_writer: Box<dyn Write + Send> =
-            Box::new(fs::File::from(input_fd.try_clone_to_owned().unwrap()));
+        let mut input_writer = close_only_pty_writer(input.master.as_ref());
         let mut session = Session::spawn_with_lock(
             directory.path(),
             &["init"],
             None,
             Some(("stdin-eof", &input_path)),
             terminal_session,
-            TerminalSettings::default(),
+            TerminalSettings {
+                cols,
+                colour: Some(colour),
+                ..TerminalSettings::default()
+            },
         );
-        session.wait_for("Name");
-        if stop_at != "name" {
-            input_writer.write_all(b"example\r").unwrap();
-            input_writer.flush().unwrap();
-            session.author_frame();
-        }
-        if matches!(stop_at, "author-text" | "format") {
-            let original_writer = session.writer.replace(input_writer);
-            session.custom_author();
-            input_writer = session.writer.take().unwrap();
-            session.writer = original_writer;
-        }
+        let mut input_trace = Vec::new();
+        input_trace.push(format!(
+            "stdin PTY={input_path:?}, master fd={:?}; prompt PTY={:?}, master fd={:?}",
+            input.master.as_raw_fd(),
+            session.prompt_terminal.as_ref().unwrap().tty_name(),
+            session.prompt_terminal.as_ref().unwrap().as_raw_fd()
+        ));
+        session.wait_for_frame_since(0, "◆", "Name", "");
+        input_trace.push(format!(
+            "Name observed: stdin={:?}; prompt={:?}",
+            input.master.get_termios().map(|mode| mode.local_flags),
+            session
+                .prompt_terminal
+                .as_ref()
+                .unwrap()
+                .get_termios()
+                .map(|mode| mode.local_flags)
+        ));
         if stop_at == "format" {
-            for (answer, next_prompt) in [
-                ("Team\r", "Description (optional"),
-                ("Description\r", "Layer manifest format"),
-            ] {
-                input_writer.write_all(answer.as_bytes()).unwrap();
-                input_writer.flush().unwrap();
-                session.wait_for(next_prompt);
+            session.prepare_selector_on_input(input.master.as_ref(), &mut input_writer);
+        } else if stop_at != "name" {
+            session.answer_text_on_input(
+                input.master.as_ref(),
+                &mut input_writer,
+                "Name",
+                "example",
+                "Author (optional)",
+            );
+            if stop_at == "author-text" {
+                session.custom_author_on_input(input.master.as_ref(), &mut input_writer);
             }
-            session.wait_for("jsonc");
         }
         assert_no_layer_manifests(directory.path());
         // Frames are flushed before console selects its input. With no answer
         // bytes left queued, this PTY's canonical-to-noncanonical transition
         // proves stdin has been selected, not that a read syscall is blocked.
         session.wait_for_noncanonical_input(input.master.as_ref());
+        input_trace.push(format!(
+            "Before hangup: stdin={:?}; prompt={:?}",
+            input.master.get_termios().map(|mode| mode.local_flags),
+            session
+                .prompt_terminal
+                .as_ref()
+                .unwrap()
+                .get_termios()
+                .map(|mode| mode.local_flags)
+        ));
         // Closing every master handle disconnects stdin while stderr remains usable.
-        // This is actual terminal input loss, not Ctrl-D (a raw-mode keystroke).
+        // This after-selection loss does not test /dev/tty fallback before input
+        // selection. The close-only writer sends neither Enter nor Ctrl-D.
         drop(input_writer);
         drop(input);
         let status = session.finish();
-        assert!(
-            !status.success(),
-            "Input loss at {stop_at} returned {status:?}; stderr: {}; stdout: {}",
-            String::from_utf8_lossy(&session.stderr),
-            String::from_utf8_lossy(&session.stdout)
-        );
+        if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+            fs::create_dir_all(&evidence).unwrap();
+            fs::write(
+                Path::new(&evidence).join(format!(
+                    "input-loss-{stop_at}-colour-{colour}-{cols}.trace.txt"
+                )),
+                input_trace.join("\n"),
+            )
+            .unwrap();
+        }
+        if status.success() {
+            let files = LayerManifestFormat::ALL
+                .into_iter()
+                .filter_map(|format| {
+                    let path = directory.path().join(format.filename());
+                    fs::read(&path).ok().map(|bytes| (format.filename(), bytes))
+                })
+                .collect::<Vec<_>>();
+            session.evidence(&format!(
+                "input-loss-UNEXPECTED-SUCCESS-{stop_at}-colour-{colour}-{cols}"
+            ));
+            if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+                for (filename, bytes) in &files {
+                    fs::write(
+                        Path::new(&evidence).join(format!(
+                            "unexpected-{stop_at}-colour-{colour}-{cols}.{filename}"
+                        )),
+                        bytes,
+                    )
+                    .unwrap();
+                }
+            }
+            panic!(
+                "Unexpected input-loss success: stop_at={stop_at}, cols={cols}, colour={colour}; files={files:?}; trace={input_trace:#?}; stderr={}",
+                visible_text(&session.stderr)
+            );
+        }
         assert!(
             String::from_utf8_lossy(&session.stderr)
                 .contains("Could not collect initialisation input")
@@ -2381,11 +2850,208 @@ fn losing_terminal_input_reports_failure_without_creating_a_layer_manifest() {
         assert_eq!(text.matches("Error:").count(), 1, "{text}");
         assert!(!text.contains("cancelled"), "{text}");
         assert!(!text.contains("Layer initialised"), "{text}");
-        assert_style(&session.stderr, "✕ Error:", |style| {
-            style.foreground == Some(31)
-        });
+        if colour {
+            assert_style(&session.stderr, "✕ Error:", |style| {
+                style.foreground == Some(31)
+            });
+        } else {
+            assert_no_sgr(&session.stderr);
+        }
+        let error = text.find("Error: ").unwrap();
+        diagnostic_body_support::assert_compact(&text[error..].replace('\r', ""));
+        assert_eq!(text.matches("No files were changed.").count(), 1, "{text}");
         assert!(session.stdout.is_empty());
         assert_no_layer_manifests(directory.path());
         assert_only_files(directory.path(), &[]);
+        session.evidence(&format!(
+            "phase3-guided-input-loss-{stop_at}-{}-{cols}",
+            if colour { "styled" } else { "plain" }
+        ));
     }
+}
+
+#[test]
+fn shared_input_baseline_is_nonvacuous_before_console_enters_raw_mode() {
+    let directory = tempdir().unwrap();
+    let mut session = Session::with_settings(
+        directory.path(),
+        &["init"],
+        None,
+        None,
+        TerminalSettings {
+            baseline_probe: true,
+            ..Default::default()
+        },
+    );
+    // The shell pauses before exec: no console call can have established this
+    // state. Its explicit line acknowledgement releases the real CLI afterward.
+    session.wait_for("PTY protected baseline established");
+    assert_eq!(
+        shared_input_mode(session.prompt_terminal.as_ref().unwrap().as_ref()).unwrap(),
+        SharedInputMode::Protected
+    );
+    let checkpoint = session.stderr.len();
+    session.send(b"\n");
+    session.wait_for_frame_since(checkpoint, "◆", "Name", "");
+    session.wait_for_shared_input();
+    assert_eq!(
+        shared_input_mode(session.prompt_terminal.as_ref().unwrap().as_ref()).unwrap(),
+        SharedInputMode::ConsoleRaw
+    );
+    session.send_key_when_reading(b"\x03");
+    assert!(!session.finish().success());
+    assert!(
+        visible_text(&session.stderr)
+            .contains("Layer initialisation cancelled. No files were changed.")
+    );
+    assert!(session.stdout.is_empty());
+    assert_no_layer_manifests(directory.path());
+}
+
+#[test]
+fn guided_rejection_retry_completion_and_cancellation_keep_their_interaction_at_review_widths() {
+    for cols in [40, 80, 100, 120] {
+        for colour in [false, true] {
+            for cancelled in [false, true] {
+                let directory = tempdir().unwrap();
+                let mut session = Session::with_settings(
+                    directory.path(),
+                    &["init"],
+                    None,
+                    None,
+                    TerminalSettings {
+                        cols,
+                        colour: Some(colour),
+                        ..Default::default()
+                    },
+                );
+                session.wait_for_frame_since(0, "◆", "Name", "");
+                session.edit_text("Name", "Bad");
+                let checkpoint = session.send_key_when_reading(b"\r");
+                session.wait_for_frame_since(checkpoint, "✕", "Name", "Name is invalid.");
+                assert_no_layer_manifests(directory.path());
+                assert!(!visible_text(&session.stderr).contains("--name"));
+                session.edit_text("Name", "\x7f\x7f\x7fexample");
+                let checkpoint = session.send_key_when_reading(b"\r");
+                session.wait_for_frame_since(checkpoint, "◆", "Author (optional)", "");
+                session.custom_author();
+                session.edit_text("Author (optional)", " ");
+                let checkpoint = session.send_key_when_reading(b"\r");
+                session.wait_for_frame_since(
+                    checkpoint,
+                    "✕",
+                    "Author (optional)",
+                    "Enter a non-blank author, or clear the field and press Enter to skip.",
+                );
+                assert_no_layer_manifests(directory.path());
+                session.edit_text("Author (optional)", "\x7f");
+                let checkpoint = session.send_key_when_reading(b"\r");
+                session.wait_for_frame_since(checkpoint, "◆", "Description (optional)", "");
+                assert!(visible_text(&session.stderr[checkpoint..]).contains("Skipped"));
+                session.edit_text("Description (optional)", " ");
+                let checkpoint = session.send_key_when_reading(b"\r");
+                session.wait_for_frame_since(
+                    checkpoint,
+                    "✕",
+                    "Description (optional)",
+                    "Enter a non-blank description, or clear the field and press Enter to skip.",
+                );
+                assert_no_layer_manifests(directory.path());
+                if cancelled {
+                    session.send_key_when_reading(b"\x1b");
+                    assert!(!session.finish().success());
+                    let text = visible_text(&session.stderr);
+                    assert_eq!(text.matches("cancelled").count(), 1, "{text}");
+                    assert_eq!(
+                        text.to_lowercase().matches("no files were changed").count(),
+                        1,
+                        "{text}"
+                    );
+                    assert!(!text.contains("Error:"));
+                    assert!(!text.contains("Layer initialised"));
+                    assert_only_files(directory.path(), &[]);
+                } else {
+                    session.edit_text("Description (optional)", "\x7f  配置 \\literal  ");
+                    let checkpoint = session.send_key_when_reading(b"\r");
+                    session.wait_for_frame_since(checkpoint, "◆", "Layer manifest format", "");
+                    assert_no_layer_manifests(directory.path());
+                    session.send_key_when_reading(b"\r");
+                    assert!(session.finish().success());
+                    session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
+                    assert_eq!(
+                        layer_manifest(directory.path()),
+                        json!({"name":"example", "description":"  配置 \\literal  "})
+                    );
+                    assert_only_files(directory.path(), &["layer.yaml"]);
+                }
+                assert!(session.stdout.is_empty());
+                if !colour {
+                    assert_no_sgr(&session.stderr);
+                }
+                session.evidence(&format!(
+                    "phase3-guided-retry-{}-{}-{cols}",
+                    if cancelled { "cancelled" } else { "completed" },
+                    if colour { "styled" } else { "plain" }
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn library_writer_drop_injects_submit_and_is_not_a_terminal_hangup() {
+    let directory = tempdir().unwrap();
+    let terminal_session = TERMINAL_SESSION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let input = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let input_path = input.master.tty_name().unwrap();
+    let mut writer = input.master.take_writer().unwrap();
+    let mut session = Session::spawn_with_lock(
+        directory.path(),
+        &["init"],
+        None,
+        Some(("stdin-eof", &input_path)),
+        terminal_session,
+        TerminalSettings {
+            cols: 80,
+            colour: Some(false),
+            ..Default::default()
+        },
+    );
+    session.prepare_selector_on_input(input.master.as_ref(), &mut writer);
+    assert_no_layer_manifests(directory.path());
+    // Deliberately leave BOTH original master and slave open: this is not HUP.
+    drop(writer);
+    assert!(
+        session.finish().success(),
+        "{}",
+        visible_text(&session.stderr)
+    );
+    let document = layer_manifest(directory.path());
+    assert_eq!(
+        document,
+        json!({"name":"example", "author":"Team", "description":"Description"})
+    );
+    session.evidence("portable-writer-drop-submit-without-hangup");
+    if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {
+        fs::write(
+            Path::new(&evidence).join("portable-writer-drop-created-metadata.json"),
+            serde_json::to_vec_pretty(&document).unwrap(),
+        )
+        .unwrap();
+    }
+    eprintln!(
+        "PROVEN: portable writer drop alone submitted YAML and created {document}; original input master still open: {:?}",
+        input.master.get_termios().map(|mode| mode.local_flags)
+    );
+    // Release the extra PTY before Session releases the allocation mutex.
+    drop(input);
 }

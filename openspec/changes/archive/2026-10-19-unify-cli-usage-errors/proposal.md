@@ -1,0 +1,54 @@
+## Why
+
+Argument errors exit through clap before reaching Hydragen's shared presentation,
+so missing sources and invalid flags look unlike operational failures. Make those
+errors equally clear and deliberate without making help or malformed commands
+depend on the current directory's layer manifests.
+
+## What Changes
+
+- Route argument errors for every command through one shared presentation adapter:
+  red `✕ Error:` headlines in eligible terminals, plain `Error:` headlines in
+  unattended or redirected output, with readable normal-foreground details.
+- Give a missing add source a short explanation, usage, one example, and a help
+  hint. Preserve clap's useful argument names, valid choices, and suggestions for
+  other failures rather than replacing them with a generic message.
+- Use one shared diagnostic body: punctuated headline, optional context and
+  correction, usage with an optional example, then command-specific help. Use
+  consistent labels, indentation, and spacing instead of mixing a bespoke body
+  with clap's fully rendered bodies. Omit blocks that add no useful information.
+- Keep argument validation ahead of layer discovery. Explicit help and version
+  remain successful plain output, available from any directory without layer
+  discovery, schema setup, prompts, or writes.
+- Present add's missing-current-layer prerequisite directly: a concise headline
+  describing the unsuccessful directory/parent search, the approved recovery tip,
+  and the no-files-changed result. Omit the absolute invocation path and the
+  counted, numbered batch wrapper for this failure.
+- Preserve clap's usage-error exit status and stderr channel, shared colour
+  controls, and display-only escaping of untrusted diagnostic values.
+- Replace the existing policy exception that keeps clap usage errors plain even
+  in eligible terminals. Help/version remain plain; no branded error openings or
+  per-command style exceptions are introduced.
+
+## Capabilities
+
+### New Capabilities
+
+None.
+
+### Modified Capabilities
+
+- `cli-interaction`: Shared parser-error presentation, actionable usage guidance,
+  context-independent parsing, and preserved help/version/automation behaviour.
+
+## Impact
+
+- CLI entry-point parsing, shared presentation/diagnostic wiring, and focused
+  captured-output and bounded real-terminal tests across root, init, and add.
+- Agent guidance and the relevant design-question resolution. The foundations'
+  existing DX/performance values already support this change; no core belief or
+  layer-model revision is needed.
+- A focused maintained diagnostic-style reference and family-wide layout tests,
+  so future commands inherit the structure rather than invent another template.
+- No changes to accepted arguments, layer discovery, input defaults, content
+  validation, mutation logic, dependencies, registry scope, or archived changes.

@@ -57,6 +57,24 @@ Being a dependency is a role relative to another [layer](#layer), not a separate
 kind of [layer](#layer). Both [root layers](#root-layer) and
 [dependent layers](#dependent-layer) can serve as dependencies.
 
+## Local dependency
+
+A [dependency](#dependency) referenced by an explicit filesystem path in the
+[dependent layer's](#dependent-layer) [layer manifest](#layer-manifest). Relative
+paths resolve from that [layer manifest's](#layer-manifest) directory. The reference
+is stored unchanged and identifies the directory's current contents, not a
+selected version. Its declared name comes from the target's own
+[layer manifest](#layer-manifest), not its directory name.
+
+## Published dependency
+
+A [dependency](#dependency) declared by name and one exact Semantic Versioning
+(SemVer) 2.0.0 version, as `name@version` or `@scope/name@version`, for example
+`shared-config@1.2.0`. The version can include prerelease and build identifiers.
+A syntactically valid declaration identifies the requested name and version; it
+does not by itself establish that the source exists or its content has been
+retrieved.
+
 ## Inherited content
 
 Content supplied by a [layer's](#layer) [dependencies](#dependency) through their
@@ -66,9 +84,11 @@ Content supplied by a [layer's](#layer) [dependencies](#dependency) through thei
 ## Reuse relationship
 
 The ongoing connection between a [dependent layer](#dependent-layer) and its
-[dependencies](#dependency), including their selected versions, that allows it to
-keep benefiting from shared improvements while preserving its own
-[contributions](#contribution).
+[dependencies](#dependency) that allows it to keep benefiting from shared
+improvements while preserving its own [contributions](#contribution). It records
+source paths for [local dependencies](#local-dependency) and selected exact
+versions for [published dependencies](#published-dependency); a local path does
+not imply a selected version.
 
 ## Layer result
 
@@ -122,9 +142,17 @@ use the same format; the others use TOML, strict JSON, and JSON with comments
 (JSONC), respectively. New layer manifests default to `layer.yaml`. The
 [layer's](#layer) identifying name does not change the filename.
 
-It declares the [layer's](#layer) required name and optional author and description,
-and lists its [dependencies](#dependency). Each supplied metadata field must be
-a non-blank string, with the same meaning in every supported format.
+It declares the [layer's](#layer) required name, optional author and description,
+and an optional ordered list of [dependency](#dependency) reference strings.
+References identify [local dependencies](#local-dependency) by explicit path or
+[published dependencies](#published-dependency) by name and exact version.
+
+Names use lowercase ASCII letters, digits, `.`, `_`, and `-`, optionally as
+`@scope/name`, with at most 214 characters overall. An unscoped name and a scope
+cannot start with `.` or `_`; the component after a scope can. Names are not
+silently rewritten and need not match directory names. Author and description
+are arbitrary non-blank strings, preserved unchanged. The same content rules
+apply in every supported format.
 
 If multiple supported names are occupied, selection follows the fixed order
 `layer.yaml` > `layer.yml` > `layer.toml` > `layer.json` > `layer.jsonc`. Only the

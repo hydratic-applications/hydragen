@@ -1,13 +1,15 @@
 mod author_discovery;
+mod diagnostic_body;
 mod diagnostics;
 mod interaction;
 mod presentation;
+mod usage_errors;
 
 use std::error::Error;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use hydragen::{LayerManifestFormat, Metadata, create_init, inspect_init};
 use interaction::Mode;
 
@@ -25,16 +27,35 @@ Input:
   No input flags: guided prompts only when stdin, stdout and stderr are terminals and CI is disabled.
   Any input flag: flag-only input; no follow-up questions. Input flags are --name, --author, --description and --format.
   Name defaults to the current directory name. Author and description are optional and omitted when not supplied.
+  Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum). Unscoped names and scopes cannot start with a dot or underscore.
+  Invalid names are not rewritten; supply --name to override an invalid directory default.
   Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups, with grouped source hints. Choose a name, Enter another author, or Skip. With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author.
   Optional GitHub requests use only existing gh authentication, never login or extra permissions. Offline use and use without gh are supported. Flag-only input performs no author discovery.
   Format defaults to yaml (layer.yaml). --format selects only the newly created layer manifest, not read-time priority.
   --non-interactive always disables prompts."#;
 
+const ADD_HELP: &str = r#"Examples:
+  hydragen add ../shared-config
+  hydragen add ./rules ../shared-tooling
+  hydragen --non-interactive add ../ui
+
+Sources:
+  Supply explicit local paths: ./, ../ or absolute paths. Local references have no version and are stored unchanged.
+  Add searches upward for the nearest layer manifest, through the filesystem root without stopping at Git boundaries.
+  Relative arguments resolve from that layer manifest's directory, NOT the invocation directory.
+  Adding published references (name@version) is not supported yet. Bare names are not local paths.
+
+Behaviour:
+  Verifies the complete batch and existing direct dependencies before one update. Repeated sources are harmless.
+  Only declares dependencies; does not fetch content, render files or change Git. Never prompts, in any environment."#;
+
 #[derive(Parser)]
 #[command(
     name = "hydragen",
+    bin_name = "hydragen",
     version,
     color = clap::ColorChoice::Never,
+    styles = clap::builder::Styles::plain(),
     max_term_width = 100,
     about = "Build projects from shared layers"
 )]
@@ -51,12 +72,22 @@ struct Cli {
 enum Command {
     /// Initialise a layer in the current directory
     Init(InitArgs),
+    /// Declare verified local layer dependencies without fetching or rendering
+    Add(AddArgs),
+}
+
+#[derive(Args)]
+#[command(next_line_help = true, after_help = ADD_HELP)]
+struct AddArgs {
+    /// Explicit local source paths, relative to the declaring layer manifest directory
+    #[arg(value_name = "SOURCE", required = true, num_args = 1..)]
+    sources: Vec<String>,
 }
 
 #[derive(Args)]
 #[command(next_line_help = true, after_help = INIT_HELP)]
 struct InitArgs {
-    /// Optional name override (defaults to the current directory name; must not be blank)
+    /// Optional name override: lowercase, optionally @scope/name (defaults to the current directory name)
     #[arg(long)]
     name: Option<String>,
 
@@ -74,18 +105,20 @@ struct InitArgs {
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(error) if error.kind() == clap::error::ErrorKind::DisplayVersion => {
-            return match writeln!(io::stdout().lock(), "{}", env!("CARGO_PKG_VERSION")) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(_) => ExitCode::FAILURE,
-            };
-        }
-        Err(error) => error.exit(),
-    };
     let presentation = presentation::Presentation::detect();
     presentation.configure();
+    let cli = match parse_cli(std::env::args_os(), presentation) {
+        Ok(cli) => cli,
+        Err(output) => {
+            // Every parsing outcome returns here, before even resolving current_dir.
+            let exit_code = if output.stderr {
+                output.write_to(&mut io::stderr().lock())
+            } else {
+                output.write_to(&mut io::stdout().lock())
+            };
+            return ExitCode::from(exit_code);
+        }
+    };
     match run(cli, presentation) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -95,7 +128,7 @@ fn main() -> ExitCode {
                     "{}",
                     presentation.diagnostic(
                         presentation::Severity::Error,
-                        &diagnostics::init_error_message(error.as_ref())
+                        &diagnostics::error_message(error.as_ref())
                     )
                 );
             }
@@ -104,13 +137,69 @@ fn main() -> ExitCode {
     }
 }
 
+#[derive(Debug)]
+struct ParseOutput {
+    text: String,
+    stderr: bool,
+    exit_code: u8,
+    fail_on_write_error: bool,
+}
+
+impl ParseOutput {
+    fn write_to(&self, output: &mut impl Write) -> u8 {
+        if output.write_all(self.text.as_bytes()).is_err() && self.fail_on_write_error {
+            1
+        } else {
+            self.exit_code
+        }
+    }
+}
+
+fn parse_cli<I, T>(
+    arguments: I,
+    presentation: presentation::Presentation,
+) -> Result<Cli, ParseOutput>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    // Keep the built static definition: error adaptation needs its argument metadata.
+    let mut command = Cli::command();
+    command.build();
+    command
+        .try_get_matches_from_mut(arguments)
+        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches))
+        .map_err(|error| {
+            // Capture these before the renderer consumes the error. Help-on-missing-
+            // input is not DisplayHelp: clap deliberately keeps it stderr/status 2.
+            let stderr = error.use_stderr();
+            let exit_code = u8::try_from(error.exit_code()).expect("clap exit code fits in u8");
+            let fail_on_write_error = error.kind() == clap::error::ErrorKind::DisplayVersion;
+            let text = match error.kind() {
+                clap::error::ErrorKind::DisplayHelp => error.render().to_string(),
+                clap::error::ErrorKind::DisplayVersion => {
+                    format!("{}\n", env!("CARGO_PKG_VERSION"))
+                }
+                _ => usage_errors::render(error, &command, presentation),
+            };
+            ParseOutput {
+                text,
+                stderr,
+                exit_code,
+                fail_on_write_error,
+            }
+        })
+}
+
 fn run(cli: Cli, presentation: presentation::Presentation) -> Result<(), Box<dyn Error>> {
-    let directory = std::env::current_dir().map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!("Could not determine the current directory: {error}"),
-        )
-    })?;
+    // Keep command-specific control flow and carry typed facts to shared composition.
+    let directory = match &cli.command {
+        Command::Add(_) => {
+            std::env::current_dir().map_err(diagnostics::AddCommandError::CurrentDirectory)?
+        }
+        Command::Init(_) => std::env::current_dir()
+            .map_err(|source| diagnostics::CliIoError::CurrentDirectory { source }.into_io())?,
+    };
     run_in(
         cli,
         &directory,
@@ -185,6 +274,15 @@ fn run_in(
             diagnostics::report_observation(&created, presentation);
             interaction::finish(mode, &created.path, presentation)?;
         }
+        Command::Add(arguments) => {
+            return run_add(
+                directory,
+                &arguments.sources,
+                presentation,
+                &mut io::stdout().lock(),
+            )
+            .map_err(Into::into);
+        }
     }
     Ok(())
 }
@@ -202,6 +300,51 @@ fn prepare_author(
     let default_name = interaction::directory_name(directory)?;
     let preparation = start(directory)?;
     Ok(Some((default_name, preparation)))
+}
+
+fn run_add(
+    directory: &std::path::Path,
+    sources: &[String],
+    presentation: presentation::Presentation,
+    output: &mut impl Write,
+) -> Result<(), diagnostics::AddCommandError> {
+    use diagnostics::{AddCommandError, AddCompletionState};
+    let plan = hydragen::dependencies::prepare_add(directory, sources).map_err(|failure| {
+        for discovery in &failure.discoveries {
+            diagnostics::warn_duplicates(discovery, presentation);
+        }
+        AddCommandError::Verification {
+            failure,
+            invocation: directory.to_owned(),
+        }
+    })?;
+    for discovery in plan.discoveries() {
+        diagnostics::warn_duplicates(discovery, presentation);
+    }
+    let state = if plan.is_noop() {
+        AddCompletionState::Unchanged
+    } else {
+        let candidate = hydragen::layer_manifest::edit::append_dependencies(
+            plan.current(),
+            &plan.new_references().collect::<Vec<_>>(),
+        )
+        .map_err(AddCommandError::Edit)?;
+        hydragen::replacement::replace_layer_manifest(&plan.current().path, candidate.as_bytes())
+            .map_err(AddCommandError::Replacement)?;
+        AddCompletionState::Updated
+    };
+    // Replacement has already committed before any completion bytes are sent.
+    // Flush too: buffered writers can fail after accepting the whole message.
+    let message = presentation.add_success(&plan);
+    output
+        .write_all(message.as_bytes())
+        .and_then(|()| output.flush())
+        .map_err(|source| AddCommandError::Completion {
+            state,
+            layer: plan.current().metadata.name.clone(),
+            path: plan.current().path.clone(),
+            source,
+        })
 }
 
 fn flag_metadata(
@@ -227,6 +370,338 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     use std::path::Path;
+
+    fn parse_output(arguments: &[&str], decorated: bool) -> ParseOutput {
+        match parse_cli(
+            arguments,
+            presentation::Presentation {
+                decorated,
+                basic: false,
+            },
+        ) {
+            Err(output) => output,
+            Ok(_) => panic!("expected a parser outcome, not operational input"),
+        }
+    }
+
+    #[test]
+    fn root_missing_input_and_explicit_help_keep_distinct_streams_and_statuses() {
+        for decorated in [false, true] {
+            let root = parse_output(&["hydragen"], decorated);
+            assert_eq!(root.exit_code, 2);
+            assert!(root.stderr);
+            assert!(
+                root.text.contains("Error: A command is required."),
+                "{}",
+                root.text
+            );
+            for detail in ["Usage: hydragen", "Commands:", "init", "add", "--help"] {
+                assert!(root.text.contains(detail), "{detail}: {}", root.text);
+            }
+            let global_only = parse_output(&["hydragen", "--non-interactive"], decorated);
+            assert_eq!(global_only.exit_code, 2);
+            assert!(global_only.stderr);
+            assert!(global_only.text.contains("requires a subcommand"));
+            assert!(global_only.text.contains("Usage: hydragen"));
+            assert!(!global_only.text.contains("Could not parse"));
+
+            for arguments in [
+                vec!["hydragen", "--help"],
+                vec!["hydragen", "-h"],
+                vec!["hydragen", "init", "--help"],
+                vec!["hydragen", "init", "-h"],
+                vec!["hydragen", "add", "--help"],
+                vec!["hydragen", "add", "-h"],
+                vec!["hydragen", "help", "init"],
+                vec!["hydragen", "help", "add"],
+                vec!["hydragen", "--version"],
+                vec!["hydragen", "-V"],
+            ] {
+                let output = parse_output(&arguments, decorated);
+                assert_eq!(output.exit_code, 0, "{arguments:?}");
+                assert!(!output.stderr, "{arguments:?}");
+                assert!(!output.text.contains("Error:"));
+                assert!(!output.text.contains('\x1b'));
+                if arguments
+                    .iter()
+                    .any(|argument| ["--version", "-V"].contains(argument))
+                {
+                    assert_eq!(output.text, format!("{}\n", env!("CARGO_PKG_VERSION")));
+                } else {
+                    assert!(output.text.contains("hydragen"));
+                }
+                assert!(output.text.ends_with('\n'));
+            }
+        }
+    }
+
+    #[test]
+    fn command_context_never_uses_untrusted_argv_zero() {
+        for tail in [
+            vec![],
+            vec!["--help"],
+            vec!["--version"],
+            vec!["--non-interactive"],
+            vec!["init", "--nme"],
+            vec!["add"],
+            vec!["add", "--unknown"],
+        ] {
+            let mut arguments = vec!["untrusted\x1b[2J\nname"];
+            arguments.extend(tail.iter().copied());
+            let output = parse_output(&arguments, false);
+            assert!(!output.text.contains("untrusted"), "{}", output.text);
+            assert!(!output.text.contains('\x1b'));
+            if tail == ["--version"] {
+                assert_eq!(output.text, format!("{}\n", env!("CARGO_PKG_VERSION")));
+            } else {
+                assert!(output.text.contains("hydragen"));
+            }
+        }
+    }
+
+    #[test]
+    fn successful_parse_does_not_rewrite_argument_values() {
+        let raw = "./配置 🦀\\literal\\n\x1b[2J\npath";
+        let cli = parse_cli(
+            ["hydragen", "add", raw],
+            presentation::Presentation {
+                decorated: false,
+                basic: false,
+            },
+        )
+        .unwrap_or_else(|error| panic!("{}", error.text));
+        assert!(matches!(cli.command, Command::Add(AddArgs { sources }) if sources == [raw]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invalid_utf8_is_a_parser_outcome_not_an_args_unicode_panic() {
+        use std::os::unix::ffi::OsStringExt;
+        let arguments = [
+            std::ffi::OsString::from("hydragen"),
+            std::ffi::OsString::from("add"),
+            std::ffi::OsString::from_vec(vec![b'.', b'/', 0xff]),
+        ];
+        let output = match parse_cli(
+            arguments,
+            presentation::Presentation {
+                decorated: false,
+                basic: false,
+            },
+        ) {
+            Err(output) => output,
+            Ok(_) => panic!("String-valued sources must reject invalid UTF-8"),
+        };
+        assert!(output.stderr);
+        assert_eq!(output.exit_code, 2);
+        assert!(
+            output.text.starts_with("Error: Invalid UTF-8"),
+            "{}",
+            output.text
+        );
+        assert!(output.text.contains("Usage: hydragen add"));
+    }
+
+    struct FailingOutput {
+        remaining: usize,
+        fail_flush: bool,
+    }
+
+    #[test]
+    fn version_output_write_failure_returns_failure_without_changing_other_parse_statuses() {
+        for (arguments, expected) in [
+            (vec!["hydragen", "--version"], 1),
+            (vec!["hydragen", "-V"], 1),
+            (vec!["hydragen", "--help"], 0),
+            (vec!["hydragen", "add"], 2),
+        ] {
+            let output = parse_output(&arguments, false);
+            assert_eq!(
+                output.write_to(&mut FailingOutput {
+                    remaining: 0,
+                    fail_flush: false
+                }),
+                expected,
+                "{arguments:?}"
+            );
+            assert_eq!(output.write_to(&mut Vec::new()), output.exit_code);
+        }
+    }
+
+    impl Write for FailingOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            let count = bytes.len().min(self.remaining);
+            self.remaining -= count;
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if self.fail_flush {
+                Err(io::ErrorKind::BrokenPipe.into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn add_completion_failures_retain_committed_or_noop_state() {
+        for noop in [false, true] {
+            for (remaining, fail_flush) in [(0, false), (12, false), (usize::MAX, true)] {
+                let root = tempfile::tempdir().unwrap();
+                let app = root.path().join("app");
+                let dependency = root.path().join("rules");
+                std::fs::create_dir(&app).unwrap();
+                std::fs::create_dir(&dependency).unwrap();
+                std::fs::write(dependency.join("layer.yaml"), "name: rules\n").unwrap();
+                let path = app.join("layer.yaml");
+                // A shared sequence alias cannot be edited safely, so a successful
+                // no-op here also proves that the editor is entirely bypassed.
+                let original = if noop {
+                    "name: app\ndependencies: &deps [../rules]\ncustom: *deps\n"
+                } else {
+                    "name: app\n"
+                };
+                std::fs::write(&path, original).unwrap();
+                let failure = run_add(
+                    &app,
+                    &["../rules".into()],
+                    presentation::Presentation {
+                        decorated: false,
+                        basic: false,
+                    },
+                    &mut FailingOutput {
+                        remaining,
+                        fail_flush,
+                    },
+                )
+                .unwrap_err();
+                let diagnostics::AddCommandError::Completion { state, source, .. } = &failure
+                else {
+                    panic!("unexpected error: {failure}");
+                };
+                assert_eq!(source.kind(), io::ErrorKind::BrokenPipe);
+                let message = failure.to_string();
+                if noop {
+                    assert_eq!(*state, diagnostics::AddCompletionState::Unchanged);
+                    assert!(message.contains("was not updated"));
+                    assert!(!message.contains("was already updated"));
+                    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+                } else {
+                    assert_eq!(*state, diagnostics::AddCompletionState::Updated);
+                    assert!(message.contains("was already updated"));
+                    assert!(message.contains(&path.display().to_string()));
+                    assert!(!message.contains("No files were changed"));
+                    let loaded = hydragen::discover(&app).unwrap().load().unwrap();
+                    assert_eq!(loaded.document["dependencies"][0], "../rules");
+                }
+                assert_eq!(std::fs::read_dir(&app).unwrap().count(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn add_verification_carries_invocation_context_without_changing_the_library_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app");
+        let nested = app.join("nested");
+        let target = root.path().join("layer-b");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(app.join("layer.yaml"), "name: app\n").unwrap();
+        let mut output = Vec::new();
+        let error = run_add(
+            &nested,
+            &["../layer-b".into()],
+            presentation::Presentation {
+                decorated: false,
+                basic: false,
+            },
+            &mut output,
+        )
+        .unwrap_err();
+        let diagnostics::AddCommandError::Verification {
+            failure,
+            invocation,
+        } = &error
+        else {
+            panic!("unexpected error: {error}");
+        };
+        assert_eq!(invocation, &nested);
+        assert_eq!(
+            failure.directory.as_deref(),
+            Some(app.canonicalize().unwrap().as_path())
+        );
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<hydragen::dependencies::AddFailure>()
+                .is_some()
+        );
+        let text = error.to_string();
+        assert!(text.starts_with("No layer manifest found in '../layer-b'."));
+        assert!(text.contains(&format!(
+            "Paths are relative to '{}'.",
+            hydragen::diagnostic_text::display(failure.directory.as_ref().unwrap().display())
+        )));
+        assert!(output.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(app.join("layer.yaml")).unwrap(),
+            "name: app\n"
+        );
+        assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn add_help_wraps_and_usage_requires_sources_without_path_flag() {
+        for width in [40, 80, 100] {
+            let mut command = Cli::command();
+            command.build();
+            let help = command
+                .find_subcommand("add")
+                .unwrap()
+                .clone()
+                .term_width(width)
+                .render_long_help()
+                .to_string();
+            for line in help.lines() {
+                // Clap keeps generated usage on one line; prose still wraps.
+                assert!(
+                    line.starts_with("Usage:") || line.len() <= width,
+                    "width {width}: {line:?}"
+                );
+            }
+            let prose = help.split_whitespace().collect::<Vec<_>>().join(" ");
+            for phrase in [
+                "./, ../ or absolute paths",
+                "NOT the invocation directory",
+                "without stopping at Git boundaries",
+                "no version",
+                "stored unchanged",
+                "Never prompts",
+                "not supported yet",
+            ] {
+                assert!(prose.contains(phrase), "{phrase}: {help}");
+            }
+            assert!(!help.contains("--path"));
+            assert!(!help.contains('\x1b'));
+        }
+        assert!(Cli::try_parse_from(["hydragen", "add"]).is_err());
+        for arguments in [
+            vec!["hydragen", "--non-interactive", "add", "../rules"],
+            vec!["hydragen", "add", "../rules", "--non-interactive"],
+        ] {
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            assert!(cli.non_interactive);
+            assert!(
+                matches!(cli.command, Command::Add(AddArgs { sources }) if sources == ["../rules"])
+            );
+        }
+    }
 
     fn help_at_width(width: usize, init: bool, long: bool) -> String {
         let mut root = Cli::command();
@@ -266,6 +741,9 @@ mod tests {
                             "Input flags are --name, --author, --description and --format.",
                             "stdin, stdout and stderr are terminals and CI is disabled.",
                             "Author and description are optional and omitted when not supplied.",
+                            "Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum).",
+                            "Unscoped names and scopes cannot start with a dot or underscore.",
+                            "Invalid names are not rewritten; supply --name to override an invalid directory default.",
                             "Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups, with grouped source hints.",
                             "Choose a name, Enter another author, or Skip.",
                             "With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author.",
@@ -322,6 +800,19 @@ mod tests {
             "explicit"
         );
         assert!(flag_metadata(arguments(""), Path::new("valid-directory")).is_err());
+        assert_eq!(
+            flag_metadata(
+                arguments("@example/_config"),
+                Path::new("Invalid Directory")
+            )
+            .unwrap()
+            .name,
+            "@example/_config"
+        );
+        for name in ["Shared-Config", " shared-config ", "配置", "_config"] {
+            let error = flag_metadata(arguments(name), Path::new("valid-directory")).unwrap_err();
+            assert!(error.to_string().contains("--name"));
+        }
     }
 
     #[test]
@@ -342,7 +833,12 @@ mod tests {
                     [true, true, false],
                 ] {
                     for ci in [None, Some(std::ffi::OsStr::new("true"))] {
-                        let directory = tempfile::tempdir().unwrap();
+                        let parent = tempfile::tempdir().unwrap();
+                        let directory = tempfile::Builder::new()
+                            .prefix("layer")
+                            .rand_bytes(0)
+                            .tempdir_in(parent.path())
+                            .unwrap();
                         let starts = Cell::new(0);
                         let mut cli = Cli::try_parse_from(&arguments).unwrap();
                         cli.non_interactive = non_interactive;
@@ -382,15 +878,30 @@ mod tests {
     fn early_exit_boundaries_never_start_discovery() {
         use std::cell::Cell;
         let starts = Cell::new(0);
-        let directory = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let directory = tempfile::Builder::new()
+            .prefix("layer")
+            .rand_bytes(0)
+            .tempdir_in(parent.path())
+            .unwrap();
         for arguments in [
             vec!["hydragen", "--help"],
             vec!["hydragen", "init", "--help"],
+            vec!["hydragen", "add", "--help"],
             vec!["hydragen", "--version"],
             vec!["hydragen", "init", "--unknown"],
             vec!["hydragen", "init", "--format", "invalid"],
+            vec!["hydragen", "add"],
+            vec!["hydragen", "add", "--unknown"],
         ] {
-            let dispatched = Cli::try_parse_from(arguments).map(|cli| {
+            let dispatched = parse_cli(
+                arguments,
+                presentation::Presentation {
+                    decorated: false,
+                    basic: true,
+                },
+            )
+            .map(|cli| {
                 run_in(
                     cli,
                     directory.path(),
@@ -460,5 +971,73 @@ mod tests {
             std::fs::read_to_string(directory.path().join("layer.json")).unwrap(),
             "occupied"
         );
+    }
+
+    #[test]
+    fn add_dispatch_bypasses_init_mode_selection_preparation_and_prompts() {
+        let directory = tempfile::tempdir().unwrap();
+        let result = run_in(
+            Cli::try_parse_from(["hydragen", "add", "../source"]).unwrap(),
+            directory.path(),
+            presentation::Presentation {
+                decorated: false,
+                basic: true,
+            },
+            |_, _| panic!("add must not select an init input route"),
+            |_| panic!("add must not start author discovery"),
+            |_, _, _| panic!("add must not collect init input"),
+        );
+        let error = result.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<diagnostics::AddCommandError>(),
+            Some(diagnostics::AddCommandError::Verification { .. })
+        ));
+        assert!(
+            diagnostics::error_message(error.as_ref())
+                .starts_with("No layer manifest found in this directory or its parents.")
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn invalid_guided_directory_defaults_stop_before_discovery_without_rewriting() {
+        for name in ["Uppercase", " layer ", "配置", ".tmp-layer"] {
+            let error = prepare_author(
+                Mode::Guided,
+                Path::new(name),
+                || Ok(()),
+                |_| panic!("invalid directory default must not start discovery"),
+            )
+            .err()
+            .expect("the directory name must fail validation");
+            assert!(error.to_string().contains("Supply --name explicitly"));
+            let context = error
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<diagnostics::CliIoError>()
+                .unwrap();
+            assert!(matches!(context,
+                diagnostics::CliIoError::DirectoryName { directory, .. }
+                    if directory == Path::new(name)));
+        }
+    }
+
+    #[test]
+    fn flag_metadata_preserves_arbitrary_author_and_description_with_a_valid_name() {
+        for value in ["  Équipe 配置 🦀  ", "quoted \"value\"", "\u{feff}"] {
+            let metadata = flag_metadata(
+                InitArgs {
+                    name: Some("@example/shared-config".into()),
+                    author: Some(value.into()),
+                    description: Some(value.into()),
+                    format: None,
+                },
+                Path::new("Invalid Directory"),
+            )
+            .unwrap();
+            assert_eq!(metadata.name, "@example/shared-config");
+            assert_eq!(metadata.author.as_deref(), Some(value));
+            assert_eq!(metadata.description.as_deref(), Some(value));
+        }
     }
 }

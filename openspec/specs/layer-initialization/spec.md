@@ -36,46 +36,52 @@ other metadata. Only when no input flags are supplied and interaction is availab
 MUST init collect input through the guided CLI interaction flow. It MUST NOT
 combine flags and prompt answers in one invocation.
 
-Name and every supplied optional metadata value MUST be strings containing at
-least one non-whitespace character, matching the layer manifest metadata requirements.
-The command MUST validate supplied flags without opening prompts, preserve
-accepted values unchanged, and MUST NOT impose additional naming or identity
-rules. Invalid flag values or flags written without a value MUST produce an error
-rather than a replacement question. Absent or interactively skipped optional
-fields MUST be omitted from the layer manifest, not written as empty strings or `null`.
+Name MUST satisfy the maintained schema's shared lowercase layer-name definition.
+Author and description, when supplied, MUST retain their existing non-blank string
+rules. Flags, guided answers, directory defaults, and complete candidates MUST use
+that same schema. Init MUST preserve accepted values without silently lowercasing,
+trimming, or replacing invalid characters. Init MUST NOT impose a stricter
+independent naming rule outside the schema.
+
+Invalid flag values or flags without a value MUST error rather than start a
+replacement question. A schema-invalid directory default MUST fail before prompts
+or writes with guidance to supply `--name`; a valid explicit name MUST bypass that
+default. Absent or interactively skipped optional fields MUST be omitted, not
+written as empty strings or `null`. Existing target checks, input routes, and
+exclusive creation MUST remain unchanged.
 
 #### Scenario: Only name is supplied
 
-- **WHEN** initialisation receives a non-blank name flag without author or description flags, in any terminal or CI state
+- **WHEN** initialisation receives a schema-valid name flag without author or description flags, in any terminal or CI state
 - **AND** all other initialisation conditions are satisfied
-- **THEN** it succeeds and creates a layer manifest containing only name
+- **THEN** it succeeds and creates a layer manifest containing only name without prompts
 
 #### Scenario: One optional field is supplied
 
-- **WHEN** initialisation receives a non-blank name flag and either a non-blank author or description flag, in any terminal or CI state
+- **WHEN** initialisation receives a valid name flag and either a non-blank author or description flag, in any terminal or CI state
 - **AND** all other initialisation conditions are satisfied
-- **THEN** it succeeds and records name and the supplied optional field
+- **THEN** it succeeds and records name and the supplied optional field unchanged
 - **AND** it omits the other optional field
 
 #### Scenario: All metadata is supplied
 
-- **WHEN** initialisation receives non-blank name, author, and description values as flags
+- **WHEN** initialisation receives a valid name and non-blank author and description values as flags
 - **THEN** it records those values unchanged in the corresponding layer manifest fields
 - **AND** it asks no metadata questions
 
 #### Scenario: Name override is omitted
 
 - **WHEN** an invocation is flag-only or interaction is unavailable, and it omits `--name`
-- **AND** the current directory's name is a non-blank UTF-8 string and other initialisation conditions are satisfied
+- **AND** the current directory's UTF-8 name satisfies the shared name definition and other initialisation conditions are satisfied
 - **THEN** the command succeeds using that directory name unchanged
 - **AND** it records any supplied author or description, omits unsupplied fields, and asks no questions
 
 #### Scenario: No usable directory-name default
 
-- **WHEN** no name override is supplied and the current directory has no final path component, has a whitespace-only name, or its name is not valid UTF-8
+- **WHEN** no name override is supplied and the current directory has no final path component, has a schema-invalid name including uppercase or spaces, or its name is not valid UTF-8
 - **THEN** init fails with guidance to supply `--name` explicitly before prompts or writes
 - **AND** a valid explicit `--name` bypasses directory-name derivation
-- **AND** it does not invent a name or replace invalid characters
+- **AND** it does not invent, lowercase, or sanitise a name
 
 #### Scenario: Metadata is blank
 
@@ -85,8 +91,20 @@ fields MUST be omitted from the layer manifest, not written as empty strings or 
 
 #### Scenario: Metadata includes format-sensitive characters
 
-- **WHEN** accepted metadata includes quotes, backslashes, newlines, whitespace, or non-ASCII characters
+- **WHEN** accepted optional metadata includes quotes, backslashes, newlines, whitespace, or non-ASCII characters alongside a valid name
 - **THEN** the created layer manifest is valid in the chosen format and decoding it recovers the original strings
+
+#### Scenario: Uppercase name is supplied explicitly
+
+- **WHEN** init receives `--name Shared-Config`
+- **THEN** it rejects the name without silently converting it to `shared-config`
+- **AND** creates no file and opens no replacement prompt
+
+#### Scenario: Invalid guided name can be corrected
+
+- **WHEN** the directory default is valid but a guided answer violates a name constraint
+- **THEN** schema-derived prompt feedback explains the correction without referring to flags
+- **AND** the developer can edit the answer before any layer manifest is written
 
 ### Requirement: Write a minimal readable layer manifest in the selected format
 
@@ -98,6 +116,11 @@ comments or a header. The object/mapping MUST contain `name`, plus `author` and
 `description` only when supplied, for this increment. It MUST NOT add a version,
 schema address, dependency field, format field, or other properties.
 
+The emitted root fields MUST appear in `name`, `author`, `description` order,
+skipping omitted optional fields, in every supported format. Input flag order
+MUST NOT change that output order. This output guarantee MUST NOT make other
+field orders invalid when reading existing layer manifests.
+
 Serialisation MUST preserve accepted metadata as strings, including values that
 would otherwise be interpreted as YAML booleans, numbers, or nulls. Serialisation
 and metadata validation MUST complete before opening the output file.
@@ -107,6 +130,7 @@ and metadata validation MUST complete before opening the output file.
 - **WHEN** initialisation succeeds in any supported format
 - **THEN** its fixed filename matches the selected extension and its content is readable in that format with a final newline
 - **AND** its only properties are name and any author or description supplied by the developer
+- **AND** those properties appear in name, author, description order with absent fields skipped
 
 #### Scenario: A string resembles a YAML typed scalar
 
@@ -118,6 +142,12 @@ and metadata validation MUST complete before opening the output file.
 - **WHEN** init successfully creates a TOML layer manifest with quotes, backslashes, newlines, or date-like text in accepted metadata
 - **THEN** `layer.toml` contains appropriately quoted or escaped top-level strings and decoding recovers the exact original values
 - **AND** omitted optional fields remain absent and no `[layer]` wrapper or starter comments are generated
+
+#### Scenario: Input order does not dictate generated field order
+
+- **WHEN** flag-only init supplies description before author and name, or guided init supplies equivalent metadata
+- **THEN** both routes emit name, author, description in that order for the selected format
+- **AND** supplying only name and description emits those two fields in that order without adding author
 
 ### Requirement: Use the current directory with a repository-location guard
 
@@ -180,31 +210,37 @@ error. Init MUST NOT repeat an all-format refusal check at the final write.
 A successful invocation MUST create only its selected layer manifest and MUST leave
 all pre-existing project files unchanged.
 
-When an entry occupies the layer manifest path, the diagnostic MUST name the path,
-explain that init does not overwrite existing entries, and suggest a safe next
-step: inspect the entry or run init in the intended different directory. It MUST
-state that this invocation did not change files, without assuming the entry is
-a valid layer or implying that Hydragen read its contents. It MUST NOT recommend
-blind deletion, offer force/overwrite confirmation, or suggest an unimplemented
-command. The occupied path MUST remain intact in the diagnostic.
+When an entry occupies the layer manifest path, the CLI diagnostic MUST name its
+actual filename and identify the current directory as its location, without
+repeating the absolute directory path. Its headline MUST read `This directory
+already has a layer manifest (layer.<extension>).`, substituting the occupied
+filename even when another format was requested. One supporting line MUST read
+`Initialisation creates a new layer manifest; it won’t overwrite an existing one.`
+The refusal MUST contain only these two lines, without separate generic inspection,
+different-directory, or no-files-changed advice. Initialisation MUST still leave
+existing entries unchanged. Naming the entry's layer manifest role MUST NOT imply
+that its contents were read or validated; the same refusal applies to malformed
+files, directories, and symlinks. It MUST NOT recommend blind deletion, offer
+force/overwrite confirmation, or suggest an unimplemented command. Other errors
+and the library's diagnostic path context MUST remain unchanged.
 
 #### Scenario: A layer manifest already exists
 
 - **WHEN** any supported layer manifest path is occupied when init performs its initial check, whether its contents are valid or not
-- **THEN** initialisation fails and identifies the existing path, explains the no-overwrite policy, and gives the safe next-step guidance, even if another format was requested
+- **THEN** initialisation fails with a two-line refusal identifying the existing layer manifest and its filename and explaining that init creates rather than overwrites a layer manifest, even if another format was requested
 - **AND** the existing entry and bytes remain unchanged
 
 #### Scenario: A directory or symlink occupies a layer manifest path
 
 - **WHEN** a directory or symlink, including a dangling symlink, occupies any supported layer manifest path at the initial check
 - **THEN** initialisation fails without replacing the entry or changing a symlink target
-- **AND** its diagnostic names the occupied path and gives guidance accurate for an arbitrary entry, without assuming valid layer manifest contents
+- **AND** its diagnostic names the occupied filename and current directory with guidance accurate for an arbitrary entry, without assuming valid layer manifest contents
 
 #### Scenario: Repeat initialisation
 
 - **WHEN** initialisation is run again in a directory where it previously succeeded
 - **THEN** the second invocation fails without changing the layer manifest or other files, even if it requests a different format
-- **AND** it explains the no-overwrite policy and a safe next step without offering to replace the layer manifest
+- **AND** it explains that initialisation creates rather than overwrites a layer manifest, without offering replacement or appending generic recovery advice
 
 #### Scenario: Preserve an existing project
 
@@ -217,7 +253,7 @@ command. The occupied path MUST remain intact in the diagnostic.
 - **WHEN** another process creates an entry at the chosen layer manifest path before init opens its output
 - **THEN** initialisation fails rather than overwriting that entry
 - **AND** it does not retry with another format
-- **AND** it gives the same occupied-path policy and recovery guidance without claiming that the other process made no changes
+- **AND** it gives the same two-line refusal without claiming that the other process made no changes
 
 #### Scenario: Another format appears after the initial check
 
@@ -229,13 +265,32 @@ command. The occupied path MUST remain intact in the diagnostic.
 
 ### Requirement: Provide predictable command outcomes and help
 
-Successful initialisation MUST exit with status zero and identify the layer manifest
-actually created on standard output after writing completes. Guided cliclack
-prompts and session feedback MUST use standard error, not the result stream.
-Warnings MUST also use standard error. For flag-only input or any other invocation
-where interaction is disabled, success, warning, and error output MUST remain
-plain text without cliclack banners, prompts, spinners, or terminal-control
-sequences.
+Successful initialisation MUST exit with status zero after writing completes and
+report exactly one success message: `Layer initialised, layer manifest created at:
+layer.<extension>`, using the actual created layer manifest filename without
+repeating the absolute directory. Guided init MUST report completion through its cliclack
+session on standard error, with no separate success/path line on standard output.
+Flag-only init MUST report its result on standard output without a session header
+or prompt frame. Prompts, warnings, and errors MUST use standard error.
+
+Operational terminal feedback MUST use a green checkmark (`✓`) for success,
+a yellow triangle (`▲`) with `Warning:` for warnings, and a red cross (`✕`) with
+`Error:` for failures where styling is enabled. The success filename MUST be bold.
+Only diagnostic headlines MUST receive severity colouring; supporting details
+and recovery guidance MUST remain readable in the normal foreground.
+
+Output styling MUST be independent of input mode. Flag-only output to an eligible
+terminal MUST use compact styled feedback without starting guided input.
+Decorative statuses MUST require all standard streams to be terminals, CI to be
+disabled, and `TERM` not to be `dumb`. A non-empty `NO_COLOR` or `CLICOLOR=0`
+MUST disable decorative status styling even if colour is forced. A global
+`--non-interactive` flag MUST disable questions without independently disabling
+otherwise eligible compact styling.
+Captured and unattended output MUST retain the same meaning as plain text,
+without ANSI decoration, status icons, banners, prompts, or spinners even when a
+forced-colour environment variable is supplied. Colour-disabled preferences MUST
+be respected without enabling or disabling questions. Existing layer manifest and
+filesystem error details MUST NOT be discarded to simplify the presentation.
 
 Usage, validation, location, input, cancellation, and create/write failures MUST
 exit with a nonzero status and actionable diagnostics on standard error, without
@@ -275,18 +330,50 @@ adaptation MUST NOT alter the command's meaning, exit behaviour, or output chann
 - **AND** it does not print a success message
 - **AND** it does not alter pre-existing project files
 
-#### Scenario: Non-interactive output
+#### Scenario: Non-interactive terminal output
 
-- **WHEN** valid init runs with interaction disabled
-- **THEN** it reports success and the created layer manifest path only on standard output, with no terminal UI on standard error
-- **AND** any warnings use plain standard error without changing a successful result
-- **AND** errors instead use standard error without success output or terminal UI
+- **WHEN** valid flag-only init runs with its result attached to an eligible terminal
+- **THEN** stdout contains one green-check success naming the created layer manifest file
+- **AND** there is no branded opening, prompt, or session frame
+- **AND** warnings and errors use compact styled stderr diagnostics without changing their meaning or exit-status rules
+
+#### Scenario: Captured or unattended output
+
+- **WHEN** init runs in CI or emits output to a non-terminal stream
+- **THEN** the affected output remains plain text even under forced-colour settings
+- **AND** flag-only success names the created layer manifest on stdout while diagnostics use stderr
+- **AND** there are no status icons, prompts, branded openings, or terminal-control sequences
 
 #### Scenario: Interactive output
 
 - **WHEN** init collects answers in an interactive terminal and successfully creates the layer manifest
-- **THEN** cliclack renders the session on standard error
-- **AND** the successful result line and actual layer manifest path are reported on standard output after the write
+- **THEN** cliclack renders the session and single success message on stderr
+- **AND** the success names the created layer manifest filename rather than the absolute directory
+- **AND** stdout has no duplicate success or layer-manifest-path result
+
+#### Scenario: Every selected format identifies the file actually created
+
+- **WHEN** successful init uses any supported layer manifest format
+- **THEN** the success message names that format's actual fixed layer manifest filename
+- **AND** it neither hardcodes layer.yaml for other formats nor echoes an absolute directory
+
+#### Scenario: Colour-disabled feedback
+
+- **WHEN** the developer disables colour for otherwise eligible terminal output
+- **THEN** feedback remains understandable without coloured text
+- **AND** input-route selection, output streams, status meanings, and filesystem outcomes remain unchanged
+
+#### Scenario: Mixed terminal and redirected streams
+
+- **WHEN** any standard stream is redirected while another remains a terminal
+- **THEN** compact status output on both output streams is plain even if colour is forced
+- **AND** no questions or branded opening appear
+
+#### Scenario: Explicit disable wins over forced colour
+
+- **WHEN** an otherwise eligible terminal invocation sets non-empty NO_COLOR or CLICOLOR=0 together with forced colour
+- **THEN** its status output has no decorative styling or status icons
+- **AND** its input-route and stream choices are unaffected
 
 #### Scenario: Request version
 
@@ -316,14 +403,44 @@ adaptation MUST NOT alter the command's meaning, exit behaviour, or output chann
 ### Requirement: Initialisation works without external runtime services
 
 Initialisation MUST NOT require network access, AI services, the Git executable,
-or an external schema validator. It MUST NOT execute Git commands or modify a
-repository's history, configuration, or staging area.
+or an external schema validator.
+
+Only an eligible guided invocation MAY run optional read-only Git configuration
+queries for author suggestions and optional read-only GitHub requests through
+`gh`'s existing authentication, within the sources, startup checks, deadlines,
+cancellation and cleanup rules defined by the CLI interaction specification.
+Local Git lookup MUST remain local; remote requests MUST be limited to that
+optional GitHub source. Unavailable tools, credentials, connectivity or usable
+results MUST NOT prevent initialisation, require authentication, or produce a
+discovery warning. Other available names and optional author entry/omission MUST
+remain usable. Flag-only execution and early-exit paths defined by the CLI
+interaction specification MUST NOT perform author discovery, including Git
+commands, `gh` availability/authentication probes, or GitHub requests.
+
+Init MUST NOT run other Git commands, initialise Git, or modify a repository's
+history, configuration, or staging area. It MUST NOT execute project configuration,
+package managers or build tools to discover authors, initiate authentication,
+request additional permissions, or switch GitHub accounts. Optional discovery
+MUST NOT become an initialisation prerequisite.
 
 #### Scenario: Run in an offline non-interactive environment
 
 - **WHEN** valid initialisation is run without terminal input, network access, AI services, or a Git executable
 - **AND** all filesystem and location conditions are satisfied
 - **THEN** it succeeds using the same command-line interface and layer manifest format
+
+#### Scenario: Guided init can suggest a local Git author while offline
+
+- **WHEN** eligible guided init has a usable local Git author setting but no network access
+- **THEN** optional author discovery can offer that name through read-only local Git configuration queries
+- **AND** init does not initialise Git, change repository history/configuration/staging, or execute project tools
+- **AND** GitHub unavailability does not prevent choosing, entering, or omitting author and completing init
+
+#### Scenario: Guided init works without Git or GitHub access
+
+- **WHEN** eligible guided init runs without Git or usable authenticated GitHub access
+- **THEN** discovery silently retains other available names or opens the shared empty optional Author input when none exist
+- **AND** the developer can enter or omit author and complete init without authentication questions, Git initialisation, or project-tool execution
 
 ### Requirement: Select a supported initialisation format
 
@@ -358,33 +475,38 @@ the newly created file's format, not override precedence for existing layer mani
 ### Requirement: Observe duplicate layer manifests after successful creation
 
 After a successful layer manifest write, init MUST make a best-effort read-only
-observation of the supported paths. If multiple paths are observed, it MUST emit
-one duplicate warning identifying the current selection according to layer manifest
-priority and MUST still report success for the file actually created. The warning
-MUST NOT claim to prove another process ran. Init MUST NOT roll back, delete, or
-rewrite either layer manifest or create a lock to prevent this situation.
+observation of the supported paths. If multiple paths are observed, it MUST attempt
+to emit one duplicate warning identifying the current selection according to layer
+manifest priority and MUST still report success for the file actually created.
+The warning MUST NOT claim to prove another process ran. Init MUST NOT roll back,
+delete, or rewrite either layer manifest or create a lock to prevent this situation.
 
-If the final observation cannot complete, init MUST warn that the layer manifest was
-created but duplicate checking failed, without changing creation's successful
-status. Failures to deliver terminal feedback or the result stream MUST retain
-the existing reporting-error semantics and MUST NOT claim no files were changed.
-The observation MUST NOT promise detection of files created after it ran.
+If the final observation cannot complete, init MUST attempt to warn that the layer
+manifest was created but duplicate checking failed, without changing creation's
+successful status. Completion write/flush errors returned by the established
+fallible reporting path MUST retain reporting-error semantics, including nonzero
+exit and an attempted diagnostic identifying completed creation rather than
+claiming no files changed. Warning/error diagnostic delivery MUST retain existing
+best-effort handling without new propagation or status changes; failure to deliver
+the warning MUST NOT change completed-write status. Successful output calls do not
+guarantee receipt. The observation MUST NOT promise detection of files created
+after it ran.
 
 #### Scenario: Created file is not the highest-priority layer manifest
 
 - **WHEN** init creates `layer.json` after an initially empty check and its final observation also finds `layer.yaml`
-- **THEN** it warns that `layer.yaml` takes priority
-- **AND** it exits successfully and reports that it created `layer.json`
+- **THEN** it attempts a warning that `layer.yaml` takes priority
+- **AND** it exits successfully and reports that it created `layer.json` when the established fallible completion path returns no write/flush error
 - **AND** both layer manifests remain unchanged by the observation
 
 #### Scenario: Final observation fails
 
 - **WHEN** the selected layer manifest is successfully created and written but final duplicate checking encounters an inspection error
-- **THEN** init warns about the failed check and reports the created path with successful status
+- **THEN** init attempts the best-effort warning and reports the created path with successful status when the established fallible completion path returns no write/flush error
 - **AND** it does not report cancellation, remove the file, or claim no files changed
 
 #### Scenario: Concurrent initialisation selects different formats
 
 - **WHEN** two init operations both initially observe no supported layer manifest paths and later create different supported filenames
 - **THEN** both creations can succeed without locks or late all-format rejection
-- **AND** each operation warns about whatever duplicates its own final observation sees
+- **AND** each operation attempts a warning about whatever duplicates its own final observation sees

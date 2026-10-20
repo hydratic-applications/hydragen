@@ -177,7 +177,7 @@ fn terminal_driver() {
                     "{}",
                     presentation.diagnostic(
                         crate::presentation::Severity::Error,
-                        &crate::diagnostics::init_error_message(&error),
+                        &crate::diagnostics::error_message(&error),
                     )
                 )
                 .unwrap();
@@ -471,7 +471,7 @@ impl TerminalDriver {
         assert_eq!(error["reported"], true, "{error}");
         assert_eq!(
             self.text()
-                .matches("Initialisation cancelled. No files were changed.")
+                .matches("Layer initialisation cancelled. No files were changed.")
                 .count(),
             1,
             "{}",
@@ -516,7 +516,7 @@ fn absolute_stty_preamble_preserves_queued_keys_without_path_utilities() {
         assert!(!driver.root.path().join("stty").exists());
         assert!(std::path::Path::new("/bin/stty").is_file());
         driver.wait("directory-default");
-        driver.send(b"temp\x7f\x7f\x7f\x7fQueued name\r");
+        driver.send(b"temp\x7f\x7f\x7f\x7fqueued-name\r");
         driver.custom();
         if cancel {
             // Include queued text/editor input before Ctrl-C, exercising the
@@ -525,7 +525,7 @@ fn absolute_stty_preamble_preserves_queued_keys_without_path_utilities() {
         } else {
             driver.send(b"temp\x7f\x7f\x7f\x7fQueued author\r");
             let result = driver.complete();
-            assert_eq!(result["name"], "Queued name");
+            assert_eq!(result["name"], "queued-name");
             assert_eq!(result["author"], "Queued author");
         }
     }
@@ -660,12 +660,12 @@ fn delayed_sources_leave_name_responsive_and_ready_results_need_no_wait() {
     assert!(!driver.text().contains("Finding author suggestions"));
     driver.signal("release", "1");
     assert_eq!(driver.file("published"), "yes");
-    driver.send(b"\x7f\x7f\x7fResponsive name\r");
+    driver.send(b"\x7f\x7f\x7fresponsive-name\r");
     driver.wait("Late author");
     assert!(!driver.text().contains("Finding author suggestions"));
     driver.send(b"\r");
     let result = driver.complete();
-    assert_eq!(result["name"], "Responsive name");
+    assert_eq!(result["name"], "responsive-name");
     assert_eq!(result["author"], "Late author");
 }
 
@@ -811,7 +811,7 @@ fn poll_failure_during_real_terminal_wait_clears_restores_and_cleans_up_without_
         );
         assert_eq!(text.matches("Error:").count(), 1, "{text}");
         assert!(text.contains("No files were changed."));
-        assert!(!text.contains("Initialisation cancelled"));
+        assert!(!text.contains("Layer initialisation cancelled"));
         assert!(!text.contains("Author (optional)"));
         assert!(!text.contains("Description"));
         let raw = String::from_utf8_lossy(&driver.output);

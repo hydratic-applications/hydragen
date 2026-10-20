@@ -8,8 +8,10 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::Metadata;
+use crate::diagnostic_text::display;
 
 mod decode;
+pub mod edit;
 pub mod schema;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -110,6 +112,8 @@ pub struct LoadedLayerManifest {
     pub metadata: Metadata,
     /// Complete JSON-compatible data, including uninterpreted additional fields.
     pub document: Value,
+    /// Original UTF-8 text, including comments, formatting, and line endings.
+    pub source: String,
 }
 
 /// Read only the candidate selected by the original observation. Never retry a lower priority.
@@ -131,21 +135,32 @@ pub fn load(discovery: &LayerManifestDiscovery) -> Result<LoadedLayerManifest, L
     }
     // The string API rejects invalid UTF-8 before any parser can replace or reinterpret it.
     let text = fs::read_to_string(path).map_err(io_error)?;
+    parse_source(path, *format, text)
+}
+
+/// Decode and schema-check in-memory source with exactly the loading rules.
+/// The path is diagnostic context only: this operation never accesses the filesystem.
+pub fn parse_source(
+    path: &Path,
+    format: LayerManifestFormat,
+    source: String,
+) -> Result<LoadedLayerManifest, LayerManifestError> {
     let document =
-        decode::document(&text, *format).map_err(|message| LayerManifestError::Decode {
-            path: path.clone(),
-            format: *format,
+        decode::document(&source, format).map_err(|message| LayerManifestError::Decode {
+            path: path.to_owned(),
+            format,
             message,
         })?;
     let metadata = validate_document(&document).map_err(|source| LayerManifestError::Metadata {
-        path: path.clone(),
+        path: path.to_owned(),
         source,
     })?;
     Ok(LoadedLayerManifest {
-        path: path.clone(),
-        format: *format,
+        path: path.to_owned(),
+        format,
         metadata,
         document,
+        source,
     })
 }
 
@@ -155,6 +170,7 @@ pub enum MetadataError {
     MissingField { field: &'static str },
     NotString { field: &'static str },
     Blank { field: &'static str },
+    InvalidName { guidance: String },
     Schema(schema::Error),
 }
 
@@ -173,6 +189,11 @@ impl From<schema::Error> for MetadataError {
     fn from(error: schema::Error) -> Self {
         if let schema::Error::Content(violation) = &error {
             match &violation.kind {
+                schema::ViolationKind::Name { guidance } if violation.instance_path == "/name" => {
+                    return Self::InvalidName {
+                        guidance: guidance.clone(),
+                    };
+                }
                 schema::ViolationKind::Type if violation.instance_path.is_empty() => {
                     return Self::NotObject;
                 }
@@ -208,15 +229,21 @@ impl fmt::Display for MetadataError {
             Self::MissingField { field } => {
                 write!(formatter, "Missing required metadata field '{field}'.")
             }
-            Self::NotString { field } => write!(
-                formatter,
-                "Metadata field '{field}' must be a string; null is not omission."
-            ),
+            Self::NotString { field } => {
+                write!(formatter, "Metadata field '{field}' must be a string.")
+            }
             Self::Blank { field } => write!(
                 formatter,
                 "Metadata field '{field}' must contain at least one non-whitespace character."
             ),
             Self::Schema(source) => source.fmt(formatter),
+            Self::InvalidName { guidance } => {
+                write!(
+                    formatter,
+                    "Metadata field 'name' is invalid. {}",
+                    display(guidance)
+                )
+            }
         }
     }
 }
@@ -287,7 +314,7 @@ impl fmt::Display for LayerManifestError {
             Self::Missing { directory } => write!(
                 formatter,
                 "No layer manifest found in '{}'; expected one of: {}.",
-                directory.display(),
+                display(directory.display()),
                 LayerManifestFormat::ALL
                     .map(LayerManifestFormat::filename)
                     .join(", ")
@@ -298,13 +325,14 @@ impl fmt::Display for LayerManifestError {
                 source,
             } => write!(
                 formatter,
-                "Could not {action} '{}': {source}",
-                path.display()
+                "Could not {action} '{}': {}",
+                display(path.display()),
+                display(source)
             ),
             Self::NotRegular { path } => write!(
                 formatter,
                 "Could not read layer manifest '{}': target must be a regular file (or a symlink to one).",
-                path.display()
+                display(path.display())
             ),
             Self::Decode {
                 path,
@@ -312,14 +340,15 @@ impl fmt::Display for LayerManifestError {
                 message,
             } => write!(
                 formatter,
-                "Could not decode {format} layer manifest '{}': {message}",
-                path.display()
+                "Could not decode {format} layer manifest '{}': {}",
+                display(path.display()),
+                display(message)
             ),
             Self::Metadata { path, source } => {
                 write!(
                     formatter,
                     "Invalid layer manifest '{}': {source}",
-                    path.display()
+                    display(path.display())
                 )
             }
         }
@@ -351,7 +380,8 @@ impl fmt::Display for EncodeError {
             Self::Metadata(source) => source.fmt(formatter),
             Self::Serialization { format, message } => write!(
                 formatter,
-                "Could not serialise {format} layer metadata: {message}"
+                "Could not serialise {format} layer metadata: {}",
+                display(message)
             ),
         }
     }

@@ -64,6 +64,12 @@ None.
 - `cli-experience-principles`: Document and reinforce safe background preparation,
   separate visible-wait and work-lifetime limits, and review of perceived
   responsiveness across future CLI changes.
+- `layer-initialization`: Replace the former blanket prohibition on Git commands
+  with a narrow exception for optional read-only author discovery in eligible
+  guided init, including optional GitHub requests through existing `gh`
+  authentication. Preserve offline/no-Git operation, prompt-free automation,
+  early-exit isolation and the prohibition on Git mutations and project-tool
+  execution.
 
 ## Impact
 
@@ -80,5 +86,10 @@ None.
   aligned agent guidance where existing empty-author instructions change.
 - Refine the existing DX and performance values in `FOUNDATIONS.md` without adding
   another guiding value; reinforce the reusable principle in `AGENTS.md`.
-- No layer manifest schema, serialization, repository-location, creation safety,
-  or existing-file discovery changes.
+- Author suggestions do not change the layer manifest schema, serialization,
+  repository-location rules, creation safety, or existing-file discovery.
+- Integrate with main's already-agreed lowercase layer-name policy and shared CLI
+  diagnostics without redefining them. Name defaults and answers use the maintained
+  schema; author and description keep their arbitrary non-blank string rules.
+  Parser failures precede discovery, while eligible compact errors use shared
+  styling and explicit help/version remain plain.

@@ -148,6 +148,21 @@ fn assert_number_at_every_position(format: Format, scalar: &str, expected: &Valu
 
 fn assert_string_at_every_position(format: Format, spelling: &str, expected: &str) {
     for (pointer, key, text) in positions(spelling) {
+        if pointer == "/name"
+            && hydragen::layer_manifest::schema::validate_field("name", expected).is_err()
+        {
+            // The scalar must still decode as a string: only the subsequent
+            // name-content check may reject it. Optional/unknown positions below
+            // preserve the complete arbitrary string, including huge controls.
+            assert!(
+                matches!(
+                    read(format, &text),
+                    Err(LayerManifestError::Metadata { .. })
+                ),
+                "{format}: expected name-content rejection, not a decode error: {text}"
+            );
+            continue;
+        }
         let document = read(format, &text)
             .unwrap_or_else(|error| panic!("{format} {pointer} key={key}: {error}"));
         let value = document.pointer(pointer).unwrap();
@@ -300,12 +315,12 @@ fn yaml_integer_radix_boundaries_cover_sign_case_and_underscore_combinations() {
 }
 
 #[test]
-fn yaml_integer_looking_writer_strings_round_trip_in_all_metadata_fields() {
+fn yaml_integer_looking_writer_strings_round_trip_in_optional_metadata_fields() {
     for format in YAML_FORMATS {
         for (normal, overflow) in INTEGER_SPELLINGS {
             for value in [normal, overflow] {
                 let metadata = Metadata {
-                    name: value.into(),
+                    name: "root".into(),
                     author: Some(value.into()),
                     description: Some(value.into()),
                 };
@@ -313,7 +328,7 @@ fn yaml_integer_looking_writer_strings_round_trip_in_all_metadata_fields() {
                 let output = String::from_utf8(bytes).unwrap();
                 assert_eq!(
                     output,
-                    format!("name: \"{value}\"\nauthor: \"{value}\"\ndescription: \"{value}\"\n")
+                    format!("name: root\nauthor: \"{value}\"\ndescription: \"{value}\"\n")
                 );
                 let expected = serde_json::to_value(&metadata).unwrap();
                 assert_eq!(read(format, &output).unwrap(), expected);
@@ -439,12 +454,20 @@ fn yaml_integer_guard_uses_resolved_tag_uris_not_handle_spelling() {
             "18_446_744_073_709_551_616",
             "-0B1000000000000000000000000000000000000000000000000000000000000001",
         ] {
-            let document = read(format, &format!("{prefix}name: !s!tr {scalar}")).unwrap();
-            assert_eq!(document["name"], scalar);
+            let document = read(
+                format,
+                &format!("{prefix}name: root\nauthor: !s!tr {scalar}"),
+            )
+            .unwrap();
+            assert_eq!(document["author"], scalar);
             assert!(read(format, &format!("{prefix}name: x\nextra: !i!nt '{scalar}'")).is_err());
         }
-        let document = read(format, &format!("{prefix}name: !s!tr 0x10000000000000000")).unwrap();
-        assert_eq!(document["name"], "0x10000000000000000");
+        let document = read(
+            format,
+            &format!("{prefix}name: root\nauthor: !s!tr 0x10000000000000000"),
+        )
+        .unwrap();
+        assert_eq!(document["author"], "0x10000000000000000");
         let document = read(format, &format!("{prefix}name: x\nextra: !i!nt '42'")).unwrap();
         assert_eq!(document["extra"], 42);
         assert!(
@@ -469,8 +492,8 @@ fn yaml_integer_aliases_retain_the_original_anchor_type_and_bounds() {
                 assert!(read(format, &text).is_err());
             }
             for spelling in [format!("'{scalar}'"), format!("!!str {scalar}")] {
-                let document = read(format, &format!("extra: &text {spelling}\nname: *text\nauthor: *text\ndescription: *text\nother: [*text]")).unwrap();
-                for field in ["name", "author", "description"] {
+                let document = read(format, &format!("name: root\nextra: &text {spelling}\nauthor: *text\ndescription: *text\nother: [*text]")).unwrap();
+                for field in ["author", "description"] {
                     assert_eq!(document[field], scalar);
                 }
                 assert_eq!(document["other"][0], scalar);
