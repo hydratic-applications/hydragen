@@ -197,8 +197,57 @@ reuse, distinct cancellation, all external action pins, and read-only local-acti
 execution after checkout. Documentation and specifications were reviewed together
 for the three entry points, manual publishing choice, and PR upload absence.
 
-Final PR task 4.2 still requires observing the refined implementation after its
-authorised push: same-head compiler/gate results, report identity, and no upload
-check or Coverage on main run. Main publication can only receive live acceptance
-after the new entry point exists on `main`; do not treat a PR run or local
-validator tests as proof of a real OIDC upload from the new main entry point.
+## Live acceptance of the refined PR graph
+
+The authorised implementation revision
+`7b8952fd7384ae147aad97d134ded5e89326cfc9` was pushed to PR #16. Both runs completed
+successfully on 2026-10-20 for that exact immutable head:
+
+- [Testing 39356072340](https://github.com/hydratic-applications/hydragen/actions/runs/39356072340):
+  `Run tests on stable Rust` and `Run tests on minimum supported Rust` passed.
+- [Coverage 39356072467](https://github.com/hydratic-applications/hydragen/actions/runs/39356072467):
+  `Generate coverage report`, `Check total coverage`, and
+  `Check changed-line coverage` passed.
+
+The commit-scoped workflow-run list contained exactly Testing and Coverage. The
+PR's check rollup contained exactly those five successful leaf names, with no
+uploader check, no skipped upload result, and no Coverage on main run. The three
+coverage jobs' shared-action steps were explicitly successful in the jobs API.
+
+Testing logs identify stable Rust 1.99.1 (`58cf8f9c3`, 2026-10-13), and exact MSRV
+Rust 1.89.0 (`29483883e`, 2025-08-04), with Cargo 1.89.0 (`c24e10642`). Both
+compiler jobs passed all 572 Rust tests with zero failed/ignored tests. The minimum
+job's locked build completed successfully, and the helper suites passed all 24
+Rust-version and 47 coverage-policy regressions on Linux.
+
+Downloaded artifact `12234914010`, named
+`coverage-39356072467-1-7b8952fd7384ae147aad97d134ded5e89326cfc9`, as data into an
+approved temporary directory. It contains exactly `lcov.info` and `manifest.json`.
+The independently expected context came from the GitHub run API: repository
+`hydratic-applications/hydragen`, event `pull_request`, run `39356072467`, attempt
+`1`, head `7b8952fd7384ae147aad97d134ded5e89326cfc9`, and event base
+`a6da2b6498d38cc3959485846797bd412479f75d`.
+
+Re-ran the maintained `total` and `changed` commands against this artifact and
+those independently supplied values in the exact implementation checkout. Both
+revalidated its schema, digest, run/revision identity, merge base, and all 24
+tracked production Rust source identities. The canonical report SHA-256 is
+`52da5320a50c672f92bcde3964e7d6eeb954c553ad4abcd785d5f33b2f334dab`.
+Total coverage passed at 10,564/10,787 measured lines (97.93%). Changed-line
+assessment reported explicit N/A after validating the comparison, because this
+workflow/documentation change has no applicable measured Rust line changes; it
+did not fabricate 100% coverage.
+
+Task 4.2 is complete for this implementation. Independence and main uploader
+eligibility under failing gates are covered by the direct dependency graph and
+actual-shell/validator regressions, without deliberately failing a PR or uploading.
+
+### Post-merge main publication follow-up
+
+The new Coverage on main entry point has not yet run on `main`, because PR #16
+has not been merged. Its complete uploader body is unchanged and its new trigger,
+guard, permissions, and dependencies pass static/regression checks, but this is
+not live proof of a new-entry-point OIDC upload. After an authorised merge, observe
+the first main run, validate its same-run report and upload, and check Codecov
+processing separately. No merge, manual upload, repository-setting change, or
+archive was performed to obtain this PR evidence.
