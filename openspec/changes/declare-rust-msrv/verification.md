@@ -245,3 +245,27 @@ This completes task 4.4 for the integrated implementation. Only task 4.5, the
 numeric main-branch badge check after an approved merge, remains open. Recording
 this evidence changes documentation only, not the tested implementation. No PR
 merge, archive, release, or required-check configuration change was performed.
+
+## Clearer badge label and balanced rows on 2026-10-20
+
+Following review, the badge now says `Minimum Rust` and includes a white Rust
+logo, making its purpose understandable without knowing the MSRV abbreviation.
+It retains the dynamic main-branch source, field query, colours, style, accessible
+label, build-section link, and 22px image height. Only the existing row break was
+moved: status, language, minimum Rust version, dependencies, and coverage form
+the first group; license, repo, stars, and sponsors form the second.
+
+GitHub-rendered header HTML was checked in a local browser preview at 1440px and
+390px viewport widths. With an explicitly illustrative 1.89.0 badge value, the
+desktop groups measured approximately 736px and 676px including spacing. The
+actual dynamic badge, which still has no numeric main-branch result before
+merge, also fits the desktop layout. At phone width, the groups wrap naturally
+and the page does not overflow horizontally. Preview-only numeric substitution
+does not change the real dynamic URL or satisfy task 4.5.
+
+All 24 offline helper tests passed, including the new row-group regression and
+expanded checks rejecting the old abbreviation, incorrect or missing logos, and
+duplicate parameters. The consistency check, strict validation of this change
+and all ten maintained specifications, and whitespace checks passed. The main
+badge specification and change delta agree. No Rust source, dependency, lockfile,
+workflow, or compatibility baseline was changed in this presentation follow-up.

@@ -95,7 +95,7 @@ is available on `main`.
 Use this image URL, with HTML-safe `&amp;` separators in the README source:
 
 ```text
-https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fhydratic-applications%2Fhydragen%2Fmain%2FCargo.toml&query=%24.package%5B%27rust-version%27%5D&label=MSRV&style=for-the-badge&color=D34516
+https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fhydratic-applications%2Fhydragen%2Fmain%2FCargo.toml&query=%24.package%5B%27rust-version%27%5D&label=Minimum%20Rust&style=for-the-badge&color=D34516&logo=rust&logoColor=white
 ```
 
 Place the image immediately after the language badge. Retain 22px height, the
@@ -106,6 +106,14 @@ minimum, replaces the old last-tested sentence, and briefly explains that the
 badge tracks `main`. A branch or historical README intentionally still displays
 main's minimum, just as the coverage badge displays main's coverage. Source users
 must follow their checkout's `Cargo.toml` and local build guidance.
+
+Use the visible label `Minimum Rust` and a white Rust logo, rather than expecting
+readers to know the abbreviation MSRV. Keep the existing badge style and colours.
+With this wider label, place status, language, minimum Rust version, dependencies,
+and coverage in the first row; place license, repo, stars, and sponsors in the
+second. Moving only the row break preserves all badge links and their relative
+order while distributing their widths more evenly. Both groups can still wrap
+on narrow displays; do not use fixed widths to force equal rows.
 
 The displayed value follows changes merged to `main` after normal Shields.io and
 image-proxy cache refreshes. Do not promise instantaneous synchronisation or a

@@ -30,9 +30,11 @@ def readme(version="1.89.0", **parameters):
     query = {
         "url": SOURCE,
         "query": QUERY,
-        "label": "MSRV",
+        "label": "Minimum Rust",
         "style": "for-the-badge",
         "color": "D34516",
+        "logo": "rust",
+        "logoColor": "white",
     }
     query.update(parameters)
     src = escape("https://img.shields.io/badge/dynamic/toml?" + urlencode(query), quote=True)
@@ -164,7 +166,8 @@ class RustVersionTests(unittest.TestCase):
             {"url": SOURCE.replace("Cargo.toml", "other.toml")},
             {"url": SOURCE.replace("https://", "http://")},
             {"query": "$.package.edition"}, {"query": ""},
-            {"label": "Rust"}, {"style": "flat-square"}, {"color": "green"},
+            {"label": "Rust"}, {"label": "MSRV"}, {"style": "flat-square"}, {"color": "green"},
+            {"logo": ""}, {"logo": "python"}, {"logoColor": "black"},
             {"token": "not-a-real-token"}, {"message": "1.89.0"},
         ]
         for parameters in cases:
@@ -178,6 +181,9 @@ class RustVersionTests(unittest.TestCase):
             original.replace("&amp;color=D34516", ""),
             original.replace("&amp;color=D34516", "&amp;color=D34516&amp;color=D34516"),
             original.replace("&amp;color=D34516", "&amp;broken"),
+            original.replace("&amp;logo=rust", ""),
+            original.replace("&amp;logoColor=white", ""),
+            original.replace("&amp;logo=rust", "&amp;logo=rust&amp;logo=rust"),
         ]:
             with self.subTest(text=text):
                 with self.assertRaises(checker.CheckError):
@@ -248,6 +254,23 @@ class RustVersionTests(unittest.TestCase):
     def test_current_repository_matches(self):
         version = checker.check(ROOT)
         self.assertRegex(version, r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+    def test_repository_badges_keep_balanced_groups_and_allow_wrapping(self):
+        header = (ROOT / "README.md").read_text(encoding="utf-8").split('<p align="center">', 1)[1].split("</p>", 1)[0]
+        rows = header.split("<br>")
+        self.assertEqual(len(rows), 2)
+        expected = [
+            ["Status: prototype", "Language: Rust", ALT, "Dependency status", "Code coverage on main"],
+            ["License: GPL-3.0-or-later", "GitHub: hydratic-applications/hydragen", "GitHub stars", "GitHub sponsors"],
+        ]
+        for row, labels in zip(rows, expected):
+            parser = checker.LinkedImages()
+            parser.feed(row)
+            self.assertEqual([dict(attrs).get("alt") for attrs, _ in parser.images], labels)
+            for attrs, link in parser.images:
+                self.assertTrue(link)
+                self.assertEqual(dict(attrs).get("height"), "22")
+                self.assertNotIn("width", dict(attrs))
 
     def test_actual_actions_handoff_emits_only_after_successful_checks(self):
         workflow = (ROOT / ".github/workflows/coverage.yml").read_text(encoding="utf-8")

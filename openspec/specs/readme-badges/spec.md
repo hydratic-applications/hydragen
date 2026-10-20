@@ -12,8 +12,9 @@ guarantees or affecting local builds.
 
 The README SHALL display nine linked badges immediately below its top-level
 Hydragen heading and before the introduction. Its centred HTML header SHALL
-contain status, language, MSRV, dependencies, coverage, and license in that order.
-A line break SHALL retain repo, stars, and sponsors as the second group. Status,
+contain status, language, minimum Rust version, dependencies, and coverage in that
+order as the first group. A line break SHALL place license, repo, stars, and
+sponsors in the second group, balancing the rows without fixing their widths. Status,
 language, MSRV, coverage, repo, stars, sponsors, and license images SHALL use HTTPS
 Shields.io URLs; dependencies SHALL use the existing HTTPS deps.rs URL. All nine
 SHALL use `for-the-badge` styling and `height="22"`. Images SHALL NOT use fixed
@@ -24,8 +25,8 @@ linked HTML image per line, with HTML-safe query separators.
 #### Scenario: Read the README introduction
 
 - **WHEN** a reader opens the rendered README with badge images available
-- **THEN** status, language, MSRV, dependencies, coverage, and license appear in
-  that order in the first group, with repo, stars, and sponsors in the second
+- **THEN** status, language, minimum Rust version, dependencies, and coverage appear
+  in that order in the first group, with license, repo, stars, and sponsors in the second
 - **AND** all nine use matching `for-the-badge` styling at 22px height
 
 #### Scenario: Read on a narrow display
@@ -212,9 +213,10 @@ revoke no-longer-needed tokens separately. OIDC uploading SHALL remain unchanged
 ### Requirement: Dynamic MSRV shield reads public main-branch Cargo metadata
 
 The MSRV image SHALL use Shields.io's HTTPS `/badge/dynamic/toml` endpoint,
-labelled `MSRV`, with the source
+labelled `Minimum Rust`, with the white Rust logo (`logo=rust`, `logoColor=white`)
+so readers need not know the MSRV abbreviation. The source SHALL be
 `https://raw.githubusercontent.com/hydratic-applications/hydragen/main/Cargo.toml`
-and JSONPath selector `$.package['rust-version']`. It SHALL display the service's
+with JSONPath selector `$.package['rust-version']`. It SHALL display the service's
 result for that Cargo field without embedding a version literal or credentials.
 Query parameters SHALL be URL-encoded and HTML separators escaped correctly.
 Documentation SHALL make the main-branch scope and cache delay clear. CI SHALL

@@ -106,15 +106,18 @@ def check_readme(text, version):
     expected = {
         "url": [BADGE_SOURCE],
         "query": [BADGE_QUERY],
-        "label": ["MSRV"],
+        "label": ["Minimum Rust"],
         "style": ["for-the-badge"],
         "color": ["D34516"],
+        "logo": ["rust"],
+        "logoColor": ["white"],
     }
     if query != expected:
         raise CheckError(
             "README.md: configure the MSRV shield to read "
-            f"{BADGE_SOURCE} with query {BADGE_QUERY}, label MSRV, "
-            "for-the-badge style, and color D34516; remove extra or duplicate parameters."
+            f"{BADGE_SOURCE} with query {BADGE_QUERY}, label 'Minimum Rust', "
+            "a white Rust logo, for-the-badge style, and color D34516; "
+            "remove extra or duplicate parameters."
         )
 
 
