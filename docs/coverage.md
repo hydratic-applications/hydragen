@@ -72,8 +72,12 @@ every platform. The tool's default scope excludes external dependencies, build
 outputs and integration-test source; inline unit-test code can still contribute.
 No new production exclusions improve the score. Branch and doctest coverage need
 unstable tooling and are not included. Some tests deliberately kill child
-processes that may not write final counters before exit. Other platforms can
-therefore produce different results. Codecov may also process source scope
+processes or forbid all regular-file writes, so those children cannot save final
+counters. The zero-byte file-limit fixtures send only those children's profiling
+output to `/dev/null`, avoiding an extra LLVM write error in the CLI diagnostic.
+Their file-state and unfiltered diagnostic assertions still run; source files,
+measured lines and coverage thresholds are not excluded or relaxed. Other platforms
+can therefore produce different results. Codecov may also process source scope
 differently, so its displayed percentage need not exactly match the LLVM gate.
 
 The gate counts each measured source line once, covered when its execution count

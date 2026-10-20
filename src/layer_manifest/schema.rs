@@ -1,6 +1,7 @@
 //! Cached, offline validation of parsed layer manifest content using the bundled schema.
 
 use std::fmt;
+use std::fmt::Write;
 use std::sync::OnceLock;
 
 use jsonschema::{
@@ -9,12 +10,23 @@ use jsonschema::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::diagnostic_text::display;
+
 const SCHEMA: &str = include_str!("../../schemas/layer-manifest.schema.json");
 // An in-memory resource identifier, not a published URL or a layer manifest property.
 const SCHEMA_URI: &str = "urn:hydragen:layer-manifest";
 const FIELDS: [&str; 4] = ["name", "author", "description", "$schema"];
 const NONBLANK_PATTERN_PATH: &str = "/$defs/nonBlankString/pattern";
 const NONBLANK_APPROVAL_PATH: &str = "/$defs/nonBlankString/x-hydragen-nonblank-pattern-sha256";
+const DEFINITIONS: [&str; 7] = [
+    "layerNameSyntax",
+    "layerName",
+    "exactVersionSuffix",
+    "exactVersion",
+    "localReference",
+    "publishedReference",
+    "reference",
+];
 static VALIDATORS: OnceLock<Result<Validators, Error>> = OnceLock::new();
 
 /// Internal schema failures must not be presented as retryable user input.
@@ -42,6 +54,7 @@ pub struct Violation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ViolationKind {
     NonBlank,
+    Name { guidance: String },
     Type,
     Required { property: String },
     Other,
@@ -58,7 +71,7 @@ impl Error {
     fn compilation(error: ValidationError<'_>) -> Self {
         Self::Setup {
             message: "The bundled layer manifest schema could not be prepared".to_owned(),
-            detail: Some(Box::new(Violation::from_error(error, None, None))),
+            detail: Some(Box::new(Violation::from_error(error, None, None, None))),
         }
     }
 }
@@ -68,6 +81,7 @@ impl Violation {
         error: ValidationError<'_>,
         field: Option<&str>,
         approved_nonblank_pattern: Option<&str>,
+        approved_name_guidance: Option<&str>,
     ) -> Self {
         let schema_path = error.schema_path().to_string();
         let kind = match error.kind() {
@@ -78,6 +92,19 @@ impl Violation {
                     && Some(pattern.as_str()) == approved_nonblank_pattern =>
             {
                 ViolationKind::NonBlank
+            }
+            ValidationErrorKind::Pattern { .. } | ValidationErrorKind::MaxLength { .. }
+                if approved_name_guidance.is_some()
+                    && matches!(
+                        schema_path.as_str(),
+                        "/$defs/layerNameSyntax/pattern"
+                            | "/$defs/layerName/allOf/2/pattern"
+                            | "/$defs/layerName/allOf/2/maxLength"
+                    ) =>
+            {
+                ViolationKind::Name {
+                    guidance: approved_name_guidance.unwrap().to_owned(),
+                }
             }
             ValidationErrorKind::Type { .. } => ViolationKind::Type,
             ValidationErrorKind::Required {
@@ -109,7 +136,13 @@ impl fmt::Display for Violation {
         } else {
             &self.instance_path
         };
-        write!(formatter, "{path} ({}): {}", self.keyword, self.message)
+        write!(
+            formatter,
+            "{} ({}): {}",
+            display(path),
+            display(&self.keyword),
+            display(&self.message)
+        )
     }
 }
 
@@ -119,7 +152,11 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Setup { message, detail } => {
-                write!(formatter, "Internal layer manifest schema error: {message}")?;
+                write!(
+                    formatter,
+                    "Internal layer manifest schema error: {}",
+                    display(message)
+                )?;
                 if let Some(detail) = detail {
                     write!(formatter, ": {detail}")?;
                 }
@@ -156,6 +193,8 @@ struct Validators {
     root: Validator,
     fields: Vec<(&'static str, Validator)>,
     approved_nonblank_pattern: Option<String>,
+    approved_name_guidance: Option<String>,
+    definitions: Vec<(&'static str, Validator)>,
 }
 
 impl Validators {
@@ -163,10 +202,17 @@ impl Validators {
     fn compile(source: &str) -> Result<Self, Error> {
         let schema: Value = serde_json::from_str(source).map_err(Error::setup)?;
         jsonschema::draft202012::meta::validate(&schema).map_err(Error::compilation)?;
-        for field in FIELDS {
+        for field in FIELDS.into_iter().chain(["dependencies"]) {
             if schema.pointer(&format!("/properties/{field}")).is_none() {
                 return Err(Error::setup(format!(
                     "Missing layer manifest schema definition /properties/{field}"
+                )));
+            }
+        }
+        for definition in DEFINITIONS {
+            if schema.pointer(&format!("/$defs/{definition}")).is_none() {
+                return Err(Error::setup(format!(
+                    "Missing layer manifest schema definition /$defs/{definition}"
                 )));
             }
         }
@@ -180,12 +226,30 @@ impl Validators {
             })?;
         // This annotation approves diagnostics, not input validity. Missing, malformed,
         // or stale approval must never prevent compilation or weaken the schema rule.
-        let fingerprint = format!("{:x}", Sha256::digest(nonblank_pattern.as_bytes()));
+        let digest = Sha256::digest(nonblank_pattern.as_bytes());
+        let mut fingerprint = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            write!(fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
+        }
         let approved_nonblank_pattern = schema
             .pointer(NONBLANK_APPROVAL_PATH)
             .and_then(Value::as_str)
             .filter(|approval| *approval == fingerprint)
             .map(|_| nonblank_pattern.to_owned());
+        let name_rules = json!([
+            schema["$defs"]["layerName"],
+            schema["$defs"]["layerNameSyntax"]
+        ]);
+        let digest = Sha256::digest(name_rules.to_string().as_bytes());
+        let mut name_fingerprint = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            write!(name_fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+        let approved_name_guidance = schema["x-hydragen-name-policy-sha256"]
+            .as_str()
+            .filter(|approval| *approval == name_fingerprint)
+            .and_then(|_| schema["$defs"]["layerName"]["description"].as_str())
+            .map(str::to_owned);
         let registry = Registry::new()
             .draft(Draft::Draft202012)
             .retriever(NoRetrieval)
@@ -207,10 +271,20 @@ impl Validators {
             let wrapper = json!({"$ref": format!("{SCHEMA_URI}#/properties/{field}")});
             fields.push((field, options.build(&wrapper).map_err(Error::compilation)?));
         }
+        let mut definitions = Vec::with_capacity(DEFINITIONS.len());
+        for definition in DEFINITIONS {
+            let wrapper = json!({"$ref": format!("{SCHEMA_URI}#/$defs/{definition}")});
+            definitions.push((
+                definition,
+                options.build(&wrapper).map_err(Error::compilation)?,
+            ));
+        }
         Ok(Self {
             root,
             fields,
             approved_nonblank_pattern,
+            approved_name_guidance,
+            definitions,
         })
     }
 
@@ -220,6 +294,7 @@ impl Validators {
                 error,
                 None,
                 self.approved_nonblank_pattern.as_deref(),
+                self.approved_name_guidance.as_deref(),
             )))
         })
     }
@@ -241,8 +316,53 @@ impl Validators {
                     error,
                     Some(field),
                     self.approved_nonblank_pattern.as_deref(),
+                    self.approved_name_guidance.as_deref(),
                 )))
             })
+    }
+
+    fn definition(&self, name: &str) -> Result<&Validator, Error> {
+        self.definitions
+            .iter()
+            .find(|(definition, _)| *definition == name)
+            .map(|(_, validator)| validator)
+            .ok_or_else(|| {
+                Error::setup(format!(
+                    "Unknown layer manifest schema definition selector '{name}'"
+                ))
+            })
+    }
+
+    fn classify_reference<'a>(&self, value: &'a str) -> Result<Reference<'a>, Error> {
+        let instance = Value::String(value.to_owned());
+        self.definition("reference")?
+            .validate(&instance)
+            .map_err(|error| {
+                Error::Content(Box::new(Violation::from_error(
+                    error,
+                    None,
+                    self.approved_nonblank_pattern.as_deref(),
+                    self.approved_name_guidance.as_deref(),
+                )))
+            })?;
+        if self.definition("localReference")?.is_valid(&instance) {
+            return Ok(Reference::Local(value));
+        }
+        // Branch membership is schema-derived too. Extraction has no acceptance grammar.
+        self.definition("publishedReference")?
+            .validate(&instance)
+            .map_err(|error| {
+                Error::Content(Box::new(Violation::from_error(
+                    error,
+                    None,
+                    self.approved_nonblank_pattern.as_deref(),
+                    self.approved_name_guidance.as_deref(),
+                )))
+            })?;
+        let (name, version) = value.rsplit_once('@').ok_or_else(|| {
+            Error::setup("Published reference schema no longer guarantees a name/version separator")
+        })?;
+        Ok(Reference::Published { name, version })
     }
 }
 
@@ -271,6 +391,18 @@ pub fn validate_field(field: &'static str, value: &str) -> Result<(), Error> {
     cached(&VALIDATORS, SCHEMA)?.validate_field(field, value)
 }
 
+/// Borrowed, schema-validated syntax. Local paths are not interpreted for the host here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reference<'a> {
+    Local(&'a str),
+    Published { name: &'a str, version: &'a str },
+}
+
+/// Classify a portable reference offline, preserving its complete accepted spelling.
+pub fn classify_reference(value: &str) -> Result<Reference<'_>, Error> {
+    cached(&VALIDATORS, SCHEMA)?.classify_reference(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +426,327 @@ mod tests {
     fn schema_is_valid_draft_2020_12() {
         jsonschema::draft202012::meta::validate(&schema()).unwrap();
         ensure_ready().unwrap();
+    }
+
+    #[test]
+    fn shipped_diagnostic_fingerprints_match_independent_sha256_vectors() {
+        // Independently computed with Python hashlib over the pattern's UTF-8
+        // bytes and the compact, key-sorted JSON name-rule array respectively.
+        // These fixed vectors also check lower-case hex and per-byte zero padding.
+        let schema = schema();
+        assert_eq!(
+            schema
+                .pointer(NONBLANK_APPROVAL_PATH)
+                .and_then(Value::as_str),
+            Some("f308e30ae4a261113af20ed108cd840829a39d26af2024f66ab1b4e08ffc3514")
+        );
+        assert_eq!(
+            schema["x-hydragen-name-policy-sha256"].as_str(),
+            Some("225f6b51735509610a0236ccd835ca20f7a00934da13e48254d59ddfb4a7f6a8")
+        );
+        let validators = compile(&schema);
+        assert!(validators.approved_nonblank_pattern.is_some());
+        assert!(validators.approved_name_guidance.is_some());
+        assert_eq!(
+            violation(validators.validate_field("author", " \t").unwrap_err()).kind,
+            ViolationKind::NonBlank
+        );
+        assert!(matches!(
+            violation(validators.validate_field("name", "Uppercase").unwrap_err()).kind,
+            ViolationKind::Name { .. }
+        ));
+    }
+
+    #[test]
+    fn names_use_one_schema_policy_without_normalisation_or_reserved_names() {
+        let validators = compile(&schema());
+        assert!(validators.approved_name_guidance.is_some());
+        let longest = "a".repeat(214);
+        let longest_scoped = format!("@s/{}", "a".repeat(211));
+        for name in [
+            "a",
+            "0",
+            "-",
+            "shared-config",
+            "node_modules",
+            "favicon.ico",
+            "@example/.config",
+            "@example/_config",
+            "@-/pkg",
+            &longest,
+            &longest_scoped,
+        ] {
+            let original = json!({"name": name});
+            validate_field("name", name).unwrap();
+            validate(&original).unwrap();
+            assert_eq!(original["name"], name);
+            let reference = format!("{name}@1.2.3-beta.1+build.007");
+            assert_eq!(
+                classify_reference(&reference).unwrap(),
+                Reference::Published {
+                    name,
+                    version: "1.2.3-beta.1+build.007"
+                }
+            );
+        }
+        for name in [
+            "",
+            " ",
+            "\u{85}",
+            "Layer",
+            " layer",
+            "layer ",
+            "layer\n",
+            "配置",
+            ".layer",
+            "_layer",
+            "@/pkg",
+            "@scope/",
+            "@.scope/pkg",
+            "@_scope/pkg",
+            "@scope/Package",
+            "a/b",
+            "a@b",
+            &"a".repeat(215),
+            &format!("@s/{}", "a".repeat(212)),
+        ] {
+            assert!(validate_field("name", name).is_err(), "{name:?}");
+            assert!(validate(&json!({"name": name})).is_err(), "{name:?}");
+            assert!(
+                classify_reference(&format!("{name}@1.2.3")).is_err(),
+                "{name:?}"
+            );
+        }
+        for name in ["Uppercase", ".hidden", &"a".repeat(215)] {
+            let failure = violation(validate_field("name", name).unwrap_err());
+            assert!(matches!(failure.kind, ViolationKind::Name { .. }));
+            assert_eq!(failure.instance_path, "/name");
+        }
+        for text in ["", "\u{85}", " \t\u{00a0}\u{2003}"] {
+            assert_eq!(
+                violation(validate_field("name", text).unwrap_err()).kind,
+                ViolationKind::NonBlank
+            );
+        }
+    }
+
+    #[test]
+    fn references_are_offline_portable_and_borrow_original_text() {
+        for local in [
+            ".",
+            "..",
+            "./",
+            "../shared",
+            "./Shared 配置/@literal@latest",
+            "../a b/../c",
+            "/",
+            "/work/Shared",
+            r".\shared",
+            r"..\shared",
+            r"\rooted",
+            r"C:\shared",
+            "C:/shared",
+            "C:relative",
+            "C:",
+            r"\\server\share",
+            r"\\?\C:\shared",
+            r"\\.\device",
+        ] {
+            let reference = classify_reference(local).unwrap();
+            assert_eq!(reference, Reference::Local(local));
+            let Reference::Local(borrowed) = reference else {
+                unreachable!()
+            };
+            assert_eq!(borrowed.as_ptr(), local.as_ptr());
+            validate(&json!({"name": "layer", "dependencies": [local]})).unwrap();
+        }
+        for version in [
+            "0.0.0",
+            "1.2.3",
+            "1.2.3-alpha",
+            "1.2.3-alpha.1",
+            "1.2.3-0",
+            "1.2.3-00a",
+            "1.2.3--",
+            "1.2.3+001",
+            "1.2.3-beta.1+build.7",
+            "999999999999999999999999999999.0.0",
+        ] {
+            let reference = format!("@scope/.config@{version}");
+            let result = classify_reference(&reference).unwrap();
+            assert_eq!(
+                result,
+                Reference::Published {
+                    name: "@scope/.config",
+                    version
+                }
+            );
+            let Reference::Published {
+                name,
+                version: borrowed,
+            } = result
+            else {
+                unreachable!()
+            };
+            assert_eq!(name.as_ptr(), reference.as_ptr());
+            assert_eq!(borrowed, version);
+            validate(&json!({"name": "layer", "dependencies": [reference]})).unwrap();
+            assert!(
+                compile(&schema())
+                    .definition("exactVersion")
+                    .unwrap()
+                    .is_valid(&json!(version))
+            );
+        }
+        for version in [
+            "",
+            "latest",
+            "^1.2.3",
+            "~1.2.3",
+            ">=1.2.3",
+            "1",
+            "1.2",
+            "v1.2.3",
+            "01.2.3",
+            "1.02.3",
+            "1.2.03",
+            "1.2.3-01",
+            "1.2.3-alpha.01",
+            "1.2.3-",
+            "1.2.3+",
+            "1.2.3-a..b",
+            "1.2.3+build..1",
+            "1.2.3 ",
+            "1.2.3\n",
+            " 1.2.3",
+            "1.2.3+水",
+        ] {
+            let reference = format!("layer@{version}");
+            assert!(classify_reference(&reference).is_err(), "{reference:?}");
+            assert!(validate(&json!({"name": "layer", "dependencies": [reference]})).is_err());
+            assert!(
+                !compile(&schema())
+                    .definition("exactVersion")
+                    .unwrap()
+                    .is_valid(&json!(version)),
+                "{version:?}"
+            );
+        }
+        for reference in [
+            "shared-config",
+            "shared/config",
+            "~/shared",
+            "$HOME/shared",
+            "file:../shared",
+            "link:../shared",
+            "git+https://example.com/layer",
+            "npm:layer@1.2.3",
+            "layer@other@1.2.3",
+            "@scope/name@other@1.2.3",
+            "./x".trim_start_matches("./"),
+        ] {
+            assert!(classify_reference(reference).is_err(), "{reference:?}");
+        }
+    }
+
+    #[test]
+    fn dependency_shapes_order_and_unknown_fields_follow_complete_schema() {
+        for dependencies in [json!([]), json!(["../shared", "layer@1.2.3", "../shared"])] {
+            let document = json!({"name": "layer", "dependencies": dependencies, "custom": {"dependencies": null}});
+            let original = document.clone();
+            validate(&document).unwrap();
+            assert_eq!(document, original);
+        }
+        for dependencies in [
+            Value::Null,
+            json!({"layer": "../shared"}),
+            json!([null]),
+            json!([42]),
+            json!([["layer", "1.2.3"]]),
+            json!([{"source": "../shared"}]),
+            json!(["layer@latest"]),
+        ] {
+            let failure = violation(
+                validate(&json!({"name": "layer", "dependencies": dependencies})).unwrap_err(),
+            );
+            assert!(failure.instance_path.starts_with("/dependencies"));
+            assert_ne!(failure.kind, ViolationKind::NonBlank);
+        }
+    }
+
+    #[test]
+    fn altered_shared_definitions_control_classification_and_keep_accurate_diagnostics() {
+        let mut schema = schema();
+        schema["$defs"]["layerNameSyntax"]["pattern"] = json!("^prefix-");
+        let validators = compile(&schema);
+        assert!(validators.approved_name_guidance.is_none());
+        let field = violation(validators.validate_field("name", "layer").unwrap_err());
+        assert_eq!(field.kind, ViolationKind::Other);
+        assert_eq!(field.schema_path, "/$defs/layerNameSyntax/pattern");
+        assert_eq!(
+            field,
+            violation(validators.validate(&json!({"name": "layer"})).unwrap_err())
+        );
+        assert!(validators.classify_reference("layer@1.2.3").is_err());
+        validators.validate_field("name", "prefix-layer").unwrap();
+        assert!(validators.classify_reference("prefix-layer@1.2.3").is_ok());
+        schema["$defs"]["exactVersionSuffix"]["pattern"] = json!("@special$");
+        let validators = compile(&schema);
+        assert_eq!(
+            validators
+                .classify_reference("prefix-layer@special")
+                .unwrap(),
+            Reference::Published {
+                name: "prefix-layer",
+                version: "special"
+            }
+        );
+        assert!(validators.classify_reference("prefix-layer@1.2.3").is_err());
+        assert!(matches!(
+            validators.definition("unknown"),
+            Err(Error::Setup { .. })
+        ));
+    }
+
+    #[test]
+    fn changed_name_constraints_or_stale_approval_never_blame_blank_input() {
+        let mut changed = schema();
+        changed["$defs"]["layerName"]["allOf"][2]["maxLength"] = json!(3);
+        let validators = compile(&changed);
+        assert!(validators.approved_name_guidance.is_none());
+        let failure = violation(validators.validate_field("name", "layer").unwrap_err());
+        assert_eq!(failure.kind, ViolationKind::Other);
+        assert_eq!(failure.keyword, "maxLength");
+        assert!(failure.message.contains('3'));
+        assert_eq!(
+            failure,
+            violation(validators.validate(&json!({"name": "layer"})).unwrap_err())
+        );
+        for approval in [
+            None,
+            Some(json!("stale")),
+            Some(Value::Null),
+            Some(json!(42)),
+        ] {
+            let mut changed = schema();
+            match approval {
+                Some(approval) => {
+                    changed["x-hydragen-name-policy-sha256"] = approval;
+                }
+                None => {
+                    changed
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("x-hydragen-name-policy-sha256");
+                }
+            }
+            let validators = compile(&changed);
+            assert!(validators.approved_name_guidance.is_none());
+            let failure = violation(validators.validate_field("name", "Uppercase").unwrap_err());
+            assert_eq!(failure.kind, ViolationKind::Other);
+            assert_eq!(failure.keyword, "pattern");
+            validators.validate_field("name", "layer").unwrap();
+        }
     }
 
     #[test]
@@ -343,14 +796,14 @@ mod tests {
             let validator = options
                 .offline()
                 .with_draft(Draft::Draft202012)
-                .build(&schema)
+                .build(&schema["$defs"]["nonBlankString"])
                 .unwrap();
-            for field in FIELDS {
+            for field in ["author", "description", "$schema"] {
                 for (texts, valid) in [(&blanks[..], false), (&accepted[..], true)] {
                     for text in texts {
                         let mut document = json!({"name": "layer"});
                         document[field] = json!(text);
-                        assert_eq!(validator.is_valid(&document), valid, "{field}={text:?}");
+                        assert_eq!(validator.is_valid(&json!(text)), valid, "{field}={text:?}");
                         assert_eq!(validate(&document).is_ok(), valid, "{field}={text:?}");
                         assert_eq!(
                             validate_field(field, text).is_ok(),
@@ -366,6 +819,15 @@ mod tests {
                         }
                     }
                 }
+            }
+            for text in blanks {
+                let root = violation(validate(&json!({"name": text})).unwrap_err());
+                let field = violation(validate_field("name", text).unwrap_err());
+                assert_eq!(root, field);
+                assert_eq!(field.kind, ViolationKind::NonBlank);
+            }
+            for text in accepted {
+                assert!(validator.is_valid(&json!(text)), "{text:?}");
             }
         }
     }
@@ -426,8 +888,6 @@ mod tests {
         let validators = compile(&schema);
         validators.validate_field("name", "abc").unwrap();
         validators.validate(&json!({"name": "abc"})).unwrap();
-        validators.validate_field("name", "水🦀x").unwrap();
-        validators.validate(&json!({"name": "水🦀x"})).unwrap();
         let field = violation(validators.validate_field("name", "abcd").unwrap_err());
         let root = violation(validators.validate(&json!({"name": "abcd"})).unwrap_err());
         assert_eq!(field, root);
@@ -514,7 +974,12 @@ mod tests {
                     assert_eq!(field_error.schema_path, approved.schema_path);
                     assert_eq!(field_error.message, approved.message);
                 }
-                for text in ["visible", "\u{feff}", " 水🦀 "] {
+                let accepted = if field == "name" {
+                    &["visible"][..]
+                } else {
+                    &["visible", "\u{feff}", " 水🦀 "][..]
+                };
+                for text in accepted {
                     let mut document = json!({"name": "layer"});
                     document[field] = json!(text);
                     validators.validate_field(field, text).unwrap();
@@ -626,7 +1091,15 @@ mod tests {
 
     #[test]
     fn unavailable_definitions_and_unknown_selectors_fail_explicitly() {
-        for field in FIELDS {
+        for definition in DEFINITIONS {
+            let mut schema = schema();
+            schema["$defs"].as_object_mut().unwrap().remove(definition);
+            assert!(matches!(
+                Validators::compile(&schema.to_string()),
+                Err(Error::Setup { .. })
+            ));
+        }
+        for field in FIELDS.into_iter().chain(["dependencies"]) {
             let mut schema = schema();
             schema["properties"].as_object_mut().unwrap().remove(field);
             let error = Validators::compile(&schema.to_string())

@@ -54,3 +54,9 @@ Its coverage capability is further refined by `separate-test-and-coverage-checks
 The coverage delta here builds on that pending refinement; sync those two changes
 in that order before this one's overlapping deltas. Do not archive unrelated
 work automatically or claim that the new job already exists in user documentation.
+
+Integration update: those coverage changes have since been synced and archived
+on `main`. The final integration uses main's maintained specifications as its
+baseline, retaining later path-validation and icon requirements instead of
+replaying historical deltas over them. Both compiler routes must be reverified
+with main's newer implementation and dependencies.

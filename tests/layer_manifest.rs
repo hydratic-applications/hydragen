@@ -424,9 +424,12 @@ fn file_metadata_rules_are_the_same_for_every_format() {
 #[test]
 fn jsonc_accepts_only_comments_and_trailing_commas_beyond_json() {
     let text = r#"// before
-    {"name": "https://example.test/*literal*/", /* middle */ "extra": [1, true, null,],} // after"#;
+    {"name": "example", "description": "https://example.test/*literal*/", /* middle */ "extra": [1, true, null,],} // after"#;
     let loaded = read(Format::Jsonc, text).unwrap();
-    assert_eq!(loaded.metadata.name, "https://example.test/*literal*/");
+    assert_eq!(
+        loaded.metadata.description.as_deref(),
+        Some("https://example.test/*literal*/")
+    );
     assert_eq!(loaded.document["extra"], json!([1, true, null]));
     reject(Format::Json, text);
     for text in [
@@ -538,10 +541,11 @@ fn empty_nonobjects_and_trailing_input_fail() {
 
 #[test]
 fn ordinary_yaml_strings_tags_aliases_comments_and_additional_data() {
-    let text = "# layer manifest\nname: &label '  配置 🦀  '\nauthor: *label\ndescription: |\n  first line\n  second line\nextra:\n  values: [true, 123, null]\n  literal: ${UNCHANGED}\n  tagged: !!str 123\n";
+    let text = "# layer manifest\nname: example\nauthor: &label '  配置 🦀  '\ncopy: *label\ndescription: |\n  first line\n  second line\nextra:\n  values: [true, 123, null]\n  literal: ${UNCHANGED}\n  tagged: !!str 123\n";
     for format in [Format::Yaml, Format::Yml] {
         let loaded = read(format, text).unwrap();
-        assert_eq!(loaded.metadata.name, "  配置 🦀  ");
+        assert_eq!(loaded.metadata.name, "example");
+        assert_eq!(loaded.document["copy"], "  配置 🦀  ");
         assert_eq!(loaded.metadata.author.as_deref(), Some("  配置 🦀  "));
         assert_eq!(
             loaded.metadata.description.as_deref(),
@@ -721,11 +725,15 @@ fn toml_rejects_native_datetime_and_nonfinite_at_any_depth_with_guidance() {
             assert!(error.contains("quoted string"), "{error}");
         }
         assert_eq!(
-            read(Format::Toml, format!("name = '{value}'"))
-                .unwrap()
-                .metadata
-                .name,
-            value
+            read(
+                Format::Toml,
+                format!("name = 'example'\nauthor = '{value}'")
+            )
+            .unwrap()
+            .metadata
+            .author
+            .as_deref(),
+            Some(value)
         );
     }
     for value in ["inf", "+inf", "-inf", "nan", "+nan", "-nan"] {
@@ -736,11 +744,11 @@ fn toml_rejects_native_datetime_and_nonfinite_at_any_depth_with_guidance() {
 
 #[test]
 fn equivalent_metadata_and_additional_data_across_all_five_formats() {
-    let expected = json!({"name":"  配置 🦀  ","author":"a \"quote\" \\path","description":"line one\nline two","extra":{"enabled":true,"values":[1,2.5,"text"]}});
+    let expected = json!({"name":"@example/.config","author":"  配置 🦀 a \"quote\" \\path  ","description":"line one\nline two","extra":{"enabled":true,"values":[1,2.5,"text"]}});
     for format in Format::ALL {
         let text = match format {
-            Format::Yaml | Format::Yml => "name: '  配置 🦀  '\nauthor: 'a \"quote\" \\path'\ndescription: |-\n  line one\n  line two\nextra: {enabled: true, values: [1, 2.5, text]}\n".into(),
-            Format::Toml => "name = '  配置 🦀  '\nauthor = 'a \"quote\" \\path'\ndescription = \"line one\\nline two\"\nextra = {enabled = true, values = [1, 2.5, 'text']}\n".into(),
+            Format::Yaml | Format::Yml => "name: '@example/.config'\nauthor: '  配置 🦀 a \"quote\" \\path  '\ndescription: |-\n  line one\n  line two\nextra: {enabled: true, values: [1, 2.5, text]}\n".into(),
+            Format::Toml => "name = '@example/.config'\nauthor = '  配置 🦀 a \"quote\" \\path  '\ndescription = \"line one\\nline two\"\nextra = {enabled = true, values = [1, 2.5, 'text']}\n".into(),
             Format::Json | Format::Jsonc => expected.to_string(),
         };
         let loaded = read(format, text).unwrap();
@@ -863,7 +871,7 @@ fn every_codec_preserves_ambiguous_multiline_escaped_and_unicode_strings() {
         "a\u{0000}b",
     ] {
         let metadata = Metadata {
-            name: value.into(),
+            name: "example".into(),
             author: Some(value.into()),
             description: Some(value.into()),
         };
@@ -878,6 +886,54 @@ fn every_codec_preserves_ambiguous_multiline_escaped_and_unicode_strings() {
                 read(format, bytes).unwrap().metadata,
                 metadata,
                 "{format}: {value:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_codec_preserves_schema_valid_scalar_looking_names_and_rejects_invalid_names() {
+    for format in Format::ALL {
+        for name in [
+            "true",
+            "false",
+            "yes",
+            "on",
+            "null",
+            "123",
+            "1.5",
+            "1e10",
+            "2026-10-17",
+            "---",
+            "18446744073709551616",
+            "0x1_0000_0000_0000_0000",
+            "-9223372036854775809",
+        ] {
+            let candidate = Metadata {
+                name: name.into(),
+                ..metadata()
+            };
+            let bytes = encode_metadata(&candidate, format).unwrap();
+            assert_eq!(independent_decode(&bytes, format), json!({"name": name}));
+            assert_eq!(read(format, bytes).unwrap().metadata, candidate);
+        }
+        for name in [
+            "Shared-config",
+            " example ",
+            "配置",
+            "_config",
+            "@Scope/config",
+        ] {
+            let candidate = Metadata {
+                name: name.into(),
+                ..metadata()
+            };
+            assert!(
+                matches!(
+                    encode_metadata(&candidate, format),
+                    Err(EncodeError::Metadata(_))
+                ),
+                "{format}: {name:?}"
             );
         }
     }

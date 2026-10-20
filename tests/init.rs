@@ -5,7 +5,11 @@ use std::sync::{Arc, Barrier};
 
 use hydragen::LayerManifestFormat;
 use serde_json::{Value, json};
-use tempfile::tempdir;
+mod diagnostic_body_support;
+#[cfg(unix)]
+mod output_failure_support;
+mod support;
+use support::tempdir;
 
 fn command(directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_hydragen"));
@@ -49,8 +53,12 @@ fn assert_occupied_layer_manifest(output: &Output) {
     assert_failure(output, "This directory already has a layer manifest (");
     let stderr = String::from_utf8_lossy(&output.stderr);
     let refusal = stderr.split_once("Error: ").unwrap().1;
-    assert_eq!(refusal.lines().count(), 2, "{stderr}");
-    let advice = refusal.lines().nth(1).unwrap().trim();
+    assert_eq!(refusal.lines().count(), 3, "{stderr}");
+    assert!(
+        refusal.lines().nth(1).unwrap().trim().is_empty(),
+        "{stderr}"
+    );
+    let advice = refusal.lines().nth(2).unwrap().trim();
     assert_eq!(
         advice,
         "Initialisation creates a new layer manifest; it won’t overwrite an existing one."
@@ -210,36 +218,88 @@ fn a_live_input_pipe_is_not_read_or_awaited() {
 #[cfg(unix)]
 #[test]
 fn a_result_output_failure_does_not_claim_the_layer_manifest_was_not_created() {
-    use std::io::Write;
-
     let directory = tempdir().unwrap();
-    // Delay exec until the parent has closed the result pipe's reader. This
-    // deterministically exercises a reporting failure after layer manifest creation.
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            "read -r ready\nexec \"$@\"",
-            "output-failure",
-            env!("CARGO_BIN_EXE_hydragen"),
-            "init",
-            "--name",
-            "example",
-        ])
-        .current_dir(directory.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    drop(child.stdout.take());
-    child.stdin.take().unwrap().write_all(b"ready\n").unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert_failure(&output, "was created");
+    fs::write(directory.path().join("keep.txt"), "untouched").unwrap();
+    let capture = output_failure_support::run(
+        directory.path(),
+        &["init", "--name", "example"],
+        output_failure_support::Stream::Stdout,
+        output_failure_support::Delivery::BrokenPipe,
+    )
+    .unwrap();
+    let output = capture.output;
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_failure(&output, "was already created");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr)
+            .matches("Error:")
+            .count(),
+        1
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Broken pipe"));
+    diagnostic_body_support::assert_compact(&String::from_utf8_lossy(&output.stderr));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("No files were changed"));
     assert_eq!(
         read_layer_manifest(directory.path()),
         json!({"name": "example"})
     );
+    assert_eq!(
+        fs::read_to_string(directory.path().join("keep.txt")).unwrap(),
+        "untouched"
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+    assert!(capture.consumed.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_live_result_reader_receives_the_complete_init_report_before_assertions() {
+    let directory = tempdir().unwrap();
+    let capture = output_failure_support::run(
+        directory.path(),
+        &["init", "--name", "example"],
+        output_failure_support::Stream::Stdout,
+        output_failure_support::Delivery::LiveReader,
+    )
+    .unwrap();
+    assert!(capture.output.status.success(), "{:?}", capture.output);
+    assert!(capture.output.stdout.is_empty());
+    assert!(capture.output.stderr.is_empty());
+    assert_eq!(
+        capture.consumed,
+        b"Layer initialised, layer manifest created at: layer.yaml\n"
+    );
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name":"example"})
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_stdout_runtime_acceptance_is_distinct_from_a_returned_broken_pipe() {
+    let directory = tempdir().unwrap();
+    let capture = output_failure_support::run(
+        directory.path(),
+        &["init", "--name", "example"],
+        output_failure_support::Stream::Stdout,
+        output_failure_support::Delivery::ClosedDescriptor,
+    )
+    .unwrap();
+    assert_eq!(
+        capture.output.status.code(),
+        Some(0),
+        "{:?}",
+        capture.output
+    );
+    assert!(capture.output.stdout.is_empty());
+    assert!(capture.output.stderr.is_empty());
+    assert_eq!(
+        read_layer_manifest(directory.path()),
+        json!({"name":"example"})
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
 fn read_layer_manifest(directory: &Path) -> Value {
@@ -283,16 +343,23 @@ fn accepts_independent_optional_fields() {
 }
 
 #[test]
-fn preserves_whitespace_escaping_and_unicode() {
+fn optional_metadata_preserves_whitespace_escaping_and_unicode() {
     let directory = tempdir().unwrap();
     let text = "  \"quoted\" \\path\n配置 🦀  ";
     assert_success(&init(
         directory.path(),
-        &["--name", text, "--author", text, "--description", text],
+        &[
+            "--name",
+            "@example/.config",
+            "--author",
+            text,
+            "--description",
+            text,
+        ],
     ));
     assert_eq!(
         read_layer_manifest(directory.path()),
-        json!({"name": text, "author": text, "description": text})
+        json!({"name": "@example/.config", "author": text, "description": text})
     );
 }
 
@@ -336,6 +403,81 @@ fn supplied_blank_metadata_is_an_error_without_writes() {
             };
             assert_failure(&init(directory.path(), &arguments), flag);
             assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn every_format_rejects_invalid_name_flags_without_normalization_or_writes() {
+    let mut names: Vec<_> = [
+        "Shared-Config",
+        " shared-config",
+        "shared-config ",
+        "shared config",
+        "配置",
+        "\u{feff}",
+        ".config",
+        "_config",
+        "@scope",
+        "@/config",
+        "@scope/",
+        "@Scope/config",
+        "@scope/Config",
+        "@.scope/config",
+        "@_scope/config",
+        "scope/config",
+        "name@1.2.3",
+        "config\n",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    names.extend(["a".repeat(215), format!("@s/{}", "a".repeat(212))]);
+    for format in LayerManifestFormat::ALL {
+        for name in &names {
+            let directory = tempdir().unwrap();
+            let output = init(
+                directory.path(),
+                &["--format", format.extension(), "--name", name],
+            );
+            assert_failure(&output, "--name");
+            let diagnostic = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !diagnostic.contains("non-whitespace"),
+                "{name:?}: {diagnostic}"
+            );
+            assert!(!diagnostic.contains("non-blank"), "{name:?}: {diagnostic}");
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn every_format_preserves_valid_scoped_names_and_full_name_length_boundaries() {
+    let mut names: Vec<_> = [
+        "shared-config.v2_rules",
+        "@scope/.config",
+        "@scope/_config",
+        "node_modules",
+        "fs",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    names.extend(["a".repeat(214), format!("@s/{}", "a".repeat(211))]);
+    for format in LayerManifestFormat::ALL {
+        for name in &names {
+            let directory = tempdir().unwrap();
+            let output = init(
+                directory.path(),
+                &["--format", format.extension(), "--name", name],
+            );
+            assert_success_in_format(&output, format);
+            assert_eq!(
+                independently_read_format(directory.path(), format),
+                json!({"name": name})
+            );
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
         }
     }
 }
@@ -402,6 +544,7 @@ fn captured_help_uses_the_unknown_width_fallback_and_stays_plain() {
 fn copied_help_examples_keep_their_shell_arguments() {
     let parent = tempdir().unwrap();
     let output = command(parent.path())
+        .env_remove("COLUMNS")
         .args(["init", "--help"])
         .output()
         .unwrap();
@@ -457,15 +600,22 @@ fn copied_help_examples_keep_their_shell_arguments() {
 }
 
 #[test]
-fn directory_name_default_preserves_spaces_and_unicode() {
-    let parent = tempdir().unwrap();
-    let directory = parent.path().join(" My Project 配置 🦀 ");
-    fs::create_dir(&directory).unwrap();
-    assert_success(&init(&directory, &[]));
-    assert_eq!(
-        read_layer_manifest(&directory),
-        json!({"name": " My Project 配置 🦀 "})
-    );
+fn invalid_directory_defaults_are_not_sanitized_and_allow_explicit_overrides() {
+    for name in [
+        "MyProject",
+        "my project",
+        " My Project 配置 🦀 ",
+        ".project",
+        "_project",
+    ] {
+        let parent = tempdir().unwrap();
+        let directory = parent.path().join(name);
+        fs::create_dir(&directory).unwrap();
+        assert_failure(&init(&directory, &[]), "Supply --name explicitly");
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        assert_success(&init(&directory, &["--name", "explicit"]));
+        assert_eq!(read_layer_manifest(&directory), json!({"name": "explicit"}));
+    }
 }
 
 #[cfg(unix)]
@@ -699,10 +849,12 @@ fn write_failures_report_the_path_without_false_success() {
     let directory = tempdir().unwrap();
     // Limit only the child process. Ignoring SIGXFSZ makes write return an error
     // instead of killing the CLI, so this exercises its real write-error branch.
+    // This child cannot save a coverage file either. Discard only its profiling
+    // output rather than mixing LLVM's own write error into the CLI diagnostic.
     let output = Command::new("/bin/sh")
         .args([
             "-c",
-            "trap '' XFSZ\nulimit -f 0\nexec \"$1\" init --name example",
+            "export LLVM_PROFILE_FILE=/dev/null\ntrap '' XFSZ\nulimit -f 0\nexec \"$1\" init --name example",
             "write-failure",
             env!("CARGO_BIN_EXE_hydragen"),
         ])
@@ -710,10 +862,13 @@ fn write_failures_report_the_path_without_false_success() {
         .stdin(Stdio::null())
         .output()
         .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert_failure(&output, "write layer manifest");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("layer.yaml"));
-    assert!(stderr.contains("partial file may remain"));
+    assert!(stderr.contains("An empty or partially written layer manifest may remain"));
+    assert!(!stderr.contains("No files were changed"));
+    diagnostic_body_support::assert_compact(&stderr);
     assert_eq!(fs::read(directory.path().join("layer.yaml")).unwrap(), b"");
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
@@ -758,7 +913,7 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
             for description in [false, true] {
                 let directory = tempdir().unwrap();
                 let text = "  true # \"quoted\" \\path\n配置 🦀  ";
-                let mut args = vec!["--format", format.extension(), "--name", text];
+                let mut args = vec!["--format", format.extension(), "--name", "@example/_config"];
                 if author {
                     args.extend(["--author", text]);
                 }
@@ -768,7 +923,7 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
                 let output = init(directory.path(), &args);
                 assert_success_in_format(&output, format);
                 let document = independently_read_format(directory.path(), format);
-                assert_eq!(document["name"], text);
+                assert_eq!(document["name"], "@example/_config");
                 assert_eq!(document.get("author"), author.then(|| json!(text)).as_ref());
                 assert_eq!(
                     document.get("description"),
@@ -785,15 +940,15 @@ fn all_formats_preserve_metadata_and_omit_unsupplied_fields() {
 }
 
 #[test]
-fn all_formats_validate_preserved_unicode_directory_defaults_and_optional_combinations() {
+fn all_formats_validate_unchanged_valid_directory_defaults_and_optional_combinations() {
     for format in LayerManifestFormat::ALL {
         for author in [false, true] {
             for description in [false, true] {
                 let parent = tempdir().unwrap();
-                let directory = parent.path().join(" My Project 配置 🦀 \u{feff} ");
+                let directory = parent.path().join("my-project.v2_config");
                 fs::create_dir(&directory).unwrap();
                 let mut args = vec!["--format", format.extension()];
-                let mut expected = json!({"name": " My Project 配置 🦀 \u{feff} "});
+                let mut expected = json!({"name": "my-project.v2_config"});
                 if author {
                     args.extend(["--author", "Team"]);
                     expected["author"] = json!("Team");
@@ -823,19 +978,25 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
             "0B10000000000000000000000000000000000000000000000000000000000000000",
         ] {
             let directory = tempdir().unwrap();
-            // Equals syntax permits a leading minus without changing clap policy.
-            let name = format!("--name={value}");
+            // Optional metadata keeps arbitrary strings, including leading minus.
             let author = format!("--author={value}");
             let description = format!("--description={value}");
             let output = init(
                 directory.path(),
-                &["--format", format.extension(), &name, &author, &description],
+                &[
+                    "--format",
+                    format.extension(),
+                    "--name",
+                    "example",
+                    &author,
+                    &description,
+                ],
             );
             assert!(output.status.success(), "{format}: {value:?}: {output:?}");
             assert!(output.stderr.is_empty(), "{output:?}");
             assert_eq!(
                 independently_read_format(directory.path(), format),
-                json!({"name": value, "author": value, "description": value})
+                json!({"name": "example", "author": value, "description": value})
             );
             // The real loader must also preserve writer-quoted numeric-looking strings.
             assert_eq!(
@@ -844,7 +1005,7 @@ fn all_cli_codecs_preserve_schema_unicode_and_overflow_looking_strings() {
                     .load()
                     .unwrap()
                     .document,
-                json!({"name": value, "author": value, "description": value})
+                json!({"name": "example", "author": value, "description": value})
             );
         }
     }
@@ -889,19 +1050,31 @@ fn every_format_retains_exact_full_output_and_invalid_input_diagnostics() {
                 invalid.path(),
                 &["--format", format.extension(), field, "\u{85}"],
             );
-            assert_failure(
-                &output,
-                &format!("{field} must contain at least one non-whitespace character."),
+            assert_failure(&output, &format!("Invalid value for '{field}'."));
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                error.contains("The value must contain at least one non-whitespace character.")
             );
+            assert_eq!(error.contains("omit this optional flag"), field != "--name");
+            assert_eq!(error.matches("No files were changed.").count(), 1);
+            diagnostic_body_support::assert_compact(&error);
             assert_eq!(fs::read_dir(invalid.path()).unwrap().count(), 0);
         }
     }
 }
 
 #[test]
-fn every_format_rejects_schema_blank_defaults_but_preserves_explicit_overrides() {
+fn every_format_rejects_schema_invalid_defaults_but_preserves_explicit_overrides() {
     for format in LayerManifestFormat::ALL {
-        for name in ["   ", "\u{85}"] {
+        for name in [
+            "   ",
+            "\u{85}",
+            "MyProject",
+            "my project",
+            "配置",
+            ".project",
+            "_project",
+        ] {
             let parent = tempdir().unwrap();
             let directory = parent.path().join(name);
             fs::create_dir(&directory).unwrap();
@@ -925,12 +1098,22 @@ fn every_format_rejects_schema_blank_defaults_but_preserves_explicit_overrides()
 #[test]
 fn explicit_json_retains_two_space_pretty_style_and_escaping() {
     let directory = tempdir().unwrap();
-    let output = init(directory.path(), &["--format", "json", "--name", "a\"b\nc"]);
+    let output = init(
+        directory.path(),
+        &[
+            "--format",
+            "json",
+            "--name",
+            "example",
+            "--description",
+            "a\"b\nc",
+        ],
+    );
     assert!(output.status.success(), "{output:?}");
     assert!(output.stderr.is_empty());
     assert_eq!(
         fs::read_to_string(directory.path().join("layer.json")).unwrap(),
-        "{\n  \"name\": \"a\\\"b\\nc\"\n}\n"
+        "{\n  \"name\": \"example\",\n  \"description\": \"a\\\"b\\nc\"\n}\n"
     );
 }
 
@@ -1091,12 +1274,13 @@ fn invalid_format_values_are_clap_errors_not_paths_or_prompts() {
         assert_failure(
             &output,
             if value.is_empty() {
-                "a value is required"
+                "Error: A value is required"
             } else {
-                "invalid value"
+                "Error: Invalid value"
             },
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2));
         assert!(stderr.contains("yaml, yml, toml, json, jsonc"));
         assert!(!stderr.contains("Warning:"));
         assert!(!stderr.contains("already exists"));

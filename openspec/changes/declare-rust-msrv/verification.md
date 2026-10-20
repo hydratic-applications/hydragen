@@ -168,3 +168,54 @@ Task 4.3 is complete. Only task 4.5, checking the live numeric MSRV shield after
 an approved merge, remains open. No other change was archived or marked complete,
 and the foundations and glossary remain unchanged because the sync adds no new
 product belief or terminology. No merge or archive was performed.
+
+## Current-main integration on 2026-10-20
+
+With approval, main commit `328644ec72012e11ae01ffbf7213694ebd40e7be` was
+integrated into the PR branch. This brings in main's local dependency addition
+implementation and updated dependencies. The coverage archives, foundations,
+glossary, and other changes arriving with that commit were already on main;
+this integration did not independently archive or redesign that work.
+
+Conflicts in the coverage, README badge, and test specifications were resolved
+against main's maintained contracts. The resolution retains its Codecov path-fix
+safeguard, uploader-inventory scenario, external-account-setup scenario, and
+native-colour coverage icon, alongside the independent MSRV policy and token-free
+badge rule. The MSRV deltas reproduce the resulting requirements when applied
+to this main baseline, and repeating that application makes no further changes.
+All ten maintained specifications and this change pass strict validation.
+
+The integrated checkout passed locked builds and all **572 Rust tests** on both
+Rust 1.89.0 and current stable 1.99.1 on `aarch64-apple-darwin`, with zero failed
+or ignored tests. Stable formatting and Clippy across all targets with warnings
+denied passed. The only source adjustment relative to main replaces
+`chunks_exact(2)` with `as_chunks::<2>().0.iter()` in the YAML key/value scan,
+as requested by stable Clippy. It preserves complete-pair iteration and remains
+compatible with Rust 1.89.0. No dependencies were downgraded, and `Cargo.lock`
+remains byte-for-byte identical to the integrated main commit.
+
+The compiler versions remain those recorded above: Rust/Cargo 1.89.0 for minimum
+support and Rust/Cargo 1.99.1 for stable. Tested input SHA-256 hashes are:
+
+- `Cargo.toml`: `9e9824ba1a292eb55fe4028863ccc153e84ec100d843b336fc37a396bf3fd8d5`.
+- `Cargo.lock`: `bda80bacec441689a16d045036eeff4f8c8540d098ee1c07f9d1e5f140e65705`.
+
+All 23 MSRV helper tests and all 39 coverage-helper tests passed, including the
+real diff comparison and isolated uploader checks. The offline declaration check,
+workflow lint, and whitespace checks passed. Removing just the MSRV job exactly
+reproduces main's workflow, preserving every existing job and upload boundary.
+
+Two local environment problems were kept separate from compatibility evidence.
+The earlier temporary Cargo cache had an incomplete dependency source directory;
+the successful runs used a fresh isolated Cargo home populated from cached
+archives. One coverage-helper test initially rejected macOS's `/var` temporary
+path alias; all 39 passed with `TMPDIR` set to the canonical `/private/var` path.
+No source validation or test assertions were weakened to bypass either issue.
+
+Temporary final Rust logs are beside the earlier logs as
+`current-main-msrv-verified.log` and `current-main-stable-verified.log`.
+The foundations and glossary need no MSRV-specific additions. Task 4.4 is reopened
+until Linux CI verifies this integrated implementation; the earlier 190-test
+Linux result does not establish compatibility for these changed inputs.
+The PR remains ready for review, but has not been merged or archived. The final
+numeric main-branch badge check remains post-merge.

@@ -167,12 +167,43 @@ Use `schemas/layer-manifest.schema.json` to determine layer manifest content val
 for every parsed format (YAML/YML, TOML, JSON, and JSONC), flags, guided answers,
 directory-name defaults, and complete candidates before writing. Field validation
 must use definitions from that same schema, not duplicate constraints in ad hoc
-predicates or separate field schemas. Keep presentation and input interpretation
+predicates or separate field schemas. This includes layer names, dependency
+references, and strict exact SemVer versions: do not add a second acceptance
+grammar or SemVer parser policy. Classify validated references through the shared
+schema-backed API. Keep presentation and input interpretation
 (such as treating an empty optional prompt answer as omission), format parsing,
-repository-location checks, and safe file creation separate from content validity.
+native path interpretation, filesystem resolution, cross-layer relationship
+checks, repository-location checks, and safe file creation/replacement separate
+from content validity.
+
+Apply the shared lowercase name policy to every loader, init flag, guided answer,
+and directory default without trimming, lowercasing, or sanitising. Directory
+names and path text are not layer names. An invalid init directory-name default
+must fail before prompts or writes with `--name` override guidance; a valid
+explicit name bypasses default derivation. Preserve arbitrary accepted non-blank
+author and description strings unchanged.
 
 Archived schemas are historical snapshots: do not synchronize them with maintained
 assets, require equality in tests, or use them as build or test inputs.
+
+### Layer manifest field order
+
+Guide generated layouts and maintained general-usage examples with the preferred
+order `$schema`, `name`, `author`, `description`, `dependencies`, skipping absent
+fields. Keep optional fields optional: init emits only name and supplied author
+and description, in that order; it does not generate `$schema` or dependencies.
+Accept any otherwise valid field order without ordering warnings or schema order
+checks. Additional fields have no prescribed placement. Preserve examples and
+test fixtures intentionally demonstrating alternative layouts, and leave archived
+artifacts unchanged.
+
+Add must not normalise existing layouts. Extend an existing dependencies list in
+place; introduce a missing field after all existing root entries without moving
+them. In TOML, keep the new root assignment before explicit table sections and
+their leading comments. In block YAML, insert after the complete final root value
+and its attached comments, before root footer comments and document-end markers.
+Preserve existing field and reference order, comments, and unrelated source text;
+retain the insertion-only verification and safe-write rules below.
 
 ## CLI development
 
@@ -219,11 +250,33 @@ colour. Allow compact styled flag-only statuses only when all standard streams
 are terminals, CI is disabled, and `TERM` is not `dumb`. A non-empty `NO_COLOR`
 or `CLICOLOR=0` disables decorative status styling; explicit disables win over
 forced colour. CI or any redirected standard stream keeps status output plain
-even when colour is forced. Help, version, and clap usage errors remain plain.
+even when colour is forced. Explicit help and version remain plain successful
+output on standard output. Route root and subcommand parser failures, including
+future commands, through the shared parser-error presentation using these same
+styling controls. Preserve clap's usage-error exit status and standard-error stream,
+useful argument details, choices, suggestions, and usage/help guidance, without
+branded openings or guided-session frames.
 
-Use green `✓` success, yellow `▲ Warning:` headlines, and red `✕ Error:` headlines
-where styled; keep supporting details and recovery guidance in the normal
-foreground. Rejected guided input uses a red cross, frame, and correction text,
+Follow the [CLI diagnostic reference](docs/cli-diagnostics.md) for all current and
+future errors, not only parser failures. Use shared compact composition from typed
+facts, or the supported guided variant; do not interpret English error strings or
+add per-command body templates. When adding an error, check its concrete problem,
+affected source and base, useful cause/recovery, known write state, escaped display
+data, representative family test and human wording review against the reference's
+[new-error checklist](docs/cli-diagnostics.md#new-error-checklist).
+Single failures are direct; multiple dependency failures use ordered source labels
+and a failure count, without redundant numbering. Prefer original reference
+spelling with base context when needed, retaining actionable file, field, conflict
+and staging/cleanup paths. For a missing current layer, retain the directory/parent
+search, recovery and accurate no-change result without the invocation path.
+Review families together in captured and bounded actual-terminal output; shared
+layout and passing snapshots alone do not establish clear, useful wording.
+
+Use green `✓` success, blue `ℹ` info for neutral outcomes, yellow `▲ Warning:`
+headlines, and red `✕ Error:` headlines where styled. Info has no automatic `Info:`
+prefix and does not imply failure or change an operation's stream or exit status.
+Keep supporting details and recovery guidance in the normal foreground.
+Rejected guided input uses a red cross, frame, and correction text,
 not a recoloured warning triangle. Cancellation uses red cancellation feedback.
 Plain status output retains the meaningful wording without ANSI or status icons.
 
@@ -263,6 +316,90 @@ files changed.
 
 Use shared read-only discovery and loading for commands that depend on a layer
 manifest, and report duplicates at most once per affected directory per invocation
-on standard error, before a dependent failure. Do not scan layer manifests for
-help, version, or argument-usage failures. Test both captured-output execution and
-real terminal sessions, with bounded waits and child-process cleanup.
+on standard error, before a dependent failure. Handle help, version, and
+argument-usage failures before operational dispatch, current-directory resolution,
+layer manifest discovery or loading, schema preparation, prompts, or writes.
+Test both captured-output execution and real terminal sessions, with bounded
+waits and child-process cleanup.
+
+### Local dependency addition
+
+Keep `hydragen add <source> [<source> ...]` argument-only in every environment,
+without prompts, piped answers, branded openings, or session frames. Accept global
+`--non-interactive` before or after the subcommand without changing required
+arguments or eligible compact styling. Add declares relationships only: no fetch,
+copy, rendering, contribution capture, network access, Git mutation, or lockfile.
+
+Use add-specific ancestor search around shared single-directory discovery: inspect
+the invocation directory and parents through the filesystem root, crossing Git
+boundaries, and stop at the nearest directory with an occupied supported layer
+manifest filename. Keep the established priority and fail on an invalid selection
+without lower-priority or ancestor fallback. This does not change init's guard or
+exclusive-creation lifecycle. Refuse a symlinked or non-regular selected current
+layer manifest; dependency layer manifests remain read-only and may be symlinks
+to regular files.
+
+Resolve explicit native relative and absolute arguments and stored local references
+from the selected current layer manifest's directory, not the invocation directory.
+Never infer a local path from a bare name or rewrite stored path text. Keep internal
+resolved directory identity separate from the reference spelling. Diagnose
+recognisable unsupported host path forms rather than translating them or trying a
+registry. Do not expand literal home or environment-variable syntax.
+
+Reuse structured read-only verification for the current layer, all existing direct
+local dependencies, and each supplied target. A target must have its own valid
+layer manifest: do not search its ancestors or traverse its dependency chain.
+Existing published declarations receive offline syntax/name checks only, not an
+existence claim. Reserve the current layer's name and require unique names across
+local and published declarations. Reject existing duplicates, conflicting sources,
+and self-name matches without replacement or aliasing. Harmless requests for the
+same named resolved directory retain the existing reference; repeated new sources
+retain only their first occurrence. Verify the whole batch before editing, collect
+independent failures in source order, and append new references in argument order
+without reordering existing entries. These reusable checks do not limit the broader
+validate proposal's eventual scope or settle its traversal policy.
+
+Retain loaded source for insertion-only, format-specific edits. Preserve comments,
+their attachment to existing fields, unrelated source bytes, and decoded data;
+do not use broad reserialisation as a fallback. Support ordinary arrays and
+comments rather than blanket-refusing them. Reparse the prepared candidate with
+the established decoder, validate it with the maintained schema, and prove that
+only the intended dependency append changed decoded data. Refuse genuinely unsafe
+constructs with a specific explanation before staging. All-repeat plans bypass
+editing and staging entirely.
+
+For actual updates, write a hidden sibling staging file, preserve original file
+permissions, synchronise and close it, then atomically replace the selected file.
+Do not truncate in place, use a non-atomic copy fallback, or repair permissions
+after replacement. Attempt cleanup on handled failures and report cleanup failures
+with the staging path. Keep replacement success explicit: a subsequent reporting
+failure must say the layer manifest was already updated, not claim cancellation or
+no files changed. Do not add locks, stale-content checks, or automatic merges;
+document possible abrupt-termination leftovers and concurrent lost updates without
+promising unconditional power-loss durability or preservation of all metadata.
+
+Report one compact stdout result naming the destination layer, not its layer
+manifest path by default. One effective requested dependency uses `Added <dependency>
+to <destination>.` or `No changes needed: <dependency> is already a dependency of
+<destination>.`, ending with one newline and no list or count. Choose from verified
+outcomes after deduplication, not argument count or unrequested declarations.
+All-repeat results use shared blue informational styling, including grouped
+no-ops; actual additions and mixed results retain green-check success styling.
+Single-result validated names use consistent bold emphasis in the status colour;
+plain output has no decoration or extra `Info:` label. Multiple or mixed results
+retain the destination headline and separate counted `Added` and `Already present` name
+lists, omitting empty groups and unrequested dependencies. `Already present` means
+present before invocation; repeated new sources belong only under `Added`.
+All-repeat success reports no changes needed. Keep per-group first-appearance
+order, shared plain/styled status rules, and stderr warnings/errors. Present
+failures through the diagnostic reference's direct-single or ordered-source-group
+structure, preserving actionable path context and deduplicated warnings before
+dependent failures.
+
+Published references require exact SemVer, including optional prerelease/build
+identifiers, not ranges, tags, or implicit versions. Adding published dependencies,
+publishing, registry design/access, and registry-backed guided search/version
+selection remain deferred. Future published add must reject a different version
+of an already-declared layer, never overwrite it. Design the separate explicit
+upgrade/version-change workflow later; no command name or placeholder implementation
+is selected. Retrieval, rendering, and broader validation also remain separate work.

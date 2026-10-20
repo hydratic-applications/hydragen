@@ -169,8 +169,10 @@ rather than any service's detected label.
 
 The coverage image SHALL use the token-free URL
 `https://img.shields.io/codecov/c/github/hydratic-applications/hydragen/main?style=for-the-badge`,
-retaining existing presentation-only logo parameters. The branch SHALL be explicit
-regardless of which branch contains the displayed README. The image SHALL remain
+with `logo=codecov` for the service's native-colour icon. HTML query separators
+SHALL be escaped as `&amp;`; no hardcoded replacement icon SHALL replace the native
+logo. The branch SHALL be explicit regardless of which branch contains the
+displayed README. The image SHALL remain
 service-backed, not a hardcoded percentage or checked-in snapshot. Unavailable or
 uninitialised service data SHALL NOT be replaced with zero or fabricated success.
 Documentation SHALL explain first-main-report, report-access, and cache-refresh

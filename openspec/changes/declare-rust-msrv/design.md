@@ -193,6 +193,22 @@ a contradictory requirement to add a token. These reconciliations are recorded
 in this change's badge delta so subsequent sync does not restore stale rules.
 They change specifications only, not existing badge URLs, CI or runtime behaviour.
 
+During integration, `main` advanced to `328644ec72012e11ae01ffbf7213694ebd40e7be`,
+including the already synced and archived coverage changes and the local-add
+implementation. Resolve against that maintained baseline rather than replaying
+old archived deltas over newer decisions. Preserve the newer Codecov path-fix
+requirement and uploader-inventory scenario, the external-account-setup scenario,
+and the native-colour Codecov icon contract. Keep MSRV's independent result and
+the explicit token-free reconciliation above. Preserve all automatically merged
+source and dependency changes from main; rerun both compiler routes and Linux CI
+against the integrated implementation before relying on its compatibility claim.
+
+Stable Clippy 1.99.1 flagged main's YAML key/value scan for using
+`chunks_exact(2)`. Use `as_chunks::<2>().0.iter()` instead, retaining the same
+complete-pair iteration and ignored remainder. This standard-library API is
+available on the declared compiler; verify the adjustment on both compilers
+without suppressing the lint or raising the MSRV.
+
 ## Risks / Trade-offs
 
 - **Later source or test changes can invalidate the initial verification.** →

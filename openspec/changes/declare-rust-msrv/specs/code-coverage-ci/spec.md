@@ -105,3 +105,10 @@ Its explicit TOML configuration SHALL have parser support, including on Python
 - **WHEN** a developer reads the README, coverage reference, or CI checklist entries
 - **THEN** stable `Tests`, `MSRV`, and both coverage gates have distinct meanings
 - **AND** supporting report/upload jobs are not presented as extra quality policies
+
+#### Scenario: External account setup is incomplete
+
+- **WHEN** private repository access, entitlement, or live service verification is missing
+- **THEN** the remaining prerequisite is reported explicitly
+- **AND** implementation does not change visibility, billing, or branch protection
+  to conceal it
