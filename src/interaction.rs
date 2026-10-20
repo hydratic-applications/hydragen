@@ -16,6 +16,7 @@ use crate::diagnostics::{CliIoError, CompletionChannel};
 use crate::presentation::{self, Presentation};
 
 #[cfg(all(test, unix))]
+#[path = "interaction/author_terminal.rs"]
 mod author_tests;
 mod author_wait;
 

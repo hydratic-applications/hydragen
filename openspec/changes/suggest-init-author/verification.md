@@ -7,10 +7,13 @@ The original assessment below records the 2026-10-20 review of runtime
 and the subsequent documentation sync committed in `11da971`. Its test counts,
 scenario inventory, preservation comparisons and line references belong to those
 snapshots, not the newer integration with main
-`328644ec72012e11ae01ffbf7213694ebd40e7be` now in progress. Relative source links
-still open the current checkout; use the pinned runtime snapshot for the cited
-historical line numbers. These references are not claims about current line
-locations or fresh tests.
+`328644ec72012e11ae01ffbf7213694ebd40e7be`, committed as `7545817` and published
+in [PR #15](https://github.com/hydratic-applications/hydragen/pull/15).
+Historical source links below are pinned to `734ce99`; their old paths and line
+numbers remain dated evidence, not claims about current source locations or fresh
+tests. The terminal-test source location for the approved CI fix is
+[`src/interaction/author_terminal.rs`](../../../src/interaction/author_terminal.rs),
+with the Rust module name `author_tests` retained.
 
 The newer integration retains main's already-agreed lowercase layer-name policy
 and shared diagnostics alongside author suggestions. Historical evidence that
@@ -21,14 +24,15 @@ rules. The reconciled guided-collection specification adds three scenarios for
 invalid defaults, invalid guided names and preserved optional metadata; the
 historical 70-scenario inventory below has not been rewritten as new evidence.
 
-### Current integration validation
+### Local validation baseline before PR CI
 
 The orchestrator's completed validation hooks and accepted independent reviews
-cover the working merge candidate `HEAD 11da971` plus main
-`328644ec72012e11ae01ffbf7213694ebd40e7be`, with the reviewed conflict resolutions.
-No runtime edits followed those tests. These are fresh candidate results, not a
-reuse of the historical 288-test result; this documentation update did not rerun
-the runtime suites.
+cover the merge candidate `11da971` plus main
+`328644ec72012e11ae01ffbf7213694ebd40e7be`, with reviewed resolutions, subsequently
+committed as `7545817`. No runtime edits followed those tests before that commit.
+These are the local macOS baseline results, not a reuse of the historical 288-test
+result or validation of the later CI compatibility fix. This documentation update
+did not rerun the runtime suites.
 
 | Check | Current candidate result |
 | --- | --- |
@@ -37,15 +41,15 @@ the runtime suites.
 | `cargo test --locked --bin hydragen long_membership -- --ignored` | **0 passed, 2 expected visibility failures in 0.09 seconds**; correct returned metadata and no fixture failure. |
 | Coverage-policy tests | **39 passed**, using the existing diff-cover 10.6.0 virtual environment and canonical `TMPDIR`; no installation. These are policy checks, not measured coverage. |
 | Strict OpenSpec validation | All **9 main specs** and this change passed. The aggregate run reported **12 passed, 1 failed**, solely the pre-existing `add-validate-command` change with no delta specs. |
-| Independent integration reviews | Runtime and test/document/index reviews accepted with no blockers. **Final publication review of the updated report remains pending**; no push or PR is claimed. |
+| Independent integration reviews | Runtime, test/document/index and final publication reviews accepted the baseline with no blockers before PR #15 opened. The later CI compatibility fix has separate local results and pending final publication review below. |
 
 Tasks 3.3/4.5 remain open for the accepted #115 exception, with **25/27 complete**.
 The direct equal-Git/valid-GitHub-profile grouping fixture gap remains an open
 project follow-up, not a newly demonstrated runtime defect. Full conformance and
-archive readiness are not established. Windows and actual hosted Linux coverage
-remain unverified until the corresponding platform/CI evidence is available.
+archive readiness are not established. Windows and the actual hosted Linux
+coverage gates remain unverified; the later Linux test results are recorded below.
 
-Documentation checks on this in-progress integration passed strict validation for
+Documentation checks on the integrated baseline passed strict validation for
 the reconciled `cli-interaction` main spec and `suggest-init-author` change, plus
 scoped whitespace checks. Read-only comparison with both parents retained all
 requirement and scenario headings: 20 unrelated main requirement blocks and all
@@ -53,6 +57,54 @@ requirement and scenario headings: 20 unrelated main requirement blocks and all
 has 25 requirements and 127 scenarios; all 5 interaction delta blocks match it
 exactly, and a second sync changes nothing. These are document checks, not runtime
 or independent integration-review results.
+
+### PR CI coverage-export failure and approved compatibility fix
+
+[Run 39348268145](https://github.com/hydratic-applications/hydragen/actions/runs/39348268145)
+tested PR #15 at `7545817`. Linux Rust and coverage-policy tests passed. The
+coverage job also passed its instrumented tests and generated LCOV, a line-coverage
+report format, then failed report preparation with
+`Missing LCOV source records: src/interaction/author_tests.rs;
+check instrumentation`. Both 80% gates were **skipped**, not failed at a measured
+threshold. The main-only Codecov upload was correctly **skipped** for a PR. No
+coverage percentage is established by this run.
+
+The cause is the pinned cargo-llvm-cov **0.9.1** export filter, not absent test
+execution or lost child profiles. Its default regex filters test-style filenames
+including `author_tests.rs` ([filter construction](https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/src/report.rs#L938-L949)),
+and the report command passes it as `-ignore-filename-regex`
+([command construction](https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/src/report.rs#L714-L720)).
+The Linux instrumented run executed **13 controlled-terminal cases**; the local
+macOS baseline above executed **12**. Those platform-specific counts must not be
+treated as the same run.
+
+The approved bounded fix renames the file to
+[`src/interaction/author_terminal.rs`](../../../src/interaction/author_terminal.rs)
+without changing its body, test functions or deferred assertions, retaining Rust
+module `author_tests` through `#[path]`. A compatibility guard checks tracked
+source paths against the default filters of the workflow's pinned exporter
+version. No coverage exclusions, settings, thresholds or workflow changes are part
+of this fix, and no dependency installation is involved. Including these helper
+lines changes measured scope; it does not add production tests or prove improved
+production coverage.
+
+**Local fix validation passed; final publication review and hosted evidence remain
+pending.** The fix candidate based on `7545817` passed locked build, formatting,
+all-target lint and `cargo test --locked`: **673 passed, 0 failed, 3 ignored**.
+The controlled-terminal run passed **12 with 3 ignored**; the two explicitly run
+deferred cases still fail only visibility while returning correct values. All
+**42 coverage-policy tests**, including 3 new guard cases, passed after the
+orchestrator staged the 100% rename for the tracked-index guard. The renamed body
+is byte-identical at **32,110 bytes**, SHA-256
+`c0e9a0742a1c4b074cec77b68c961e5eab47c8a7f9d983443410f62cf4d830b1`;
+the `#[path]` attribute retains module `author_tests`. The independent focused
+code review was accepted conditionally on full results and updated documentation;
+final publication review is still pending. A fresh hosted run must include the
+new source path in LCOV, complete report preparation and evaluate the unchanged
+80% gates before their results or percentages can be claimed. Run 39348268145's
+preparation failure remains historical evidence, not a passing result for the
+fix. The #115 exception and 25/27 task state remain unchanged; no merge or archive
+is authorised.
 
 ### Current integration requirement inventory
 
@@ -95,11 +147,12 @@ for all 8 current delta requirements. Initialisation remains at 9 requirements
 and grows from 46 to 48 scenarios; its other 8 requirement blocks, Purpose and
 existing offline scenario are preserved verbatim. Scoped whitespace checks passed.
 
-The current validation results above supersede the earlier pending-runtime status,
-not the historical evidence below. Runtime validation and the scoped independent
-integration reviews are complete; final publication review of this updated report
-remains pending. The #115 exception, open fixture follow-up and platform/coverage
-limits remain explicit.
+The local baseline validation above supersedes its earlier pending-runtime status,
+not the historical evidence below. Its integration/publication reviews are
+complete; the later CI compatibility fix has passing local validation, with final
+publication review and fresh hosted coverage evidence still pending.
+The #115 exception, open fixture follow-up and platform/coverage limits remain
+explicit.
 
 ## Assessment and scope
 
@@ -146,7 +199,7 @@ dependency changes were made for this verification.
 
 1. **Task 3.3: initial selection visibility and related completed feedback in long
    membership-only lists are incomplete.**
-   [`src/interaction.rs:532–579`](../../../src/interaction.rs#L532) correctly
+   [`src/interaction.rs:532–579`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/interaction.rs#L532) correctly
    selects the typed `EnterAnother` action when no group is eligible, after all
    names, with native `max_rows(7)`. With at least seven membership-only groups,
    that initial action is outside cliclack 0.5.6's first visible window. Moving Up
@@ -157,7 +210,7 @@ dependency changes were made for this verification.
    of task 3.3 as absent.
 
 2. **Task 4.5: the two long membership-only visibility regressions do not pass.**
-   [`src/interaction/author_tests.rs:598–645`](../../../src/interaction/author_tests.rs#L598)
+   [`src/interaction/author_tests.rs:598–645`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/interaction/author_tests.rs#L598)
    retains the original assertions in
    `long_membership_only_selector_visibly_selects_custom_and_enter_opens_empty_input`
    and
@@ -217,7 +270,7 @@ than claiming direct complete coverage.
   coverage. Run the integrated candidate through the Linux workflow and assess
   both applicable **80% gates** before claiming those checks pass. No thresholds
   or exclusions were changed. See
-  [`.github/workflows/coverage.yml:81–161`](../../../.github/workflows/coverage.yml#L81).
+  [`.github/workflows/coverage.yml:81–161`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/.github/workflows/coverage.yml#L81).
 - **Windows compilation and runtime remain unverified.** Target-specific Job
   Objects, reparse-point file handling and exact console-mode restoration exist,
   but the macOS evidence is not Windows evidence. Compile and exercise those
@@ -265,7 +318,7 @@ and review, not completion of deferred behaviour or all platform/coverage checks
 ## Correctness: code-path checks
 
 - **Source/schema authority:**
-  [`mod.rs:187–210`](../../../src/author_discovery/mod.rs#L187) trims only
+  [`mod.rs:187–210`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/mod.rs#L187) trims only
   discovered names, rejects unsafe display text and calls
   `schema::validate_field("author", ...)`. Content failures discard a candidate;
   setup failures remain errors. The field validator references the maintained
@@ -275,7 +328,7 @@ and review, not completion of deferred behaviour or all platform/coverage checks
   Source/test searches found no OpenSpec asset loads; embedded schemas point to
   `schemas/layer-manifest.schema.json`.
 - **No lookup in automation/early exits:**
-  [`src/main.rs:140–204`](../../../src/main.rs#L140) checks routing/preflight/
+  [`src/main.rs:140–204`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/main.rs#L140) checks routing/preflight/
   readiness/default before guided-only startup; the flag route takes the explicit
   author unchanged and leaves omission as `None`. `Mode::select` checks all three
   streams, CI and overrides. `src/main.rs:328–458` injects the *entire* startup
@@ -283,7 +336,7 @@ and review, not completion of deferred behaviour or all platform/coverage checks
   Captured-route tests explicitly acknowledge that their canaries alone do not
   count arbitrary file or account API reads.
 - **Process/deadline ownership:**
-  [`preparation.rs:69–131,171–255`](../../../src/author_discovery/preparation.rs#L69)
+  [`preparation.rs:69–131,171–255`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/preparation.rs#L69)
   uses one short state lock, two lanes and at most two process reservations.
   Validation and OS calls run outside the lock. Publication rechecks cutoff after
   validation; freeze closes collection before grouping and does not wait for
@@ -294,14 +347,14 @@ and review, not completion of deferred behaviour or all platform/coverage checks
   Cleanup acknowledgement/drain is bounded at 100 ms; stalled OS work stays in an
   isolated lane, not a foreground join or a new stream of helper threads.
 - **Foreground waiting/freezing:**
-  [`author_wait.rs:10–57`](../../../src/interaction/author_wait.rs#L10) skips
+  [`author_wait.rs:10–57`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/interaction/author_wait.rs#L10) skips
   indicators for ready/expired results, polls Escape/Ctrl-C only between prompts,
   clears progress and restores terminal state before the next step. `TERM=dumb`
   gets the same temporary meaningful text because the native renderer hides
   animation. Operational errors are not converted to deliberate cancellation.
   The frozen vector is the sole selector input; late results cannot alter it.
 - **Typed selector/custom/Skip:**
-  [`src/interaction.rs:20–42,149–235,532–579`](../../../src/interaction.rs#L532)
+  [`src/interaction.rs:20–42,149–235,532–579`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/interaction.rs#L532)
   separates candidate indices from actions. Candidate names matching action labels
   remain names. Both no-name and custom routes call the same `optional_input`;
   empty input maps to `None`. Skip bypasses that input. Scoped theme state hides
@@ -309,7 +362,7 @@ and review, not completion of deferred behaviour or all platform/coverage checks
   the format selector. It cannot repair upstream filtering of off-screen rows.
 - **Write paths remain separate:**
   `src/main.rs:180–186` calls `create_init` only after the entire collector returns,
-  including format. [`src/lib.rs:162–172,222–270`](../../../src/lib.rs#L222)
+  including format. [`src/lib.rs:162–172,222–270`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/lib.rs#L222)
   retains initial all-format refusal, exact-target `create_new`, full validation,
   write-error/partial-file semantics and best-effort duplicate observation. There
   is no late all-format lock/refusal. Tests preserve other files, alternative-format
@@ -326,17 +379,17 @@ The inventory is not a coverage percentage or a claim that every variant passes.
 
 | Key | Maintained source/test file |
 | --- | --- |
-| ID | [`src/author_discovery/identity.rs`](../../../src/author_discovery/identity.rs) |
-| MD | [`src/author_discovery/mod.rs`](../../../src/author_discovery/mod.rs) |
-| PJ | [`src/author_discovery/project.rs`](../../../src/author_discovery/project.rs) |
-| GH | [`src/author_discovery/github.rs`](../../../src/author_discovery/github.rs) |
-| PR | [`src/author_discovery/preparation.rs`](../../../src/author_discovery/preparation.rs) |
-| PX | [`src/author_discovery/process.rs`](../../../src/author_discovery/process.rs) |
-| MN | [`src/main.rs`](../../../src/main.rs) |
-| UI | [`src/interaction.rs`](../../../src/interaction.rs) |
-| CT | [`src/interaction/author_tests.rs`](../../../src/interaction/author_tests.rs), controlled production-function pseudo-terminal (PTY) tests with injected sources |
-| PT | [`tests/interactive_init.rs`](../../../tests/interactive_init.rs), real CLI executable in isolated PTYs |
-| RT | [`tests/author_discovery_routes.rs`](../../../tests/author_discovery_routes.rs), captured-route tests |
+| ID | [`src/author_discovery/identity.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/identity.rs) |
+| MD | [`src/author_discovery/mod.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/mod.rs) |
+| PJ | [`src/author_discovery/project.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/project.rs) |
+| GH | [`src/author_discovery/github.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/github.rs) |
+| PR | [`src/author_discovery/preparation.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/preparation.rs) |
+| PX | [`src/author_discovery/process.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/author_discovery/process.rs) |
+| MN | [`src/main.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/main.rs) |
+| UI | [`src/interaction.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/interaction.rs) |
+| CT | [`src/interaction/author_tests.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/src/interaction/author_tests.rs), controlled production-function pseudo-terminal (PTY) tests with injected sources |
+| PT | [`tests/interactive_init.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/tests/interactive_init.rs), real CLI executable in isolated PTYs |
+| RT | [`tests/author_discovery_routes.rs`](https://github.com/hydratic-applications/hydragen/blob/734ce9977ce1cdb2c66991b58f6c91c3fc1f0014/tests/author_discovery_routes.rs), captured-route tests |
 
 ### I1: Discover guided author names — 14 scenarios
 

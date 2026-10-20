@@ -485,6 +485,28 @@ integration with main `4a82827`, not a test result for this newer integration.
 Repeat runtime validation and independent review against the resolved candidate;
 record those results separately in [verification.md](verification.md).
 
+### Keep terminal-test sources visible to the pinned coverage exporter
+
+PR #15's first Linux coverage run reached report preparation but found no LCOV
+record for `src/interaction/author_tests.rs`. The pinned cargo-llvm-cov 0.9.1
+exporter filters that test-style filename even though the module's instrumented
+tests ran. The [CI diagnosis](verification.md#pr-ci-coverage-export-failure-and-approved-compatibility-fix)
+records the source evidence and distinguishes this from a failed percentage gate.
+
+Rename only the source file to `src/interaction/author_terminal.rs`, preserving its
+body, test functions, deferred assertions and Rust module name `author_tests`
+through `#[path]`. Keep it under `src`. Add a compatibility guard tied to the
+workflow's pinned exporter version and its default filename filters; this is not
+a source exemption. Do not change coverage settings, exclusions or either 80%
+threshold. Including these terminal-test helper lines in measurement changes the
+measured scope, not production test coverage or the strength of its evidence.
+Local validation of the fix based on `7545817` passed: locked build, formatting,
+all-target lint, 673 Rust tests with 0 failures and 3 ignored entries, and 42
+coverage-policy tests after the exact rename was staged for the index guard.
+The focused code review was accepted conditionally on full results and updated
+documentation; final publication review and a fresh hosted run proving the new
+LCOV source record and actual unchanged 80% gate results remain pending.
+
 ### Keep validation and file creation unchanged
 
 Use the same field validation and full-candidate schema validation as existing
@@ -598,8 +620,9 @@ proposes a fix for #115 and is open, not merged. Its existence does not resolve
 the limitation in Hydragen's unmodified dependency or complete the deferred tasks.
 
 Temporarily ignore only these two regression tests in
-`src/interaction/author_tests.rs`, with an explicit ignore reason linking issue
-#115 and identifying the upstream initial-selection/feedback defect:
+`src/interaction/author_terminal.rs` (Rust module `author_tests`), with an explicit
+ignore reason linking issue #115 and identifying the upstream initial-selection/
+feedback defect:
 
 - `long_membership_only_selector_visibly_selects_custom_and_enter_opens_empty_input`
 - `moving_up_from_long_membership_custom_visibly_selects_and_summarises_the_name`
