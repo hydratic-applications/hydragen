@@ -543,6 +543,12 @@ vendor, fork, or locally patch cliclack, add a runtime warning, or introduce a
 product workaround. The upstream follow-up is
 [cliclack issue #115](https://github.com/fadeevab/cliclack/issues/115).
 
+Hydragen tracks adoption and regression verification in
+[issue #14](https://github.com/hydratic-applications/hydragen/issues/14).
+As of 2026-10-20, [upstream PR #116](https://github.com/fadeevab/cliclack/pull/116)
+proposes a fix for #115 and is open, not merged. Its existence does not resolve
+the limitation in Hydragen's unmodified dependency or complete the deferred tasks.
+
 Temporarily ignore only these two regression tests in
 `src/interaction/author_tests.rs`, with an explicit ignore reason linking issue
 #115 and identifying the upstream initial-selection/feedback defect:
