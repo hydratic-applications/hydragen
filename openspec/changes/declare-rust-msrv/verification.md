@@ -219,3 +219,29 @@ until Linux CI verifies this integrated implementation; the earlier 190-test
 Linux result does not establish compatibility for these changed inputs.
 The PR remains ready for review, but has not been merged or archived. The final
 numeric main-branch badge check remains post-merge.
+
+## Integrated Linux CI evidence
+
+[Actions run 39345429531](https://github.com/hydratic-applications/hydragen/actions/runs/39345429531)
+passed on 2026-10-20 for integration commit
+`b5557047cd911b56dd72892920c24c7d52da03b0`, against main base
+`328644ec72012e11ae01ffbf7213694ebd40e7be`.
+
+The [MSRV job](https://github.com/hydratic-applications/hydragen/actions/runs/39345429531/job/118376750921)
+logged Rust `1.89.0 (29483883e 2025-08-04)` and Cargo
+`1.89.0 (c24e10642 2025-06-23)` on Ubuntu, host
+`x86_64-unknown-linux-gnu`. It passed the locked build, all 572 Rust tests with
+zero failed or ignored tests, and all 23 MSRV helper tests.
+
+The separate [stable Tests job](https://github.com/hydratic-applications/hydragen/actions/runs/39345429531/job/118376750668)
+used Rust 1.99.1 and passed all 572 Rust tests and all 39 coverage-helper tests.
+Both compiler jobs started independently, with separate visible results and no
+job dependency between them. Coverage report production and both gates passed:
+total coverage was 10,564/10,787 measured lines (97.93%), and changed-line coverage
+was 4/4 measured lines (100%). The main-only Codecov uploader was correctly
+skipped for this PR.
+
+This completes task 4.4 for the integrated implementation. Only task 4.5, the
+numeric main-branch badge check after an approved merge, remains open. Recording
+this evidence changes documentation only, not the tested implementation. No PR
+merge, archive, release, or required-check configuration change was performed.
