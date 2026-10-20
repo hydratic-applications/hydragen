@@ -282,3 +282,15 @@ Logs, exact commands and per-file hashes are retained under ignored
 71 passing Python helper tests, not independent Rust-suite results. The unchanged
 subset was verified again during both Linux validation stages, so these results
 carry forward to the final implementation without a rerun.
+
+## Delivery
+
+[Hydragen PR #18](https://github.com/hydratic-applications/hydragen/pull/18)
+delivers this focused test-only change from `fix/terminal-disconnection`, with
+the runtime limitation and maintenance trade-off explicit in its description.
+Implementation commit `6adde815f69e3596e54f36d524fdcd5a3c435d58` contains the
+validated source. The delivery-record follow-up changes documentation only.
+
+The PR is left unmerged. No console issue was published, no worktree removed,
+and no production, coverage-policy, publication, billing or Git-identity settings
+changed. Local evidence does not imply that remote PR checks have passed.

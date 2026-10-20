@@ -23,4 +23,4 @@
 
 - [x] 4.1 Obtain independent code and evidence review for process safety, coverage limits, existing-regression preservation and the absence of production or coverage-policy changes. Address findings and repeat affected checks.
 - [x] 4.2 Reconcile the proposal, design and test-ci delta with the reviewed implementation, reread them for first-time-reader clarity, and run strict OpenSpec validation and diff checks. Do not weaken CLI policy or rewrite archived evidence.
-- [ ] 4.3 Deliver a small linked Hydragen PR describing the local test change and deferred runtime limitation. Do not merge, publish the console issue or remove worktrees.
+- [x] 4.3 Deliver a small linked Hydragen PR describing the local test change and deferred runtime limitation. Do not merge, publish the console issue or remove worktrees.
