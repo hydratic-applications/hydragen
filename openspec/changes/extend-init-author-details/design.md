@@ -220,7 +220,7 @@ This table states the selected increment, not everything those systems can store
 | `pyproject.toml` `project.authors` | Entry's `email` | None | The same entry with a usable `name` |
 | `GIT_AUTHOR_NAME` | Explicit `GIT_AUTHOR_EMAIL` | None | The same environment identity; no guessing or fallback from unrelated email variables |
 | Git `author.name` / `user.name` | Matching `author.email` / `user.email` | None | Same key family, scope, and origin, only when name association is unambiguous |
-| Authenticated GitHub profile | Public `viewer.email` | Declared `blog`/`websiteUrl`, then profile `html_url`/`url` | Same authenticated host/login |
+| Authenticated GitHub profile | Public `viewer.email`, only when the existing profile response advertises a sufficient token scope | Declared `blog`/`websiteUrl`, then profile `html_url`/`url` | Same authenticated host/login |
 | Accessible GitHub organisation | Public `email` | Declared `websiteUrl`, then organisation `url` | Same organisation record/host/login |
 | Local account names and username fallback | None in this increment | None | Names can still join equal-name groups with evidence from other sources |
 
@@ -242,15 +242,35 @@ configurations in return for not suggesting someone else's address. Missing Git
 email never removes a name, and the shared Git subprocess budget stays 500 ms.
 
 Reuse the authenticated REST profile lookup for name/login and available website
-and profile URL. Extend the existing paged GraphQL query with matching viewer
-`email` and organisation `email`, `websiteUrl`, and `url`; `User.email` is explicitly
-documented as the publicly visible profile email. Confirm viewer login matches the
-REST response before attaching anything. Publish usable names independently of
+and profile URL. Include its response headers in the same request. GitHub gates
+GraphQL `User.email` on token scopes even though it returns public profile email:
+unconditionally adding this field can reject the entire organisation query. Request
+viewer `email` only when that response's `X-OAuth-Scopes` header advertises `user`,
+`read:user`, or `user:email`. Missing, empty, or unrecognised scope evidence means
+omit viewer email, not organisations. This conservatively omits that suggestion
+for credentials that do not advertise classic OAuth scopes, even if they might
+allow the field; do not guess support or probe authentication. Hydragen does not
+read or store token contents, and the REST `/user` email remains excluded because
+it can be private.
+
+Both query variants retain viewer website/profile URL and organisation `email`,
+`websiteUrl`, and `url`. These fields succeeded with the existing membership
+permissions in the live comparison below; no failed-query retry or additional
+request is needed. Confirm viewer login matches the REST response before attaching
+anything. Ignore unrequested
+viewer email even if a response contains it. Publish usable names independently of
 optional contact enrichment. Missing/null/invalid contact fields leave usable names
 intact. Page errors retain earlier records; null optional fields do not poison a
 whole record. No per-organisation REST detail requests, retries, or extra email-list
 requests are added. Partial viewer contact evidence can be published under the
 same host/login before freeze, without creating a duplicate name row.
+
+**Permission regression correction (2026-10-22):** Live comparison found the
+parent query returned seven organisations, while the unconditional viewer-email
+query failed with `INSUFFICIENT_SCOPES` using the same existing authentication.
+The scope-gated variants above preserve organisation discovery without requesting
+more permissions. Tests cover both advertised email permission and absent or
+insufficient scope evidence, including an API fixture that rejects the old query.
 
 Prefer a declared website before a GitHub profile URL, but retain both as choices.
 Use returned profile URLs where valid; if absent, construct
@@ -273,6 +293,7 @@ All are rejected for this increment.
 
 Primary references:
 
+- [GitHub OAuth scope response headers and scope inheritance](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps)
 - [npm v12 author forms](https://docs.npmjs.com/cli/v12/configuring-npm/package-json#people-fields-author-contributors)
 - [Cargo authors](https://doc.rust-lang.org/cargo/reference/manifest.html#the-authors-field)
 - [Python authors](https://packaging.python.org/en/latest/specifications/pyproject-toml/#authors-maintainers)

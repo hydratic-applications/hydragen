@@ -903,7 +903,7 @@ mod tests {
 [ "$1 $2 $3" = 'api --hostname fixture.example' ] || exit 9
 printf '%s\n' "$*" >> "$REQUESTS"
 case "$4" in
-user) printf '%s' '{"login":"alex","name":"Alex","blog":"https://early.invalid","html_url":"https://fixture.example/alex","email":"private@example.invalid"}';;
+user) printf 'HTTP/2.0 200 OK\r\nX-Oauth-Scopes: read:user\r\n\r\n'; printf '%s' '{"login":"alex","name":"Alex","blog":"https://early.invalid","html_url":"https://fixture.example/alex","email":"private@example.invalid"}';;
 graphql) case "$*" in
 *after=next*)
   printf '%s\n' "$PRIVATE_STDERR_SENTINEL" >&2

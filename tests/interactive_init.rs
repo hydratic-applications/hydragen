@@ -2190,6 +2190,68 @@ fn project_sources_are_grouped_once_with_all_hints_before_identity_alternatives(
 }
 
 #[test]
+fn organisations_remain_selectable_without_optional_github_email_permissions() {
+    for scopes in [None, Some("admin:public_key, gist, read:org, repo")] {
+        let directory = tempdir().unwrap();
+        let identity = IdentityFixture::new();
+        identity.github_with_scopes(
+            json!({"name":"Fixture GitHub person","login":"fixture-person","email":"private@example.invalid"}),
+            json!({"data":{"viewer":{"login":"fixture-person","organizations":{
+                "nodes":[{"name":"Fixture organisation","login":"fixture-org","email":"public-team@example.invalid","websiteUrl":"https://team.invalid","url":"https://github.com/fixture-org"}],
+                "pageInfo":{"hasNextPage":false}
+            }}}}),
+            scopes,
+        );
+        fs::write(identity.path().join("reject-viewer-email"), "").unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                identity: Some(identity),
+                ..Default::default()
+            },
+        );
+        session.wait_for("Name");
+        session.send(b"example\r");
+        let frame = session.author_frame();
+        assert_eq!(focused_author(&frame), (DEFAULT_AUTHOR, true));
+        let organisation = session.focus_author("Fixture organisation", false);
+        assert_eq!(author_detail(&organisation), "GitHub organisation");
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let email = session.contact_frame_since(checkpoint, "Author email (optional)");
+        assert!(
+            email.contains("public-team@example.invalid (GitHub organisation)"),
+            "{email}"
+        );
+        assert!(!email.contains("private@example.invalid"));
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let url = session.contact_frame_since(checkpoint, "Author URL (optional)");
+        assert!(
+            url.contains("https://team.invalid (GitHub organisation)"),
+            "{url}"
+        );
+        session.send(b"\r");
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name":"example","author":{
+                "name":"Fixture organisation","email":"public-team@example.invalid","url":"https://team.invalid"
+            }})
+        );
+        let calls = fs::read_to_string(session.identity.path().join("gh-calls")).unwrap();
+        assert_eq!(calls.lines().count(), 2, "{calls}");
+        assert!(calls.contains("user --include"));
+        assert!(!calls.contains("viewer { login email"));
+        assert!(!calls.contains("auth "));
+        session.evidence("organisations-without-email-scope");
+    }
+}
+
+#[test]
 fn github_organisation_can_be_selected_without_storing_membership_or_leaking_credentials() {
     let directory = tempdir().unwrap();
     let mut session = Session::with_settings(

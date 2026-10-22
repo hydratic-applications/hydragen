@@ -334,3 +334,58 @@ Repository-wide `openspec validate --all --strict` reports **14 passed, 1 failed
 the unchanged `add-validate-command` proposal has no deltas. Both reconciled changes
 validate; this unrelated incomplete proposal was not changed. Platform,
 instrumented-coverage, and upstream selector exclusions remain as recorded above.
+
+## Permission-safe GitHub organisation discovery — 2026-10-22
+
+Live comparison with the same existing `gh` authentication reproduced the bug:
+the parent query returned seven organisations, while adding public `viewer.email`
+rejected the whole query with `INSUFFICIENT_SCOPES`. Removing only viewer email
+returned seven organisations again, retaining organisation contacts and URLs.
+
+The existing REST profile request now includes response headers. Only an explicit
+`X-OAuth-Scopes` grant of `user`, `read:user`, or `user:email` enables that optional
+GraphQL field. Other or unavailable scope evidence leaves it out before the query
+is made. Both variants retain organisation lookup, profile URLs, and public
+organisation contacts. REST `/user` email and unrequested viewer email are never
+attached. No request, retry, authentication probe, permission change, or extra wait
+was added. Fine-grained or other credentials without advertised classic scopes
+conservatively omit viewer email, even when it might be accessible.
+
+New unit tests cover granted-scope recognition, header casing/line endings,
+missing/empty/insufficient grants, accepted-versus-granted scope headers, and body
+text that must not be interpreted as permission evidence. A rejecting API fixture
+returns `INSUFFICIENT_SCOPES` for the old query; the new collector still publishes
+the organisation and its public contacts in exactly two requests. Existing
+success, pagination, viewer mismatch, privacy, timeout, and cleanup tests remain.
+An actual-PTY regression selects an organisation, accepts its email/URL, and checks
+the resulting author object with both absent and insufficient scope headers.
+
+Validation passed on macOS:
+
+- Complete locked serial Rust suite: **758 passed, 0 failed, 3 existing ignores**
+  (122 library, 256 binary, 380 integration tests), including 60 interactive-init
+  tests. No ignore was added or changed.
+- Locked build, strict all-target Clippy, formatting, whitespace checks, and strict
+  validation of this OpenSpec change passed.
+- A later GitHub-only subset rerun hit the existing stalled-process test's
+  two-second startup handshake (`log.exists()`), before its deadline assertion.
+  That test passed in both the full suite and an immediate isolated rerun. Its
+  assertions, budgets, and ignore state were not changed by this fix.
+- The rebuilt real CLI displayed organisation suggestions with the existing
+  authentication. A transparent local `gh` wrapper confirmed exactly two requests,
+  including the headered profile request and the scope-safe organisation query.
+  Ctrl-C exited nonzero without creating files. No credentials or personal source
+  records were retained in verification artifacts.
+
+The successful live terminal trial allowed three seconds at Name for preparation.
+An immediate-Enter trial did not display organisations; the existing finite
+lookup/freeze budgets remain unchanged, and network suggestions are still best
+effort. The initial direct Python PTY harness hit a host permission limitation;
+the live result above uses macOS `script`, while maintained regression tests use
+the project's bounded PTY harness. These observations do not establish different
+platform runtime behaviour or guaranteed network availability.
+
+Design/specification, developer guidance, and README wording now explain the
+permission boundary. Review against the foundations required no new value,
+scenario, or glossary term: this restores optional, permission-respecting discovery
+rather than changing product philosophy.

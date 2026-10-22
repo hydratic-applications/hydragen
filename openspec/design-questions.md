@@ -227,8 +227,12 @@ design everything upfront.
      Author bypasses both contact steps. Use public GitHub email only; OS contact
      stores and private email enumeration remain deferred. Contacts freeze with
      names under the existing preparation deadlines, without new per-step waits.
-     Separate contact flags keep automation explicit and discovery-free. This
-     extends the earlier name-only Author flow. See the
+      Separate contact flags keep automation explicit and discovery-free. Preserve
+      organisation lookup when public viewer email needs permissions not advertised
+      by the existing token: omit that optional field without requesting permissions
+      or retrying the query. See the
+      [permission-safe discovery decision](changes/extend-init-author-details/design.md#extend-only-the-sources-already-used-by-author-discovery).
+      This extends the earlier name-only Author flow. See the
      [interaction decision](changes/extend-init-author-details/design.md#collect-only-unresolved-fields-using-the-selected-name-groups-records),
      [source evidence](changes/extend-init-author-details/design.md#extend-only-the-sources-already-used-by-author-discovery),
      [privacy boundary](changes/extend-init-author-details/design.md#treat-contact-publication-as-an-explicit-choice),

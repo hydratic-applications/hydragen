@@ -345,7 +345,12 @@ homepages, or repository URLs. Local account sources remain name-only.
 Use only public GitHub viewer/organisation email. Reuse existing profile/page
 requests, matching viewer host/login before enrichment; no private-email lists,
 per-organisation detail calls, permission requests, retries, or guessed noreply
-addresses. Offer valid declared website before profile URL, retaining both; ignore
+addresses. Include headers with the existing REST profile response and request
+GraphQL viewer email only when `X-OAuth-Scopes` advertises `user`, `read:user`, or
+`user:email`. Missing or insufficient scope evidence omits that optional field,
+not organisation discovery; never use REST `/user` email or unrequested viewer
+email. Do not probe authentication or retry to determine access. Offer valid
+declared website before profile URL, retaining both; ignore
 scheme-less websites independently. Construct profile fallback URLs only from
 safe authority/path components of the known host/login, never display safety alone.
 Missing contacts must not remove usable names. Written contacts require explicit

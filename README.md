@@ -112,9 +112,11 @@ make network requests through the GitHub CLI (`gh`), using only its existing
 authentication. Hydragen never starts login or requests extra permissions. Lookup
 failures are silent; init still works offline and without `gh`. Contact choices
 freeze with names, so email and URL steps do not add lookup waits. GitHub email
-suggestions use public profile email only; local Git and project declarations
-may contain private addresses. **Author contact details may become public when
-you share the layer manifest.** Choose only information you intend to include.
+suggestions use only public data available under existing permissions; unavailable
+profile-email permission does not disable organisation suggestions. Local Git and
+project declarations may contain private addresses. **Author contact details may
+become public when you share the layer manifest.** Choose only information you
+intend to include.
 
 Press Enter in the empty Description prompt to omit it, or in the format selector
 to accept YAML (`layer.yaml`). Escape or Ctrl-C cancels prompts or suggestion

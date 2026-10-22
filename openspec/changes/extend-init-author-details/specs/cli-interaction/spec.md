@@ -708,9 +708,17 @@ than mixed into the first account's choices. The free-text profile company field
 MUST NOT be treated as an organisation membership.
 
 The existing authenticated profile request MUST retain usable declared website
-and profile URL. The existing GraphQL page query MUST also request the matching
-viewer's public profile email and organisations' public email, website URL, and
-profile URL. Organisation lookup MUST fetch at most 100 records per page, not
+and profile URL and include its response headers without another request. The
+GraphQL page query MUST request the matching viewer's website/profile URL and
+organisations' public email, website URL, and profile URL. It MUST request viewer
+public email only when the profile response's `X-OAuth-Scopes` header advertises
+`user`, `read:user`, or `user:email`. Missing, empty, or unrecognised scope evidence
+MUST omit only viewer email; it MUST NOT suppress organisation discovery, prompt
+for permissions, launch an authentication probe, or retry a rejected query.
+Credentials without advertised classic scopes MAY therefore omit viewer email
+even if the field would be accessible. REST `/user` email MUST remain excluded,
+and unrequested viewer email MUST NOT be attached. Organisation lookup MUST fetch
+at most 100 records per page, not
 issue a separate detail request per organisation. Further pages MUST be requested
 only while the shared budget remains. Usable complete records from successful
 pages MUST survive later page failure/timeout. Missing, null, or invalid contacts
@@ -815,6 +823,24 @@ websites, or infer email/website from names or domains.
 - **THEN** profile and local choices remain usable without requesting extra permissions
 - **AND** no claim is made that the user belongs to no organisations
 
+#### Scenario: Membership permission does not include viewer email permission
+
+- **WHEN** existing authentication permits the parent organisation query but its profile response advertises no `user`, `read:user`, or `user:email` scope
+- **THEN** discovery omits viewer email from the query and still offers accessible organisation names and their valid public contacts
+- **AND** profile websites/URLs and other sources' emails remain available, with no private REST email, new requests, query retries, authentication changes, or permission prompts
+
+#### Scenario: Token scope evidence is unavailable
+
+- **WHEN** the profile response has no usable `X-OAuth-Scopes` header, including credentials that do not advertise classic scopes
+- **THEN** discovery conservatively omits viewer email while retaining profile names/URLs and attempting organisation lookup
+- **AND** accepted-scope headers and body text are not treated as evidence of granted permissions
+
+#### Scenario: Existing token explicitly permits public viewer email
+
+- **WHEN** the existing profile response advertises `user`, `read:user`, or `user:email`
+- **THEN** the same paged query also requests public viewer email and attaches a valid value only to the matching earlier profile
+- **AND** no additional request or permission change occurs
+
 #### Scenario: A later organisation page fails
 
 - **WHEN** earlier pages supplied usable records and a later page fails or exceeds the shared deadline
@@ -834,7 +860,7 @@ websites, or infer email/website from names or domains.
 
 #### Scenario: Public email and alternative URLs
 
-- **WHEN** a selected GitHub source has a public email, a valid website, and a distinct valid profile URL
+- **WHEN** a selected GitHub source has an accessible public email, a valid website, and a distinct valid profile URL
 - **THEN** its email is offered and both URLs appear with website before profile URL
 - **AND** no contact is written merely because the author name was selected
 
