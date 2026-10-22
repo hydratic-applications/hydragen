@@ -122,9 +122,11 @@ diagnostic families were reviewed at 40/80/100 columns. Help also has
 40/80/100-column checks. These ignored build-directory captures are local review
 evidence, not maintained executable fixtures or a portable artifact guarantee.
 
-The experience review found the conditional selectors useful without adding a
-representation question or repeated confirmation; contact sources remain visible
-only on focus, and completed answers are compact. Native rendered-screen tests
+The original experience review found the conditional selectors useful without
+adding a representation question or repeated confirmation. That review used
+focused-only contact sources; the 2026-10-22 parent reconciliation below supersedes
+that display rule with stable summaries on every visible candidate. Completed
+answers remain compact. Native rendered-screen tests
 assert wrapping/redraw clearing rather than inferring appearance from stripped
 transcript history alone. Plain diagnostics preserve causes, correction and
 no-write state. These are authored UX judgments supported by actual-terminal
@@ -222,7 +224,7 @@ has a uniquely named test or that the untested platforms/coverage gates passed.
 | Explicit shorthand without inferred contacts | 7 | recognise/interpret boundaries and typed flag conflicts; punctuation, literal fallback and all bypass tests |
 | Interaction mode without blocking automation | 11 | Mode/input-flag detection and parser-first dispatch; route/parser/terminal tests |
 | Guided cliclack collection | 22 | Selected/custom/omitted typed state and optional input; controlled PTY default/retry/skip/cancel/no-early-write tests |
-| Focused sources and aligned provenance icons | 10 | Scoped theme/contact provenance; unit and rendered-screen PTY wrapping/clearing/colour/format-isolation tests |
+| Concise sources and quiet provenance labels | 12 | Stable Author/contact summaries from structured evidence; retained parent scenarios plus contact-only provenance, scrolling, literal-value and scoped-theme PTYs (2026-10-22 reconciliation below) |
 | Guided author-name discovery | 14 | Discovery ordering/grouping, local fallback; isolated Git, injected-source and bounded-process tests |
 | Project-declared authors first | 9 | project.rs and maintained fixtures; same-entry filtering, source exclusions, read bounds and non-execution |
 | Optional GitHub through existing authentication | 16 | Existing profile/page requests, viewer match, REST-email exclusion, safe URL construction; fake-request/partial-page/timeout tests |
@@ -255,3 +257,80 @@ Clippy, formatting, whitespace, and strict OpenSpec checks passed. All 42
 coverage-policy tests were rerun successfully with Python bytecode generation
 disabled and canonical TMPDIR. Platform, coverage-percentage, and upstream
 selector limitations recorded above remain unchanged.
+
+## Latest parent presentation reconciliation — 2026-10-22
+
+Parent `15c8b38` governs presentation: every visible Author, email, and URL
+candidate has a stable compact comma-separated source-family summary, with no
+added icons or focus-dependent wording/wrapping. Detailed hints and typed source
+records remain internal. Contact summaries derive only from accepted records
+supplying that exact contact, not from every source of the name or English hints.
+The implementation retains Enterprise-host and profile/organisation distinctions.
+
+The merge reconciliation corrected contact selectors still using removed icon
+state, placed name summaries back on the name-group path, and added independent
+contact-summary accumulation. The remaining parent-added string-output test
+expectation now uses the feature's author-object shape; its presentation assertions
+are unchanged. Discovery, shorthand, privacy, schema, preparation deadlines,
+selection, and write semantics were not changed. Both foundations scenarios—the
+contact-choice/publication example and the stable concise-source example—remain.
+The contact design, delta specification, tasks, design-question entry, and agent
+guidance now describe the reconciled presentation. Archived artifacts are unchanged.
+
+Validation in this macOS checkout:
+
+```sh
+cargo test --locked --bin hydragen -- --test-threads=1
+HYDRAGEN_OPERATION_EVIDENCE="$PWD/target/author-contact-parent-reconciliation" \
+  cargo test --locked --test interactive_init -- --test-threads=1
+cargo clippy --locked --all-targets -- -D warnings
+cargo fmt --all -- --check
+git diff --check HEAD
+openspec validate extend-init-author-details --strict
+```
+
+The affected suites passed **254 binary tests and 59 actual-PTY integration tests**,
+with the same three binary ignores. The initial complete terminal run found the
+stale parent string-author expectation; the complete rerun passed after correction.
+The discovery unit subset independently passed 17 tests, including new actual-field
+summary/host-separation coverage. Strict lint, formatting, whitespace, and the
+contact-change OpenSpec validation passed.
+
+Actual-PTY checks cover 40/60/80 columns, styled/NO_COLOR/basic-terminal text,
+focused/unfocused logical-row equality and rendered-screen wrapping invariance,
+dimmed source summaries, name-only source exclusion, plain aligned actions,
+literal punctuation/action words, accepted/custom/skipped contact completion,
+Escape/Ctrl-C cleanup, native scrolling to final email/URL candidates, and reset
+before later fields and format selection. The contact test's frame reader now
+recognises native scroll footers (`↑/↓`) rather than only the empty footer; no
+production interaction handling was replaced. Local ANSI/plain/screen captures are
+under `target/author-contact-parent-reconciliation/`, including
+`author-contact-email-active-40-xterm-256color-true.screen.txt`,
+`author-contact-url-active-80-xterm-256color-true.screen.txt`,
+`author-contact-stable-60-dumb-false.screen.txt`, and
+`author-contact-scroll-40.screen.txt`. These are ignored local evidence, not
+maintained fixtures. They show naturally wrapped source text and quiet completion;
+the native screen assertions verify clearing rather than relying on byte history.
+
+All parent test function names remain present in the four affected test-bearing
+files, and `openspec/specs/cli-interaction/spec.md` is byte-identical to the parent.
+The contact delta also retains all nine parent presentation scenarios and adds
+three contact-specific scenarios. Both existing ignored cliclack #115 regressions
+were explicitly run with `--ignored`: both still fail their original visible
+selection/summary assertions as expected. No ignore was added or weakened.
+
+Final integration validation passed the complete locked serial Rust suite:
+**755 passed, 0 failed, 3 existing ignores** (122 library, 254 binary, and 379
+integration tests). All 42 coverage-policy tests passed with the pinned diff-cover
+tool, Python bytecode generation disabled, and canonical TMPDIR. Locked build,
+all-target strict Clippy, formatting, whitespace checks, and strict validation of
+both affected OpenSpec changes passed. Independent review accepted the code,
+tests, and design reconciliation; its remaining README correction now explains
+that contact summaries stay visible and fixed during navigation. Both foundations
+scenarios remain appropriate; this integration changes no product philosophy or
+glossary meaning.
+
+Repository-wide `openspec validate --all --strict` reports **14 passed, 1 failed**:
+the unchanged `add-validate-command` proposal has no deltas. Both reconciled changes
+validate; this unrelated incomplete proposal was not changed. Platform,
+instrumented-coverage, and upstream selector exclusions remain as recorded above.

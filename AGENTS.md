@@ -328,8 +328,10 @@ With suggestions, use native `Author email (optional)`/`Author URL (optional)`
 selectors, all choices then `Enter another email`/`Enter another URL` and `Skip`,
 initially selecting the first suggestion. Without suggestions or after custom
 entry, use shared empty optional text input with no default or return to selector.
-Empty text/Skip omits only that field. Reuse focused hints, aligned provenance
-icons, typed actions, completed-value/Skipped presentation, and cancellation.
+Empty text/Skip omits only that field. Reuse stable compact source summaries,
+typed actions, completed-value/Skipped presentation, and cancellation. Derive each
+contact summary only from structured records supplying that exact contact, never
+from all selected-name sources or by parsing detailed hint text.
 
 Retain same-entry npm email/URL and Cargo/Python email as discovery evidence;
 skip malformed/ambiguous source shorthand but independently discard invalid
@@ -351,16 +353,26 @@ entry/selection; shared layer manifests may publish locally private contact data
 The [author-contact design](openspec/changes/extend-init-author-details/design.md)
 records the source, shorthand, representation, and privacy decisions.
 
-Show the complete source hint only beside the focused active candidate, in dimmed
-inline parentheses, without a separate detail row or truncation. Join pairs with
-`and` and longer source lists with an Oxford comma. Retain one aligned icon for
-source evidence per option, the emoji pencil for custom entry, and two separator
-spaces before every label. Do not guess an entity type from a name. Omit
-`on github.com` for the public host but retain other GitHub hosts. Preserve native
-wrapping/redraw, basic-terminal fallbacks and colour controls; completed answers
-omit added icons and sources. The
-[author-presentation design](openspec/changes/refine-author-choice-presentation/design.md)
-defines the glyphs, provenance rules and display-only boundaries.
+Keep Author, email, and URL candidates and actions aligned without added icons.
+Every visible candidate shows the same dimmed parenthesised source-family summary, such as
+`(Git, GitHub, local account)`, whether focused or not. Focus changes only the
+radio indicator and name styling: never swap descriptions, add a category suffix,
+or alter row text, spacing or wrapping. Basic and colour-disabled terminals retain
+the same source text. Do not guess an entity type from a name.
+Derive summaries from accepted typed sources, not
+English hint parsing: combine project files as `project metadata`, Git environment
+and configuration as `Git`, account and username fallbacks as `local account`, and
+keep `GitHub` profile and `GitHub organisation` evidence separate. Deduplicate
+display families in first-source order and join with comma-space, without a final
+`and`. Retain full detailed evidence internally and preserve membership eligibility
+independently of display deduplication. Omit public-host suffixes and account logins
+from summaries but retain `on <host>` for Enterprise sources; keep existing unsafe
+login/host checks. Actions and completed/cancelled answers have no renderer-added
+suffixes. Preserve native wrapping/redraw and colour controls, without truncation,
+extra detail rows or expansion interaction. The
+[concise author-presentation design](openspec/changes/simplify-author-choice-labels/design.md)
+supersedes the previous icon and exhaustive-picker-hint rules for all three
+selectors. Detailed contact hints retain actual field-level evidence internally.
 
 Start author preparation once, only after selecting guided input and completing
 target safety checks, schema readiness, and directory-name default validation.

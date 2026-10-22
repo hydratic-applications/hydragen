@@ -513,7 +513,7 @@ impl TerminalDriver {
     fn custom(&mut self) {
         self.wait("Enter another author");
         self.send(b"\x1b[B");
-        self.wait("● ✏️  Enter another author");
+        self.wait("● Enter another author");
         let offset = self.output.len();
         self.send(b"\r");
         self.wait_text_author(offset);
@@ -562,7 +562,7 @@ impl TerminalDriver {
                 .lines()
                 .find(|line| line.starts_with("│  ● "))
                 .expect("contact selector");
-            if selected.ends_with(&format!("  {label}")) {
+            if selected == format!("│  ● {label}") {
                 let offset = self.output.len();
                 self.send(b"\r");
                 return offset;
@@ -632,7 +632,7 @@ impl TerminalDriver {
                 {
                     offset = self.output.len();
                     let selected = frame.lines().find(|line| line.starts_with("│  ● "));
-                    self.send(if selected.is_some_and(|line| !line.ends_with("  Skip")) {
+                    self.send(if selected.is_some_and(|line| line != "│  ● Skip") {
                         b"\x1b[B"
                     } else {
                         b"\r"
@@ -800,7 +800,7 @@ fn author_omission_bypasses_both_contact_steps_without_synthetic_summaries() {
         } else if scenario == "contacts-one" {
             driver.wait("Enter another author");
             driver.send(b"\x1b[B\x1b[B");
-            driver.wait("● ⏭   Skip");
+            driver.wait("● Skip");
         } else {
             driver.frame_since(0, "Author");
         }
@@ -823,10 +823,11 @@ fn selected_contacts_are_independent_and_use_only_the_selected_groups_actual_sou
         driver.wait("Enter another author");
         let email = driver.submit_to(b"\r", "Author email");
         assert!(
-            email.contains("● ◇   work@example.com (package.json author.email)"),
+            email.contains("● work@example.com (project metadata)"),
             "{email}"
         );
         assert!(email.contains("personal@example.com"));
+        assert!(email.contains("○ personal@example.com (GitHub)"), "{email}");
         assert!(!email.contains("other@example.com"));
         assert!(!email.contains("GitHub profile fixture email"));
         let offset = driver.output.len();
@@ -865,7 +866,7 @@ fn selected_contacts_are_independent_and_use_only_the_selected_groups_actual_sou
         driver.send(b"\x1b[B");
         let focused = driver.frame_since(first, "Author URL");
         assert!(
-            focused.contains("https://personal.example (GitHub profile fixture website)"),
+            focused.contains("https://personal.example (GitHub)"),
             "{focused}"
         );
         let offset = driver.output.len();
@@ -1052,16 +1053,11 @@ fn long_contact_lists_scroll_natively_and_keep_last_candidates_and_actions() {
     driver.enter_name();
     driver.wait("Enter another author");
     driver.submit_to(b"\r", "Author email");
-    let selected = driver.contact_action(
-        "Author email",
-        "contact-15@example.com (package.json author.email)",
-    );
+    let selected =
+        driver.contact_action("Author email", "contact-15@example.com (project metadata)");
     let url = driver.frame_since(selected, "Author URL");
     assert!(url.contains("https://example.com/00"));
-    let selected = driver.contact_action(
-        "Author URL",
-        "https://example.com/15 (package.json author.url)",
-    );
+    let selected = driver.contact_action("Author URL", "https://example.com/15 (project metadata)");
     driver.frame_since(selected, "Description");
     assert_eq!(
         driver.complete()["author"],
@@ -1127,7 +1123,7 @@ fn membership_only_defaults_to_empty_custom_input() {
     let mut driver = TerminalDriver::new("membership");
     driver.enter_name();
     driver.wait("Membership organisation");
-    driver.wait("● ✏️  Enter another author");
+    driver.wait("● Enter another author");
     let offset = driver.output.len();
     driver.send(b"\r");
     // The action's submitted frame is suppressed; the next Author is text.
@@ -1147,7 +1143,7 @@ fn long_membership_only_selector_visibly_selects_custom_and_enter_opens_empty_in
     let offset = driver.output.len();
     driver.send(b"\r");
     driver.wait_text_author(offset);
-    let initially_visible = driver.text().contains("● ✏️  Enter another author");
+    let initially_visible = driver.text().contains("● Enter another author");
     driver.send(b"\r");
     let result = driver.complete();
     assert!(result["author"].is_null());
@@ -1176,7 +1172,7 @@ fn moving_up_from_long_membership_custom_visibly_selects_and_summarises_the_name
     let description = transcript
         .find("◆  Description")
         .expect("next Description prompt");
-    let visible = transcript[..submit.unwrap_or(description)].contains("● 🏢  Membership 19");
+    let visible = transcript[..submit.unwrap_or(description)].contains("● Membership 19");
     let summary =
         submit.is_some_and(|submit| transcript[submit..description].contains("│  Membership 19\n"));
     assert!(

@@ -310,113 +310,116 @@ as invalid answers.
 - **WHEN** the user cancels in an Author/contact selector, shared optional text input, or later unfinished prompt
 - **THEN** init exits unsuccessfully with the existing cancellation feedback and no layer manifest is created
 
-### Requirement: Present focused author sources and aligned provenance icons
+### Requirement: Present concise author sources and quiet provenance labels
 
-The source hints associated with grouped Author choices MUST appear only beside
-the focused candidate while its native cliclack selector is active. The complete
-source list MUST follow the name in dimmed parentheses on the same logical row.
-Unfocused candidates and selector actions MUST NOT show source hints. The
-renderer MUST NOT insert a separate detail row or truncate source text; long rows
-MUST retain normal terminal wrapping. These rules MUST NOT change the format
-selector or unrelated prompts. Contact selectors MUST use the same presentation
-contract as defined by their contact-selection requirement.
+Active Author, email, and URL choices MUST retain native radio indicators without
+added candidate or action icons. Raw labels and actions MUST start at the same
+display column. Every visible candidate MUST append the same dimmed parenthesised
+source-family summary whether focused or not. Focus MUST change only the radio
+indicator and label styling, not row wording, suffix, spacing, or line wrapping.
+No category suffix MUST replace or duplicate source summaries. Names MUST NOT be
+interpreted as evidence of a person's or company's identity.
 
-Source hints MUST preserve the established source order and exact deduplication.
-One source MUST stand alone, two MUST be joined with `and`, and three or more MUST
-use commas with `, and` before the last source. Public GitHub name hints MUST use
-`GitHub profile <login>` or `GitHub organisation <login>` without `on github.com`
-for an exact case-insensitive public-host match. Other GitHub hosts MUST retain
-`on <host>`. Contact hints MUST additionally identify their actual contact field.
-Unsafe login/host display components MUST still be rejected before formatting,
-even if the host suffix would otherwise be omitted.
+Summaries MUST derive from accepted structured sources, deduplicating families
+in first-source order: `project metadata`, `Git`, `GitHub`, `local account`, and
+`GitHub organisation`. Git settings/environment share `Git`, project files share
+`project metadata`, and local-account/username sources share `local account`.
+Contacts MUST use only records supplying that exact contact, not every source of
+the name. No summary MUST be derived by parsing English hints. Project filenames,
+Git keys/scopes, and account logins MUST remain out of display summaries.
+Non-public GitHub hosts MUST retain `on <host>` independently per source family;
+public-host matching MUST remain case-insensitive. Unsafe login/host components
+MUST still be rejected. Families MUST join with comma-space, without a final `and`.
 
-Each active Author option MUST have one icon slot before its label, retaining the
-native selected/unselected radio indicator. Accepted identity-source evidence
-MUST use `👤`, GitHub membership evidence MUST use `🏢`, both MUST use one `◈`, and
-project declarations alone MUST use `◇`. Identity sources MUST include the
-existing Git, GitHub profile, account and environment-identity sources. Project
-evidence MUST neither erase nor invent identity or membership evidence. Icon
-classification MUST be independent of hint deduplication and MUST NOT infer an
-entity type from name spelling or claim verified authorship.
+Full detailed hints, contact-field provenance, record identities, ordering,
+eligibility, and provenance distinctions MUST remain internal even when display
+families collapse. This rule supersedes visible full-hint references in other
+author-discovery requirements only in the picker. Discovery, grouping, ordering,
+selection defaults, typed actions, accepted values, omission, and cancellation
+MUST remain unchanged. Actions MUST have no summary. Submitted/cancelled answers
+MUST omit renderer-added suffixes. Basic and colour-disabled terminals MUST retain
+the same meaningful text. Literal labels containing action text, parentheses, or
+icons MUST remain unchanged candidates, without shorthand reinterpretation.
 
-`Enter another author` MUST use emoji pencil `✏️` and `Skip` MUST use `⏭`. The
-common icon slot MUST be sized from the complete glyph set, with a minimum width
-of two display columns, independent of visible choices. Narrower glyphs MUST be
-right-padded and every slot MUST have two separator spaces before the label, so
-all option labels align. Basic terminals (`TERM=dumb`) MUST instead use `U`, `O`,
-`*`, `?`, `+`, and `>` respectively in equally sized slots. Disabling colour MUST
-remove decorative styling without removing semantic icons or source text.
+The renderer MUST preserve native scrolling and wrapping without truncation,
+extra detail rows, or expansion input. Theme state MUST reset between fields and
+before format selection. Unrelated prompts MUST remain unchanged.
 
-Icons and focused hints MUST remain presentation only. They MUST NOT change
-discovery calls, grouping, ordering, initial-selection eligibility, typed actions,
-accepted author values, optional entry/Skip behavior, or cancellation. Submitted
-and cancelled answers MUST omit added icons and source hints. A discovered name
-containing action text, icon glyphs or parentheses MUST remain an ordinary
-candidate rather than be interpreted as renderer decoration or an action.
+#### Scenario: Source summaries stay fixed while focus moves
 
-#### Scenario: Focus reveals only that candidate's sources inline
+- **WHEN** focus moves among names supported by different source families
+- **THEN** every visible candidate keeps its same compact parenthesised summary
+- **AND** only the radio marker and name styling change, without rewrapping rows
+- **AND** actions remain plain
 
-- **WHEN** the active Author selector focuses a name supported by package.json and Git
-- **THEN** that row shows its unchanged name followed by ` (package.json author and Git local user.name)` in dimmed source styling
-- **AND** other candidate rows and both actions show no source suffix or separate detail row
-- **AND** moving focus removes the previous suffix and shows the newly focused candidate's complete sources
+#### Scenario: Repeated settings collapse without losing evidence
 
-#### Scenario: Grouped source lists use natural-language punctuation
+- **WHEN** the same name comes from multiple Git settings, GitHub profile and local-account sources
+- **THEN** its summary is `Git, GitHub, local account`
+- **AND** all distinct detailed hints, ordering and eligibility remain unchanged
 
-- **WHEN** a grouped author has one, two, three or four distinct sources
-- **THEN** the hint uses original order with one source alone, `first and second`, `first, second, and third`, or `first, second, third, and fourth` respectively
-- **AND** repeated source labels remain deduplicated without splitting a source containing its own `and` or comma
+#### Scenario: Project files share one family
 
-#### Scenario: Public and Enterprise GitHub sources remain distinguishable
+- **WHEN** three supported project files declare the same author
+- **THEN** the picker shows one `project metadata` summary family
 
-- **WHEN** candidates come from a profile or organisation on github.com or an explicitly selected Enterprise host
-- **THEN** public-host hints retain source kind and login but omit `on github.com`, including differently cased spellings of that exact hostname
-- **AND** Enterprise hints retain `on <host>` without changing host selection or network requests
-- **AND** unsafe display components are still rejected and contact hints identify the actual field
+#### Scenario: Organisation and Enterprise context remain distinct
 
-#### Scenario: Equal identity and organisation names use one mixed icon
+- **WHEN** profile and membership evidence support one name on an Enterprise host
+- **THEN** the summary retains separate GitHub and GitHub organisation families with the host
+- **AND** those same source distinctions remain visible without focusing the name
+- **AND** unsafe login/host components remain rejected
 
-- **WHEN** accepted identity and membership sources support the same trimmed name, with or without a project declaration
-- **THEN** the selector offers one grouped name with one mixed icon and every distinct source in its focused hint
-- **AND** grouping, position, initial-selection eligibility, and accepted component values are not changed by decoration
+#### Scenario: Project metadata does not establish entity type
 
-#### Scenario: Project declarations do not guess entity type
+- **WHEN** only project declarations support a company-like or person-like name
+- **THEN** its summary says `project metadata`, not an inferred entity type
 
-- **WHEN** only a project declaration supports a name that looks like a company or person
-- **THEN** its icon is unspecified rather than inferred from spelling
-- **AND** adding accepted identity/membership support changes only the provenance classification, not the name
+#### Scenario: Colour-disabled and basic terminals preserve text
 
-#### Scenario: Icons and actions keep one aligned label column
+- **WHEN** NO_COLOR is set or TERM is dumb
+- **THEN** summaries stay readable without emoji, added icon slots or category separators
+- **AND** the same source text remains visible regardless of focus or colour settings
 
-- **WHEN** identity, organisation, mixed, unspecified, custom-entry and Skip options are displayed or scrolled into view
-- **THEN** each has one padded icon slot followed by two separator spaces and all labels start at the same measured display column
-- **AND** custom entry uses the emoji pencil including its emoji-presentation selector
-- **AND** visible choices do not change common slot width
+#### Scenario: Names and actions remain aligned and literal
 
-#### Scenario: Colour-disabled and basic terminals retain meaning
+- **WHEN** a name contains Skip, parentheses, emoji or a category-like suffix
+- **THEN** its complete raw name remains aligned with the plain actions
+- **AND** accepting it stores only that unchanged name
 
-- **WHEN** guided Author selection runs with NO_COLOR or in a basic terminal
-- **THEN** names, focus, source text and actions remain understandable without decorative styling
-- **AND** NO_COLOR alone retains Unicode icons while TERM=dumb uses the documented aligned ASCII alternatives regardless of colour settings
+#### Scenario: Long rows wrap and clear naturally
 
-#### Scenario: Long inline sources wrap and clear correctly
+- **WHEN** a 40-, 60- or 80-column terminal displays a long name or Enterprise host
+- **THEN** all summary text wraps naturally without truncation or extra detail rows
+- **AND** moving focus within the same visible choices preserves all row text and wrapping
+- **AND** submission and cancellation clear the picker summaries from completed feedback
 
-- **WHEN** a 40- or 80-column terminal displays a focused source list longer than available width, including wide names and long source tokens
-- **THEN** the full inline row wraps naturally without a dedicated detail line or lost source characters
-- **AND** moving to a shorter source list or action clears stale text from the visible viewport
-- **AND** submission and Escape/Ctrl-C cancellation clear added icons and sources from the completed frame
+#### Scenario: Completion and other selectors remain unchanged
 
-#### Scenario: Names containing decoration or action text remain literal
+- **WHEN** Author is accepted, skipped or cancelled, or the format selector opens
+- **THEN** completed feedback has no renderer-added categories, hints or icons
+- **AND** format labels, layout, input and cancellation retain their existing behaviour
 
-- **WHEN** a candidate name contains parentheses, begins with an icon, or is literally Skip or Enter another author
-- **THEN** its typed candidate identity stays distinct from actions
-- **AND** accepting it stores the unchanged discovered name without source hints or renderer-owned icons, without shorthand reinterpretation
+#### Scenario: Contact summaries use only actual field sources
 
-#### Scenario: Summaries and unrelated selectors keep their existing behavior
+- **WHEN** multiple project files and Git settings supply the same contact
+- **THEN** its summary is `project metadata, Git` while full field-level evidence remains internal
+- **AND** name-only or differently valued contact sources do not appear in that summary
+- **AND** distinct Enterprise hosts and profile/organisation sources remain separate
 
-- **WHEN** an author is accepted, skipped or cancelled, or init advances to format selection
-- **THEN** the completed Author step shows the accepted literal/selected name, accepted explicit shorthand with captured contacts, Skipped, or cancellation feedback as applicable, without added hints or icons
-- **AND** the format selector retains its existing labels, layout and native input behavior
+#### Scenario: Stable contact rows and native scrolling
+
+- **WHEN** email or URL focus moves among candidates or actions at 40, 60, or 80 columns
+- **THEN** every visible candidate retains identical summary wording and wrapping on and off focus, including without colour or in basic terminals
+- **AND** long lists scroll natively to their final candidates and plain actions without dropping values
+- **AND** submission or Escape/Ctrl-C cancellation clears source summaries from completed feedback
+
+#### Scenario: Contact punctuation remains literal and themes reset
+
+- **WHEN** a contact value contains action words or parentheses and is accepted or followed by custom entry
+- **THEN** its typed candidate identity remains distinct and accepting it preserves its exact value
+- **AND** completed answers show accepted values, original explicit shorthand, Skipped, or cancellation without added suffixes
+- **AND** later contact and format selectors retain their own labels, layout, and native input
 
 ### Requirement: Discover guided author names
 
@@ -869,13 +872,13 @@ be considered supplied and bypassed. Author omission MUST bypass both contact
 steps. Cancellation at any displayed step MUST cancel init with its established
 single nonzero/no-files-changed report, not become an optional skip.
 
-Contact selectors MUST retain the existing author selector's focused inline dimmed
-source hints, natural-language conjunctions/Oxford comma, aligned source-evidence
-icons and two-space label gap, pencil custom-entry icon, native scrolling, and
-basic-terminal/colour fallbacks. Complete hints MUST appear only beside the focused
-active candidate, without truncation or a separate detail row. Hints MUST identify
-only sources that supplied that contact, not every source supporting the name.
-Completed steps MUST show accepted values or `Skipped`, without icons, hints, or
+Contact selectors MUST use the author selector's stable compact comma-separated
+source-family summaries on every visible candidate, focused or not, without added
+icons or changed wrapping during navigation. Summaries MUST derive only from
+structured records supplying that exact contact; full actual field-level hints
+MUST remain internal. Native scrolling, wrapping, basic-terminal text, and colour
+controls MUST remain intact, without truncation or separate detail rows.
+Completed steps MUST show accepted values or `Skipped`, without added suffixes or
 action labels. Typed actions and scoped theme state MUST prevent candidate text
 from triggering actions or changing later fields/format presentation.
 
@@ -912,7 +915,7 @@ from triggering actions or changing later fields/format presentation.
 #### Scenario: Contact selectors preserve presentation boundaries
 
 - **WHEN** a contact selector is active, completed, cancelled, scrolled, or followed by another selector
-- **THEN** sources appear only on its focused active candidate with accurate complete provenance
+- **THEN** every visible candidate shows the same compact summary on and off focus, using only its actual structured contact evidence
 - **AND** completed values contain no sources/icons, action text is not stored, and later selectors retain their proper presentation
 
 ### Requirement: Associate contact evidence conservatively within the existing preparation

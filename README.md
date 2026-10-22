@@ -78,7 +78,10 @@ another name.
 
 Author offers names directly declared in the directory's `package.json`,
 `Cargo.toml`, and `pyproject.toml` before Git, GitHub, and system-account suggestions.
-Identical names appear once; focus a name to see its sources beside it. Choose a name,
+Identical names appear once, each with a short source summary such as
+`(Git, GitHub, local account)` or `(GitHub organisation)`. The text stays fixed as
+you move the selection, making the list easier to scan. Summaries describe where
+a suggestion came from, not verified authorship. Choose a name,
 **Enter another author**, or **Skip**. Enter accepts the current selection; Skip
 omits author and moves to Description. With no suggestions, or after choosing
 Enter another author, an empty optional text prompt lets you type a name or press
@@ -88,9 +91,10 @@ is eligible.
 
 After choosing an author name, each contact step offers associated suggestions,
 custom entry, and Skip when suggestions exist, or an empty optional text input
-otherwise. Equal names can have several contact choices; focus a value to see
-where it came from. Entering another author gives no inferred contacts. You can
-also type npm shorthand, such as `Alex <alex@example.com> (https://alex.example)`;
+otherwise. Equal names can have several contact choices, each displaying a short
+source summary that stays fixed during navigation. Entering another author gives
+no inferred contacts. You can also type npm shorthand, such as
+`Alex <alex@example.com> (https://alex.example)`;
 contact values supplied there skip their later prompts. Skipping Author skips
 both contact steps. Empty optional text omits the field.
 

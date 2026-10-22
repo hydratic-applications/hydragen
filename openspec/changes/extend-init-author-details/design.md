@@ -157,13 +157,27 @@ With no suggestions, open that text input directly. Whitespace-only and other
 schema-invalid input receives field-specific correction and clear-and-Enter skip
 guidance. Cancellation at either selector or text input cancels the entire init.
 
-Apply the existing focused inline source-hint styling, natural list punctuation,
-aligned provenance icons, two-space label gaps, native scrolling, basic-terminal
-fallbacks, and colour controls to contact selectors. Source hints describe the
-actual contact field (for example `Git local user.email`), not every source of the
-name. Show only the accepted contact value or `Skipped` after completion; custom
-action labels, icons, and sources are not metadata. Keep typed action values and
-reset selector theme state between fields and before the format selector.
+Apply the [stable compact source presentation](../simplify-author-choice-labels/design.md)
+to Author, email, and URL selectors. Every visible candidate shows its same dimmed
+parenthesised source-family summary, focused or not; only radio markers and name
+styling change during navigation. Use comma-separated families in first-source
+order, without icons, category swaps, truncation, or separate detail rows. Keep
+native scrolling, wrapping, basic-terminal text, and colour controls. Actions have
+no suffix and align with raw candidate labels.
+
+Derive contact summaries directly from accepted structured records that actually
+supplied that exact contact, not all sources of the selected name and never by
+parsing English hints. Deduplicate project metadata, Git, GitHub profile, and
+GitHub organisation families while retaining Enterprise host distinctions. A
+name-only local-account record cannot become contact evidence. Retain full hints
+internally, including the actual contact field (for example `Git local user.email`),
+record identities, and provenance even when display families collapse.
+
+Show only the accepted contact value or `Skipped` after completion; custom action
+labels and sources are not metadata. Keep typed action values and reset selector
+theme state between fields and before the format selector. This reconciles the
+contact feature with parent `15c8b38`, superseding this change's earlier focused
+full-hint/icon presentation only, without changing discovery or metadata semantics.
 
 **Alternative:** Automatically fill contacts when a name is selected. Rejected
 because a name can cover different work/personal identities and a website is not
