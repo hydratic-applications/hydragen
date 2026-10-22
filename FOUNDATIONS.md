@@ -507,6 +507,8 @@ all suggest the same author, listing every setting and account detail beside tha
 name can wrap across several lines even on a medium-width terminal. Keep enough
 source context to explain the suggestion without making an optional convenience
 harder to scan than typing the name directly.
+Changing descriptions as focus moves can make that list harder to scan too. Keep
+source context stable while the developer navigates the choices.
 
 One developer changes a shared configuration without AI tools. Another uses their
 own AI assistant for help and later delegates an update to an agent. Both need to

@@ -12,3 +12,9 @@
 
 - [x] 3.1 Run formatting, lint, full tests, strict change/spec validation, and inspect actual terminal output at 40/60/80 columns.
 - [x] 3.2 Rebuild the main-workspace binary and record validation and remaining limitations.
+
+## 4. Stable-row local trial
+
+- [x] 4.1 Keep every visible candidate's compact source summary unchanged on focus, removing separate category suffixes.
+- [x] 4.2 Update unit/terminal regressions to prove stable text and wrapping, preserve action/value safety, and align maintained documentation with the approved refinement.
+- [x] 4.3 Validate and rebuild the main-workspace binary for local testing; record results without publishing this trial.

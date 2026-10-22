@@ -11,7 +11,7 @@ use hydragen::diagnostic_text::display;
 use hydragen::layer_manifest::schema;
 use hydragen::{InitError, LayerManifestFormat, Metadata, validate_metadata_value};
 
-use crate::author_discovery::{AuthorProvenanceKind, Choice, Preparation};
+use crate::author_discovery::{Choice, Preparation};
 use crate::diagnostics::{CliIoError, CompletionChannel};
 use crate::presentation::{self, Presentation};
 
@@ -31,27 +31,8 @@ struct AuthorSelectorTheme {
     // Theme hooks receive labels/hints, not selector values. Keep their exact
     // display identities mapped to typed actions; never interpret a name as an action.
     rows: Vec<(String, String, AuthorAction)>,
-    kinds: Vec<AuthorProvenanceKind>,
     summaries: Vec<String>,
     selected: AuthorAction,
-}
-
-impl AuthorSelectorTheme {
-    fn kind(&self, action: AuthorAction) -> AuthorProvenanceKind {
-        match action {
-            AuthorAction::Candidate(index) => self.kinds[index],
-            _ => AuthorProvenanceKind::Unspecified,
-        }
-    }
-}
-
-fn author_category(kind: AuthorProvenanceKind) -> &'static str {
-    match kind {
-        AuthorProvenanceKind::Identity => "identity",
-        AuthorProvenanceKind::Organisation => "organisation",
-        AuthorProvenanceKind::Mixed => "identity + organisation",
-        AuthorProvenanceKind::Unspecified => "project",
-    }
 }
 
 type AuthorThemeState = Arc<Mutex<Option<AuthorSelectorTheme>>>;
@@ -200,11 +181,11 @@ impl cliclack::Theme for InitTheme {
                         AuthorAction::Candidate(index) => context.summaries[index].clone(),
                         _ => String::new(),
                     };
-                    (action, context.kind(action), summary)
+                    (action, summary)
                 })
             })
         };
-        let author_action = author_row.as_ref().map(|(action, _, _)| *action);
+        let author_action = author_row.as_ref().map(|(action, _)| *action);
         if matches!(state, cliclack::ThemeState::Submit) {
             match author_action {
                 Some(AuthorAction::Skip) => {
@@ -230,23 +211,10 @@ impl cliclack::Theme for InitTheme {
         let symbol = self.radio_symbol(state, selected);
         let gap = if symbol.is_empty() { "" } else { " " };
         let detail = match author_row {
-            Some((AuthorAction::Candidate(_), kind, summary))
-                if matches!(state, cliclack::ThemeState::Active) =>
+            Some((AuthorAction::Candidate(_), summary))
+                if matches!(state, cliclack::ThemeState::Active) && !summary.is_empty() =>
             {
-                if selected {
-                    if summary.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({summary})")
-                    }
-                } else {
-                    let separator = if self.presentation.basic {
-                        " - "
-                    } else {
-                        " · "
-                    };
-                    format!("{separator}{}", author_category(kind))
-                }
+                format!(" ({summary})")
             }
             Some(_) => String::new(),
             None if !hint.is_empty() => format!(" ({hint})"),
@@ -619,7 +587,6 @@ fn collect_author(choices: &[Choice], session: &GuidedSession) -> io::Result<Opt
     let action = {
         *session.author.lock().unwrap() = Some(AuthorSelectorTheme {
             rows,
-            kinds: choices.iter().map(|choice| choice.kind).collect(),
             summaries: choices
                 .iter()
                 .map(|choice| choice.summary.clone())
@@ -725,6 +692,7 @@ fn finish_output(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::author_discovery::AuthorProvenanceKind;
     use cliclack::{StringCursor, Theme, ThemeState};
 
     fn theme() -> InitTheme {
@@ -1276,10 +1244,6 @@ mod tests {
                 ),
                 ("Skip".into(), String::new(), AuthorAction::Skip),
             ],
-            kinds: vec![
-                AuthorProvenanceKind::Unspecified,
-                AuthorProvenanceKind::Identity,
-            ],
             summaries: vec!["project metadata".into(), "Git".into()],
             selected: AuthorAction::Candidate(0),
         });
@@ -1348,11 +1312,6 @@ mod tests {
                 ),
                 ("Skip".into(), String::new(), AuthorAction::Skip),
             ],
-            kinds: vec![
-                AuthorProvenanceKind::Identity,
-                AuthorProvenanceKind::Identity,
-                AuthorProvenanceKind::Unspecified,
-            ],
             summaries: vec![
                 "project metadata, Git".into(),
                 "local account".into(),
@@ -1364,7 +1323,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_focused_active_author_candidate_has_an_inline_hint() {
+    fn active_author_summaries_stay_visible_and_unchanged_on_focus() {
         let theme = author_theme();
         let first_hint = "package.json author and Git local user.name";
         let render = |selected, label, hint| {
@@ -1374,7 +1333,10 @@ mod tests {
             render(true, "Alex", first_hint),
             "│  ● Alex (project metadata, Git)\n"
         );
-        assert_eq!(render(false, "Alex", first_hint), "│  ○ Alex · identity\n");
+        assert_eq!(
+            render(false, "Alex", first_hint),
+            "│  ○ Alex (project metadata, Git)\n"
+        );
         assert_eq!(
             render(true, "Morgan", "system account name"),
             "│  ● Morgan (local account)\n"
@@ -1418,16 +1380,25 @@ mod tests {
     }
 
     #[test]
-    fn focused_author_details_are_dim_and_other_selectors_keep_their_layout() {
+    fn active_author_details_are_dim_and_other_selectors_keep_their_layout() {
         let mut author = author_theme();
         author.presentation.decorated = true;
-        let rendered =
-            author.format_select_item(&ThemeState::Active, true, "Morgan", "system account name");
-        assert!(rendered.contains("\x1b[2m (local account)"));
-        assert_eq!(
-            console::strip_ansi_codes(&rendered),
-            "│  ● Morgan (local account)\n"
-        );
+        for selected in [false, true] {
+            let rendered = author.format_select_item(
+                &ThemeState::Active,
+                selected,
+                "Morgan",
+                "system account name",
+            );
+            assert!(rendered.contains("\x1b[2m (local account)"));
+            assert_eq!(
+                console::strip_ansi_codes(&rendered),
+                format!(
+                    "│  {} Morgan (local account)\n",
+                    if selected { "●" } else { "○" }
+                )
+            );
+        }
 
         let ordinary = theme();
         for state in [ThemeState::Active, ThemeState::Submit, ThemeState::Cancel] {
@@ -1456,52 +1427,38 @@ mod tests {
             let theme = author_theme();
             theme.author.lock().unwrap().as_mut().unwrap().rows[0].1 = hint.clone();
             theme.author.lock().unwrap().as_mut().unwrap().summaries[0] = hint.clone();
-            let rendered = theme.format_select_item(&ThemeState::Active, true, "Alex", &hint);
-            assert_eq!(rendered, format!("│  ● Alex ({hint})\n"));
-            assert_eq!(rendered.lines().count(), 1);
+            for selected in [false, true] {
+                let rendered =
+                    theme.format_select_item(&ThemeState::Active, selected, "Alex", &hint);
+                assert_eq!(
+                    rendered,
+                    format!("│  {} Alex ({hint})\n", if selected { "●" } else { "○" })
+                );
+                assert_eq!(rendered.lines().count(), 1);
+            }
         }
     }
 
     #[test]
-    fn author_categories_keep_names_aligned_and_completed_values_undecorated() {
+    fn stable_author_summaries_keep_names_aligned_and_completed_values_undecorated() {
         let variants = [
-            (
-                AuthorAction::Candidate(0),
-                AuthorProvenanceKind::Identity,
-                "identity",
-            ),
-            (
-                AuthorAction::Candidate(0),
-                AuthorProvenanceKind::Organisation,
-                "organisation",
-            ),
-            (
-                AuthorAction::Candidate(0),
-                AuthorProvenanceKind::Mixed,
-                "identity + organisation",
-            ),
-            (
-                AuthorAction::Candidate(0),
-                AuthorProvenanceKind::Unspecified,
-                "project",
-            ),
-            (
-                AuthorAction::EnterAnother,
-                AuthorProvenanceKind::Unspecified,
-                "",
-            ),
-            (AuthorAction::Skip, AuthorProvenanceKind::Unspecified, ""),
+            (AuthorAction::Candidate(0), "Git"),
+            (AuthorAction::Candidate(0), "GitHub organisation"),
+            (AuthorAction::Candidate(0), "Git, GitHub organisation"),
+            (AuthorAction::Candidate(0), "project metadata"),
+            (AuthorAction::EnterAnother, ""),
+            (AuthorAction::Skip, ""),
         ];
         for basic in [false, true] {
             for decorated in [false, true] {
-                for (action, kind, category) in variants {
+                for (action, summary) in variants {
                     let mut theme = author_theme();
                     theme.presentation.basic = basic;
                     theme.presentation.decorated = decorated;
                     let (label, hint) = {
                         let mut context = theme.author.lock().unwrap();
                         let context = context.as_mut().unwrap();
-                        context.kinds[0] = kind;
+                        context.summaries[0] = summary.to_owned();
                         let (label, hint, _) = context
                             .rows
                             .iter()
@@ -1522,11 +1479,7 @@ mod tests {
                         let name_column = console::measure_text_width(before_name);
                         assert_eq!(name_column, 5);
                         let expected_hint = if matches!(action, AuthorAction::Candidate(_)) {
-                            if selected {
-                                " (project metadata, Git)".to_owned()
-                            } else {
-                                format!("{}{category}", if basic { " - " } else { " · " })
-                            }
+                            format!(" ({summary})")
                         } else {
                             String::new()
                         };

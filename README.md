@@ -77,11 +77,11 @@ account name; press Enter to accept it or type another name.
 
 Author offers names directly declared in the directory's `package.json`,
 `Cargo.toml`, and `pyproject.toml` before Git, GitHub, and system-account suggestions.
-Identical names appear once. Subtle text labels distinguish identity, organisation
-and project sources; focus a name for a short summary such as
-`(Git, GitHub, local account)`. These describe where a suggestion came from, not
-verified authorship. Choose a name, **Enter another author**, or **Skip**.
-Enter accepts the current selection; Skip
+Identical names appear once, each with a short source summary such as
+`(Git, GitHub, local account)` or `(GitHub organisation)`. The text stays fixed as
+you move the selection, making the list easier to scan. Summaries describe where
+a suggestion came from, not verified authorship. Choose a name,
+**Enter another author**, or **Skip**. Enter accepts the current selection; Skip
 omits author and moves to Description. With no suggestions, or after choosing
 Enter another author, an empty optional text prompt lets you type a name or press
 Enter to omit author. GitHub organisation membership alone does not make a name

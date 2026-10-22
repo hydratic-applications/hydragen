@@ -295,12 +295,13 @@ without restoring a suggestion or returning to the selector. Keep action values
 separate from name strings, use native scrolling for long lists, and show the
 accepted name or `Skipped`, never source hints or action labels as metadata.
 
-Keep Author names and actions aligned without added icons. Unfocused candidates
-show a dimmed ` · identity`, ` · organisation`, ` · identity + organisation`, or
-` · project` suffix based on accepted source evidence, not a guessed entity type.
-Basic terminals use ` - ` instead of the middle-dot separator. Focus replaces that
-category with a dimmed parenthesised source-family summary, such as
-`(Git, GitHub, local account)`. Derive summaries from accepted typed sources, not
+Keep Author names and actions aligned without added icons. Every visible candidate
+shows the same dimmed parenthesised source-family summary, such as
+`(Git, GitHub, local account)`, whether focused or not. Focus changes only the
+radio indicator and name styling: never swap descriptions, add a category suffix,
+or alter row text, spacing or wrapping. Basic and colour-disabled terminals retain
+the same source text. Do not guess an entity type from a name.
+Derive summaries from accepted typed sources, not
 English hint parsing: combine project files as `project metadata`, Git environment
 and configuration as `Git`, account and username fallbacks as `local account`, and
 keep `GitHub` profile and `GitHub organisation` evidence separate. Deduplicate

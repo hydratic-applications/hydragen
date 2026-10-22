@@ -2,7 +2,11 @@
 
 Verified locally on macOS on 2026-10-22.
 
-## Result
+The initial results below describe the category/sources implementation pushed in
+`94feb35`. The later stable-row trial is recorded separately at the end of this
+document; its source summaries remain visible regardless of focus.
+
+## Initial result — 94feb35
 
 The picker now uses dimmed source-evidence categories on unfocused names and short
 source-family summaries on focus. Candidate and action icon slots are removed.
@@ -64,3 +68,35 @@ adding a value or changing the product philosophy. No glossary term is introduce
 - These are local macOS results, not current hosted coverage/MSRV or Windows
   validation. The PR's separate missing `tests/rust_version` MSRV problem and
   other deferred work are outside this change.
+
+## Stable-row refinement — 2026-10-22
+
+After testing `94feb35`, the user found the focus-dependent category/source swap
+erratic and approved trying fixed summaries on every visible candidate. The trial
+removes the category renderer and keeps each parenthesised source summary dimmed
+and unchanged during navigation. Only the marker and name styling change. Actions,
+completed answers, discovery and metadata retain their previous behaviour.
+
+- Binary suite: **225 passed, 0 failed, 3 existing ignores**.
+- Production interactive-init suite: **54 passed, 0 failed**. These include
+  focus-invariant logical row and physical wrapping comparisons at 40/60/80 columns,
+  persistent Enterprise hints, all visible project summaries while scrolling,
+  colour-disabled/basic terminals, literal names and completion/cancellation cleanup.
+- Captured 40/60/80-column PTY screens were inspected. The screen comparisons retain
+  all text and physical line breaks within the Author picker; they exclude older
+  prompt history, which native redraw can scroll at the top of a short viewport.
+  The first overly broad screen comparison caught that history shift, not changed
+  candidate wording, and was corrected to measure the picker itself.
+- Formatting, all-target Clippy with warnings denied, locked build, strict change
+  validation and all 9 maintained specifications pass. The maintained presentation
+  requirement matches the amended delta. The earlier 698-test full-suite result is
+  historical evidence for `94feb35`, not a new full-suite run for this trial.
+- Main-workspace `target/debug/hydragen` is rebuilt. After trying the local,
+  uncommitted version, the user accepted it and explicitly authorised committing
+  and pushing this follow-up. No upstream visibility fix, hosted CI/MSRV/coverage
+  result or Windows validation is claimed by these local checks.
+
+README, agent guidance, design and specification now describe fixed source text.
+The foundations scenario explicitly adds the user's focus-swapping/scanning concern
+without changing any guiding value. These revisions were reviewed for first-time
+reader clarity and preserve the earlier discovery, safety and source-summary rules.

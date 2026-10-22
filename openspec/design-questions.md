@@ -207,15 +207,17 @@ design everything upfront.
      [grouping](changes/archive/2026-10-20-suggest-init-author/design.md#group-equal-names-and-retain-their-sources),
      and [conditional author interaction](changes/archive/2026-10-20-suggest-init-author/design.md#show-a-selector-only-when-there-are-names-to-choose-from).
     - **Author presentation refinement:** Replace the previous emoji/icon slots
-      with dimmed source-evidence categories on unfocused names and compact source
-      summaries on focus, such as `(Git, GitHub, local account)`. Deduplicate source
+      with compact source summaries on every visible name, such as
+      `(Git, GitHub, local account)`. Keep text and wrapping fixed while focus
+      changes only selection styling; do not swap category descriptions for sources.
+      Deduplicate source
       families rather than list every setting, file and login; retain full evidence
       internally and keep Enterprise hosts and organisation support distinct.
       Names and actions stay aligned, without guessing entity types, truncating
       hints or adding expansion input. This supersedes the earlier icon and
       exhaustive-picker-hint presentation, not discovery or author values. See the
       [summary decision](changes/simplify-author-choice-labels/design.md#separate-detailed-evidence-from-compact-display)
-      and [text-category decision](changes/simplify-author-choice-labels/design.md#replace-icon-slots-with-suffixes).
+      and [stable-row decision](changes/simplify-author-choice-labels/design.md#keep-row-text-fixed-while-navigating).
    - **Initial add interaction decision:** Require source arguments and no guided
      flow, in terminals and automation alike. Defer registry-backed search,
      autocomplete, existence checking, and available-version selection until

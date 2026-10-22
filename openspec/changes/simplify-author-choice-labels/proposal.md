@@ -6,8 +6,8 @@ remain easy to scan without losing the evidence behind a suggestion.
 
 ## What Changes
 
-- Replace author and action icons with plain labels. Unfocused names get a dimmed
-  source-evidence category; focused names get a compact parenthesised source summary.
+- Replace author and action icons with plain labels. Every candidate keeps its
+  compact parenthesised source summary visible, without changing text on focus.
 - Summarise and deduplicate source families instead of listing configuration keys,
   scopes, project filenames, and account logins. Retain organisation and Enterprise
   host distinctions. Do not truncate or add an expansion interaction.
@@ -23,7 +23,7 @@ None.
 ### Modified Capabilities
 
 - `cli-interaction`: Replace author icon slots and exhaustive focused provenance
-  with text categories and concise source-family summaries.
+  with stable, concise source-family summaries.
 
 ## Impact
 
