@@ -25,14 +25,22 @@ const INIT_HELP: &str = r#"Examples:
 
 Input:
   No input flags: guided prompts only when stdin, stdout and stderr are terminals and CI is disabled.
-  Any input flag: flag-only input; no follow-up questions. Input flags are --name, --author, --description and --format.
+  Any input flag: flag-only input; no follow-up questions. Input flags are --name, --author, --author-email, --author-url, --description and --format.
   Name defaults to the current directory name. Author and description are optional and omitted when not supplied.
   Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum). Unscoped names and scopes cannot start with a dot or underscore.
   Invalid names are not rewritten; supply --name to override an invalid directory default.
+  --non-interactive always disables prompts.
+
+Author:
+  Author accepts a literal name or npm shorthand: Name <email> (URL), with either contact optional. URLs need an explicit scheme, such as 'https:'. Init always writes an author object; existing string authors remain readable, but older binaries may reject objects.
+  --author-email and --author-url require --author. Equal shorthand and flag contacts are accepted once; differing values are errors. Omitted contacts stay absent in flag-only input.
   Guided Author offers project-declared authors first; other suggestions can come from Git, local accounts and optional GitHub lookups, with grouped source hints. Choose a name, Enter another author, or Skip. With no suggestions or after Enter another author, use an empty optional input; empty text and Skip omit author.
+  Guided init asks unresolved Author email, then Author URL. Each offers associated suggestions, custom entry and Skip, or empty optional text when none exist. Custom authors have no inferred contacts; skipping Author skips both contacts. Shorthand bypasses only supplied contact steps.
   Optional GitHub requests use only existing gh authentication, never login or extra permissions. Offline use and use without gh are supported. Flag-only input performs no author discovery.
-  Format defaults to yaml (layer.yaml). --format selects only the newly created layer manifest, not read-time priority.
-  --non-interactive always disables prompts."#;
+  GitHub email suggestions use public profile and organisation email only. Included contacts may become public when the layer manifest is shared, including locally private Git email.
+
+Format:
+  Format defaults to yaml (layer.yaml). --format selects only the newly created layer manifest, not read-time priority."#;
 
 const ADD_HELP: &str = r#"Examples:
   hydragen add ../shared-config
@@ -91,9 +99,17 @@ struct InitArgs {
     #[arg(long)]
     name: Option<String>,
 
-    /// Optional person or organisation credited with authoring the layer
+    /// Optional person or organisation name, or npm shorthand: Name <email> (URL)
     #[arg(long)]
     author: Option<String>,
+
+    /// Optional author email (requires --author)
+    #[arg(long, requires = "author")]
+    author_email: Option<String>,
+
+    /// Optional author absolute URL, including its scheme (requires --author)
+    #[arg(long, requires = "author")]
+    author_url: Option<String>,
 
     /// Optional explanation of what the layer provides or is used for
     #[arg(long)]
@@ -228,6 +244,8 @@ fn run_in(
         Command::Init(arguments) => {
             let input_flags = arguments.name.is_some()
                 || arguments.author.is_some()
+                || arguments.author_email.is_some()
+                || arguments.author_url.is_some()
                 || arguments.description.is_some()
                 || arguments.format.is_some();
             let mode = select_mode(input_flags, cli.non_interactive);
@@ -356,9 +374,46 @@ fn flag_metadata(
         Some(name) => name,
         None => interaction::directory_name(directory)?,
     };
+    let author = arguments
+        .author
+        .as_deref()
+        .map(|text| {
+            let mut author = hydragen::author::interpret(text).map_err(|source| {
+                diagnostics::AuthorInputError::Invalid {
+                    flag: "--author",
+                    source,
+                }
+            })?;
+            for (field, flag, explicit, captured) in [
+                (
+                    "author.email",
+                    "--author-email",
+                    arguments.author_email,
+                    &mut author.email,
+                ),
+                (
+                    "author.url",
+                    "--author-url",
+                    arguments.author_url,
+                    &mut author.url,
+                ),
+            ] {
+                if let Some(value) = explicit {
+                    hydragen::layer_manifest::schema::validate_field(field, &value).map_err(
+                        |source| diagnostics::AuthorInputError::Invalid { flag, source },
+                    )?;
+                    if captured.as_ref().is_some_and(|previous| previous != &value) {
+                        return Err(diagnostics::AuthorInputError::Conflict { flag, field });
+                    }
+                    *captured = Some(value);
+                }
+            }
+            Ok(hydragen::Author::Object(author))
+        })
+        .transpose()?;
     let metadata = Metadata {
         name,
-        author: arguments.author,
+        author,
         description: arguments.description,
     };
     metadata.validate()?;
@@ -738,7 +793,7 @@ mod tests {
                             "Optional name override",
                             "current directory name",
                             "Any input flag: flag-only input; no follow-up questions.",
-                            "Input flags are --name, --author, --description and --format.",
+                            "Input flags are --name, --author, --author-email, --author-url, --description and --format.",
                             "stdin, stdout and stderr are terminals and CI is disabled.",
                             "Author and description are optional and omitted when not supplied.",
                             "Names use lowercase ASCII letters, digits, dots, underscores and hyphens, optionally as @scope/name (214 characters maximum).",
@@ -750,6 +805,13 @@ mod tests {
                             "Optional GitHub requests use only existing gh authentication, never login or extra permissions.",
                             "Offline use and use without gh are supported.",
                             "Flag-only input performs no author discovery.",
+                            "Author accepts a literal name or npm shorthand: Name <email> (URL), with either contact optional.",
+                            "Init always writes an author object; existing string authors remain readable, but older binaries may reject objects.",
+                            "--author-email and --author-url require --author.",
+                            "Guided init asks unresolved Author email, then Author URL.",
+                            "Custom authors have no inferred contacts; skipping Author skips both contacts.",
+                            "GitHub email suggestions use public profile and organisation email only.",
+                            "Included contacts may become public when the layer manifest is shared, including locally private Git email.",
                             "Format defaults to yaml (layer.yaml).",
                             "--format selects only the newly created layer manifest, not read-time priority.",
                             "--non-interactive always disables prompts.",
@@ -758,6 +820,8 @@ mod tests {
                         }
                         assert!(help.contains("--name <NAME>\n"));
                         assert!(help.contains("--author <AUTHOR>\n"));
+                        assert!(help.contains("--author-email <AUTHOR_EMAIL>\n"));
+                        assert!(help.contains("--author-url <AUTHOR_URL>\n"));
                         assert!(help.contains("--description <DESCRIPTION>\n"));
                         assert!(help.contains("--format <FORMAT>\n"));
                         assert!(prose.contains("yaml, yml, toml, json, jsonc"));
@@ -790,6 +854,8 @@ mod tests {
         let arguments = |name: &str| InitArgs {
             name: Some(name.to_owned()),
             author: None,
+            author_email: None,
+            author_url: None,
             description: None,
             format: None,
         };
@@ -822,6 +888,22 @@ mod tests {
             vec!["hydragen", "init"],
             vec!["hydragen", "init", "--name", "explicit"],
             vec!["hydragen", "init", "--author", " Explicit author "],
+            vec![
+                "hydragen",
+                "init",
+                "--author",
+                "Explicit author",
+                "--author-email",
+                "a@example.com",
+            ],
+            vec![
+                "hydragen",
+                "init",
+                "--author",
+                "Explicit author",
+                "--author-url",
+                "https://example.com",
+            ],
             vec!["hydragen", "init", "--description", "description"],
             vec!["hydragen", "init", "--format", "json"],
         ] {
@@ -891,6 +973,8 @@ mod tests {
             vec!["hydragen", "--version"],
             vec!["hydragen", "init", "--unknown"],
             vec!["hydragen", "init", "--format", "invalid"],
+            vec!["hydragen", "init", "--author-email", "a@example.com"],
+            vec!["hydragen", "init", "--author-url", "https://example.com"],
             vec!["hydragen", "add"],
             vec!["hydragen", "add", "--unknown"],
         ] {
@@ -1029,6 +1113,8 @@ mod tests {
                 InitArgs {
                     name: Some("@example/shared-config".into()),
                     author: Some(value.into()),
+                    author_email: None,
+                    author_url: None,
                     description: Some(value.into()),
                     format: None,
                 },
@@ -1036,7 +1122,10 @@ mod tests {
             )
             .unwrap();
             assert_eq!(metadata.name, "@example/shared-config");
-            assert_eq!(metadata.author.as_deref(), Some(value));
+            assert_eq!(
+                metadata.author.as_ref().map(hydragen::Author::name),
+                Some(value)
+            );
             assert_eq!(metadata.description.as_deref(), Some(value));
         }
     }

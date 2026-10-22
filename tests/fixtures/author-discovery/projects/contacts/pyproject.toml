@@ -1,0 +1,7 @@
+[project]
+authors = [
+  { name = "Shared Name", email = "python@example.invalid", url = "https://ignored.example.invalid" },
+  { name = "Shared Name", email = 42 },
+  { email = "nameless@example.invalid" },
+  { name = "Literal <bad>", email = "literal@example.invalid" },
+]

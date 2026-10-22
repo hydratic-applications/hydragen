@@ -440,12 +440,48 @@ esac",
     }
 
     fn wait_for(&mut self, message: &str) {
+        if message.starts_with("Description (optional") {
+            self.skip_unresolved_contacts();
+        }
         let deadline = Instant::now() + TIMEOUT;
         while !visible_text(&self.stderr).contains(message) {
             assert!(
                 Instant::now() < deadline,
                 "Timed out waiting for {message:?}: {}",
                 String::from_utf8_lossy(&self.stderr)
+            );
+            self.receive(Duration::from_millis(10));
+        }
+    }
+
+    // Existing name-only scenarios explicitly omit new optional contact steps.
+    // Observe complete fresh frames after each key, never reuse a historical label.
+    fn skip_unresolved_contacts(&mut self) {
+        let deadline = Instant::now() + TIMEOUT;
+        let mut checkpoint = 0;
+        loop {
+            let fresh = visible_text(&self.stderr[checkpoint..]).replace('\r', "");
+            if let Some((_, frame)) = fresh.rsplit_once("◆  ") {
+                let field = frame.lines().next().unwrap_or("");
+                if field == "Description (optional)" {
+                    return;
+                }
+                if matches!(field, "Author email (optional)" | "Author URL (optional)")
+                    && frame.lines().any(|line| line == "└  ")
+                {
+                    checkpoint = self.stderr.len();
+                    if frame.contains("│  ● ") && focused_author(frame).0 != "Skip" {
+                        self.send(b"\x1b[B");
+                    } else {
+                        self.send(b"\r");
+                    }
+                    continue;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "waiting to omit contacts: {}",
+                visible_text(&self.stderr)
             );
             self.receive(Duration::from_millis(10));
         }
@@ -510,7 +546,9 @@ esac",
         self.answer_text_on_input(terminal, writer, "Name", "example", "Author (optional)");
         self.custom_author_on_input(terminal, writer);
         for (field, answer, next) in [
-            ("Author (optional)", "Team", "Description (optional)"),
+            ("Author (optional)", "Team", "Author email (optional)"),
+            ("Author email (optional)", "", "Author URL (optional)"),
+            ("Author URL (optional)", "", "Description (optional)"),
             (
                 "Description (optional)",
                 "Description",
@@ -649,6 +687,42 @@ esac",
 
     fn author_frame(&mut self) -> String {
         self.author_frame_since(0)
+    }
+
+    fn contact_frame_since(&mut self, checkpoint: usize, field: &str) -> String {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let text = visible_text(&self.stderr[checkpoint..]).replace('\r', "");
+            if let Some((_, frame)) = text.rsplit_once(&format!("◆  {field}\n"))
+                // Native scrolling adds ↑/↓ to the footer. Observe a complete
+                // fresh frame without requiring the no-scroll footer spelling.
+                && frame.lines().any(|line| line.starts_with("└  "))
+            {
+                return frame.to_owned();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Timed out waiting for fresh {field}: {text}"
+            );
+            self.receive(Duration::from_millis(10));
+        }
+    }
+
+    fn focus_contact(&mut self, field: &str, label: &str) -> String {
+        let mut frame = self.contact_frame_since(0, field);
+        let mut upwards = false;
+        for _ in 0..64 {
+            if focused_author(&frame).0 == label {
+                return frame;
+            }
+            if focused_author(&frame) == ("Skip", false) {
+                upwards = true;
+            }
+            let checkpoint = self.stderr.len();
+            self.send(if upwards { b"\x1b[A" } else { b"\x1b[B" });
+            frame = self.contact_frame_since(checkpoint, field);
+        }
+        panic!("Could not select {field} {label}: {frame}");
     }
 
     fn focus_author(&mut self, label: &str, action: bool) -> String {
@@ -926,11 +1000,15 @@ fn author_rows(frame: &str) -> Vec<&str> {
 }
 
 fn author_screen(screen: &str) -> &str {
+    selector_screen(screen, "Author (optional)")
+}
+
+fn selector_screen<'a>(screen: &'a str, field: &str) -> &'a str {
     // Compare the picker and its physical wrapping, not older prompt history:
     // native redraw can scroll that history at a short viewport's top edge.
     screen
-        .split_once("◆  Author (optional)")
-        .expect("visible Author picker")
+        .split_once(&format!("◆  {field}"))
+        .expect("visible picker")
         .1
         .trim_end_matches('\n')
 }
@@ -1202,10 +1280,16 @@ fn selector_summary(transcript: &str) -> &str {
 }
 
 fn author_summary(transcript: &str) -> &str {
-    transcript
-        .split_once("Description (optional)")
-        .unwrap()
-        .0
+    let boundary = [
+        "Author email (optional)",
+        "Author URL (optional)",
+        "Description (optional)",
+    ]
+    .iter()
+    .filter_map(|field| transcript.find(field))
+    .min()
+    .unwrap();
+    transcript[..boundary]
         .rsplit_once("Author (optional)")
         .unwrap()
         .1
@@ -1306,7 +1390,7 @@ fn compact_identity_summaries_keep_medium_width_picker_rows_short() {
         finish_after_author(&mut session, directory.path());
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": "example", "author": DEFAULT_AUTHOR})
+            json!({"name": "example", "author": {"name": DEFAULT_AUTHOR}})
         );
     }
 }
@@ -1713,7 +1797,7 @@ fn help_adapts_to_terminal_width_without_prompts_styling_or_writes() {
                             )
                         );
                         assert!(prose.contains(
-                            "Input flags are --name, --author, --description and --format."
+                            "Input flags are --name, --author, --author-email, --author-url, --description and --format."
                         ));
                         assert!(prose.contains("Format defaults to yaml (layer.yaml)."));
                         for expected in [
@@ -1799,7 +1883,7 @@ fn guided_input_and_single_completion_use_stderr_without_a_stdout_result() {
     assert!(session.finish().success());
     assert_eq!(
         layer_manifest(directory.path()),
-        json!({"name": "@example/.config", "author": "  Example team 配置 🦀  ", "description": "Description"})
+        json!({"name": "@example/.config", "author": {"name": "  Example team 配置 🦀  "}, "description": "Description"})
     );
     session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
     let transcript = visible_text(&session.stderr);
@@ -1928,16 +2012,20 @@ fn invalid_guided_name_can_be_cancelled_without_any_file_changes() {
 fn optional_fields_can_be_skipped_independently() {
     for (author, description, expected) in [
         ("", "", json!({"name": "example"})),
-        ("Team", "", json!({"name": "example", "author": "Team"})),
+        (
+            "Team",
+            "",
+            json!({"name": "example", "author": {"name": "Team"}}),
+        ),
         (
             "Skipped",
             "",
-            json!({"name": "example", "author": "Skipped"}),
+            json!({"name": "example", "author": {"name": "Skipped"}}),
         ),
         (
             "Team",
             "Layer",
-            json!({"name": "example", "author": "Team", "description": "Layer"}),
+            json!({"name": "example", "author": {"name": "Team"}, "description": "Layer"}),
         ),
         (
             "",
@@ -1964,7 +2052,9 @@ fn optional_fields_can_be_skipped_independently() {
             assert!(visible_text(&session.stderr).contains("Skipped"));
         }
         if !author.is_empty() && !description.is_empty() {
-            assert!(!visible_text(&session.stderr).contains("Skipped"));
+            assert!(!author_summary(&visible_text(&session.stderr)).contains("Skipped"));
+            assert!(visible_text(&session.stderr).contains("Author email (optional)"));
+            assert!(visible_text(&session.stderr).contains("Author URL (optional)"));
         }
         let transcript = visible_text(&session.stderr);
         session.assert_guided_success(directory.path(), LayerManifestFormat::Yaml);
@@ -2024,7 +2114,7 @@ fn project_author_and_declared_organisation_are_default_without_changing_layer_n
         finish_after_author(&mut session, directory.path());
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": layer_name, "author": author})
+            json!({"name": layer_name, "author": {"name": author}})
         );
         assert_eq!(
             fs::read_to_string(directory.path().join("package.json")).unwrap(),
@@ -2085,7 +2175,7 @@ fn project_sources_are_grouped_once_with_all_hints_before_identity_alternatives(
     finish_after_author(&mut session, directory.path());
     assert_eq!(
         layer_manifest(directory.path()),
-        json!({"name": "example", "author": "Python alternative"})
+        json!({"name": "example", "author": {"name": "Python alternative"}})
     );
     for (filename, contents) in &files {
         assert_eq!(
@@ -2097,6 +2187,68 @@ fn project_sources_are_grouped_once_with_all_hints_before_identity_alternatives(
         directory.path(),
         &["package.json", "Cargo.toml", "pyproject.toml", "layer.yaml"],
     );
+}
+
+#[test]
+fn organisations_remain_selectable_without_optional_github_email_permissions() {
+    for scopes in [None, Some("admin:public_key, gist, read:org, repo")] {
+        let directory = tempdir().unwrap();
+        let identity = IdentityFixture::new();
+        identity.github_with_scopes(
+            json!({"name":"Fixture GitHub person","login":"fixture-person","email":"private@example.invalid"}),
+            json!({"data":{"viewer":{"login":"fixture-person","organizations":{
+                "nodes":[{"name":"Fixture organisation","login":"fixture-org","email":"public-team@example.invalid","websiteUrl":"https://team.invalid","url":"https://github.com/fixture-org"}],
+                "pageInfo":{"hasNextPage":false}
+            }}}}),
+            scopes,
+        );
+        fs::write(identity.path().join("reject-viewer-email"), "").unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                identity: Some(identity),
+                ..Default::default()
+            },
+        );
+        session.wait_for("Name");
+        session.send(b"example\r");
+        let frame = session.author_frame();
+        assert_eq!(focused_author(&frame), (DEFAULT_AUTHOR, true));
+        let organisation = session.focus_author("Fixture organisation", false);
+        assert_eq!(author_detail(&organisation), "GitHub organisation");
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let email = session.contact_frame_since(checkpoint, "Author email (optional)");
+        assert!(
+            email.contains("public-team@example.invalid (GitHub organisation)"),
+            "{email}"
+        );
+        assert!(!email.contains("private@example.invalid"));
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let url = session.contact_frame_since(checkpoint, "Author URL (optional)");
+        assert!(
+            url.contains("https://team.invalid (GitHub organisation)"),
+            "{url}"
+        );
+        session.send(b"\r");
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name":"example","author":{
+                "name":"Fixture organisation","email":"public-team@example.invalid","url":"https://team.invalid"
+            }})
+        );
+        let calls = fs::read_to_string(session.identity.path().join("gh-calls")).unwrap();
+        assert_eq!(calls.lines().count(), 2, "{calls}");
+        assert!(calls.contains("user --include"));
+        assert!(!calls.contains("viewer { login email"));
+        assert!(!calls.contains("auth "));
+        session.evidence("organisations-without-email-scope");
+    }
 }
 
 #[test]
@@ -2139,7 +2291,7 @@ fn github_organisation_can_be_selected_without_storing_membership_or_leaking_cre
     finish_after_author(&mut session, directory.path());
     assert_eq!(
         layer_manifest(directory.path()),
-        json!({"name": "example", "author": "Fixture organisation"})
+        json!({"name": "example", "author": {"name": "Fixture organisation"}})
     );
     let root = session.identity.path();
     let environment = fs::read_to_string(root.join("gh-environment")).unwrap();
@@ -2256,7 +2408,7 @@ fn long_author_lists_scroll_natively_without_dropping_declared_names() {
         }
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": "example", "author": "Project author 35"})
+            json!({"name": "example", "author": {"name": "Project author 35"}})
         );
         assert_eq!(
             fs::read_to_string(directory.path().join("Cargo.toml")).unwrap(),
@@ -2302,7 +2454,7 @@ fn candidate_names_that_match_actions_remain_literal_author_metadata() {
         finish_after_author(&mut session, directory.path());
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": "example", "author": name})
+            json!({"name": "example", "author": {"name": name}})
         );
         assert_only_files(directory.path(), &["package.json", "layer.yaml"]);
     }
@@ -2379,7 +2531,7 @@ fn author_choices_and_hints_remain_meaningful_without_colour_or_on_basic_termina
         assert_no_sgr(&session.stderr);
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": "example", "author": DEFAULT_AUTHOR})
+            json!({"name": "example", "author": {"name": DEFAULT_AUTHOR}})
         );
         assert_only_files(directory.path(), &["layer.yaml"]);
     }
@@ -2434,7 +2586,7 @@ fn focused_summaries_collapse_repeated_project_sources_without_losing_grouped_na
         finish_after_author(&mut session, directory.path());
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": "example", "author": DEFAULT_AUTHOR})
+            json!({"name": "example", "author": {"name": DEFAULT_AUTHOR}})
         );
     }
 }
@@ -2515,7 +2667,7 @@ fn equal_project_identity_profile_and_memberships_keep_the_same_compact_summary_
     }
     assert_eq!(
         layer_manifest(directory.path()),
-        json!({"name": "example", "author": DEFAULT_AUTHOR})
+        json!({"name": "example", "author": {"name": DEFAULT_AUTHOR}})
     );
 }
 
@@ -2710,8 +2862,401 @@ fn narrow_source_summaries_keep_text_and_wrapping_fixed_until_submission() {
         finish_after_author(&mut session, directory.path());
         assert_eq!(
             layer_manifest(directory.path()),
-            json!({"name": "example", "author": DEFAULT_AUTHOR})
+            json!({"name": "example", "author": {"name": DEFAULT_AUTHOR}})
         );
+    }
+}
+
+#[test]
+fn contact_sources_wrap_and_clear_independently_with_scoped_themes_in_real_terminals() {
+    for cols in [40, 60, 80] {
+        for (term, colour) in [
+            ("xterm-256color", true),
+            ("xterm-256color", false),
+            ("dumb", false),
+        ] {
+            let directory = tempdir().unwrap();
+            let email = "work@example.com";
+            let website =
+                "https://example.com/long-shared-author-contact/website-with-an-explicit-scheme";
+            let login = "contact-longtoken-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            let host = "longtoken-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz.example";
+            fs::write(
+                directory.path().join("package.json"),
+                json!({"author":{"name":DEFAULT_AUTHOR,"email":email,"url":website}}).to_string(),
+            )
+            .unwrap();
+            fs::write(
+                directory.path().join("Cargo.toml"),
+                format!("[package]\nauthors = ['{DEFAULT_AUTHOR} <alternate@example.com>']\n"),
+            )
+            .unwrap();
+            fs::write(
+                directory.path().join("pyproject.toml"),
+                format!(
+                    "[project]\nauthors = [{{name = '{DEFAULT_AUTHOR}', email = '{email}'}}]\n"
+                ),
+            )
+            .unwrap();
+            let identity = IdentityFixture::new().with_github_host(host);
+            identity.github(
+                json!({"name":DEFAULT_AUTHOR,"login":login,"blog":website,"html_url":format!("https://{host}/{login}")}),
+                json!({"data":{"viewer":{"login":login,"email":email,"organizations":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}),
+            );
+            let mut session = Session::with_settings(
+                directory.path(),
+                &["init"],
+                None,
+                None,
+                TerminalSettings {
+                    cols,
+                    rows: 24,
+                    term,
+                    colour: Some(colour),
+                    identity: Some(identity),
+                    ..Default::default()
+                },
+            );
+            session.wait_for_frame_since(0, "◆", "Name", "");
+            session.send(b"example\r");
+            session.author_frame();
+            let checkpoint = session.stderr.len();
+            session.send(b"\r");
+            let email_frame = session.contact_frame_since(checkpoint, "Author email (optional)");
+            let hint = format!("project metadata, GitHub on {host}");
+            assert!(
+                email_frame.contains(&format!("{email} ({hint})")),
+                "{email_frame}"
+            );
+            assert!(
+                console::measure_text_width(
+                    email_frame.lines().find(|line| line.contains('●')).unwrap()
+                ) > usize::from(cols)
+            );
+            let screen = session.screen();
+            let initial_email_screen =
+                selector_screen(&screen, "Author email (optional)").replace('●', "○");
+            session.evidence(&format!(
+                "author-contact-email-active-{cols}-{term}-{colour}"
+            ));
+            assert!(
+                screen
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains(&hint.split_whitespace().collect::<String>()),
+                "wrapped contact summary missing: {screen}"
+            );
+            assert!(email_frame.contains("○ alternate@example.com (project metadata)"));
+            for hidden in [
+                "author.email",
+                "package.authors",
+                login,
+                " (Git,",
+                "👤",
+                "◇   ",
+                "✏️",
+                "⏭",
+            ] {
+                assert!(!email_frame.contains(hidden), "{email_frame}");
+            }
+            if colour {
+                assert_style(
+                    &session.stderr[checkpoint..],
+                    " (project metadata",
+                    |style| style.dim && !style.bold && style.foreground.is_none(),
+                );
+            }
+            assert_no_layer_manifests(directory.path());
+            for label in ["alternate@example.com", "Enter another email", "Skip"] {
+                let moved = session.focus_contact("Author email (optional)", label);
+                assert_eq!(author_rows(&email_frame), author_rows(&moved));
+                assert_eq!(
+                    selector_screen(&session.screen(), "Author email (optional)").replace('●', "○"),
+                    initial_email_screen
+                );
+                if label.contains("another") || label == "Skip" {
+                    assert_eq!(author_detail(&moved), "");
+                    assert!(moved.contains(&format!("│  ● {label}\n")));
+                }
+            }
+            let checkpoint = session.stderr.len();
+            session.send(b"\r");
+            let url_frame = session.contact_frame_since(checkpoint, "Author URL (optional)");
+            assert!(url_frame.contains(website), "{url_frame}");
+            assert!(url_frame.contains(&format!("https://{host}/{login} (GitHub on {host})")));
+            assert!(url_frame.contains(&format!("{website} ({hint})")));
+            assert!(!url_frame.contains("authors email"));
+            let screen = session.screen();
+            let initial_url_screen =
+                selector_screen(&screen, "Author URL (optional)").replace('●', "○");
+            session.evidence(&format!("author-contact-url-active-{cols}-{term}-{colour}"));
+            assert!(
+                screen
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains(&website.split_whitespace().collect::<String>()),
+                "{screen}"
+            );
+            for label in [
+                format!("https://{host}/{login}"),
+                "Enter another URL".into(),
+            ] {
+                let moved = session.focus_contact("Author URL (optional)", &label);
+                assert_eq!(author_rows(&url_frame), author_rows(&moved));
+                assert_eq!(
+                    selector_screen(&session.screen(), "Author URL (optional)").replace('●', "○"),
+                    initial_url_screen
+                );
+            }
+            let checkpoint = session.stderr.len();
+            session.send(b"\r");
+            let custom = session.contact_frame_since(checkpoint, "Author URL (optional)");
+            assert!(
+                !custom.contains('●') && !custom.contains("https://"),
+                "{custom}"
+            );
+            let screen = session.screen();
+            assert!(
+                !screen.contains("GitHub on") && !screen.contains("longtoken"),
+                "{screen}"
+            );
+            session.send(b"mailto:custom@example.com\r");
+            session.wait_for_frame_since(checkpoint, "◆", "Description (optional)", "");
+            assert_no_layer_manifests(directory.path());
+            let screen = session.screen();
+            assert!(
+                !screen.contains(" (GitHub") && !screen.contains("author.url"),
+                "completed source leak: {screen}"
+            );
+            session.send(b"\r");
+            session.choose_format(directory.path(), LayerManifestFormat::Yaml);
+            assert!(session.finish().success());
+            assert_eq!(
+                layer_manifest(directory.path()),
+                json!({"name":"example","author":{"name":DEFAULT_AUTHOR,"url":"mailto:custom@example.com"}})
+            );
+            let text = visible_text(&session.stderr);
+            let format = text.rsplit_once("◆  Layer manifest format").unwrap().1;
+            assert!(
+                !format.contains("👤")
+                    && !format.contains("Enter another URL")
+                    && !format.contains("GitHub profile")
+            );
+            if !colour {
+                assert_no_sgr(&session.stderr);
+            }
+            session.evidence(&format!("author-contact-stable-{cols}-{term}-{colour}"));
+        }
+    }
+}
+
+#[test]
+fn contact_lists_scroll_natively_with_stable_summaries_and_plain_actions() {
+    for cols in [40, 60, 80] {
+        let directory = tempdir().unwrap();
+        let authors = (0..16)
+            .map(|index| format!("'{DEFAULT_AUTHOR} <contact-{index:02}@example.com>'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        fs::write(
+            directory.path().join("Cargo.toml"),
+            format!("[package]\nauthors = [{authors}]\n"),
+        )
+        .unwrap();
+        let identity = IdentityFixture::new();
+        let nodes = (0..16)
+            .map(|index| {
+                json!({
+                    "name": DEFAULT_AUTHOR, "login": format!("org-{index:02}"),
+                    "url": format!("https://example.com/{index:02}")
+                })
+            })
+            .collect::<Vec<_>>();
+        identity.github(
+            json!({"name":"Other profile", "login":"other"}),
+            json!({
+                "data":{"viewer":{"login":"other","organizations":{
+                    "nodes":nodes,"pageInfo":{"hasNextPage":false,"endCursor":null}
+                }}}
+            }),
+        );
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                cols,
+                identity: Some(identity),
+                ..Default::default()
+            },
+        );
+        session.wait_for_frame_since(0, "◆", "Name", "");
+        session.send(b"example\r");
+        session.author_frame();
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let initial = session.contact_frame_since(checkpoint, "Author email (optional)");
+        assert!(author_rows(&initial).len() <= 7, "{initial}");
+        assert!(!initial.contains("contact-15@"), "{initial}");
+        let last = session.focus_contact("Author email (optional)", "contact-15@example.com");
+        assert!(
+            last.contains("● contact-15@example.com (project metadata)"),
+            "{last}"
+        );
+        assert!(session.screen().contains("contact-15@example.com"));
+        assert!(author_rows(&last).len() <= 7);
+        for action in ["Enter another email", "Skip"] {
+            let frame = session.focus_contact("Author email (optional)", action);
+            assert!(frame.contains(&format!("│  ● {action}\n")), "{frame}");
+            assert!(frame.contains("contact-15@example.com (project metadata)"));
+        }
+        session.focus_contact("Author email (optional)", "contact-15@example.com");
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let initial = session.contact_frame_since(checkpoint, "Author URL (optional)");
+        assert!(author_rows(&initial).len() <= 7);
+        let last = session.focus_contact("Author URL (optional)", "https://example.com/15");
+        assert!(
+            last.contains("● https://example.com/15 (GitHub organisation)"),
+            "{last}"
+        );
+        assert!(session.screen().contains("https://example.com/15"));
+        assert!(author_rows(&last).len() <= 7);
+        for action in ["Enter another URL", "Skip"] {
+            let frame = session.focus_contact("Author URL (optional)", action);
+            assert!(frame.contains(&format!("│  ● {action}\n")), "{frame}");
+            assert!(frame.contains("https://example.com/15 (GitHub organisation)"));
+        }
+        session.focus_contact("Author URL (optional)", "https://example.com/15");
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        session.wait_for_frame_since(checkpoint, "◆", "Description (optional)", "");
+        let screen = session.screen();
+        assert!(
+            !screen.contains(" (project metadata)") && !screen.contains(" (GitHub organisation)"),
+            "{screen}"
+        );
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name":"example","author":{
+                "name":DEFAULT_AUTHOR,"email":"contact-15@example.com","url":"https://example.com/15"
+            }})
+        );
+        session.evidence(&format!("author-contact-scroll-{cols}"));
+    }
+}
+
+#[test]
+fn contact_candidate_punctuation_and_action_words_stay_literal_in_real_terminals() {
+    for cols in [40, 60, 80] {
+        let directory = tempdir().unwrap();
+        let name = "Skip (literal)";
+        let email = "Skip@example.com";
+        let url = "https://example.com/Enter_another_URL(Skip)";
+        fs::write(
+            directory.path().join("package.json"),
+            json!({"author":{
+                "name":name,"email":email,"url":url
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                cols,
+                ..Default::default()
+            },
+        );
+        session.wait_for_frame_since(0, "◆", "Name", "");
+        session.send(b"example\r");
+        let author = session.author_frame();
+        assert_eq!(focused_author(&author), (name, true));
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let email_frame = session.contact_frame_since(checkpoint, "Author email (optional)");
+        assert_eq!(focused_author(&email_frame), (email, true));
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        let url_frame = session.contact_frame_since(checkpoint, "Author URL (optional)");
+        assert_eq!(focused_author(&url_frame), (url, true));
+        let checkpoint = session.stderr.len();
+        session.send(b"\r");
+        session.wait_for_frame_since(checkpoint, "◆", "Description (optional)", "");
+        let text = visible_text(&session.stderr[checkpoint..]);
+        assert!(text.contains(&format!("│  {url}\r\n")), "{text}");
+        assert!(!text.contains("project metadata"));
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name":"example","author":{
+                "name":name,"email":email,"url":url
+            }})
+        );
+    }
+}
+
+#[test]
+fn contact_cancellation_clears_wrapped_selector_decoration_and_creates_nothing() {
+    for (cols, key) in [
+        (40, b"\x1b".as_slice()),
+        (60, b"\x03".as_slice()),
+        (80, b"\x03".as_slice()),
+    ] {
+        for field in ["Author email (optional)", "Author URL (optional)"] {
+            let directory = tempdir().unwrap();
+            fs::write(directory.path().join("package.json"),json!({"author":{"name":DEFAULT_AUTHOR,"email":"long-contact-for-cancellation@example.com","url":"https://example.com/long-contact-for-cancellation"}}).to_string()).unwrap();
+            let mut session = Session::with_settings(
+                directory.path(),
+                &["init"],
+                None,
+                None,
+                TerminalSettings {
+                    cols,
+                    rows: 16,
+                    ..Default::default()
+                },
+            );
+            session.wait_for_frame_since(0, "◆", "Name", "");
+            session.send(b"example\r");
+            session.author_frame();
+            let checkpoint = session.stderr.len();
+            session.send(b"\r");
+            session.contact_frame_since(checkpoint, "Author email (optional)");
+            if field == "Author URL (optional)" {
+                let checkpoint = session.stderr.len();
+                session.send(b"\r");
+                session.contact_frame_since(checkpoint, field);
+            }
+            assert_no_layer_manifests(directory.path());
+            session.wait_for_shared_input();
+            session.send(key);
+            assert!(!session.finish().success());
+            assert!(session.stdout.is_empty());
+            let screen = session.screen();
+            for stale in [
+                " (project metadata)",
+                "author.email)",
+                "author.url)",
+                "✏️",
+                "⏭",
+            ] {
+                assert!(!screen.contains(stale), "stale {stale}: {screen}");
+            }
+            let text = visible_text(&session.stderr);
+            assert_eq!(
+                text.matches("Layer initialisation cancelled. No files were changed.")
+                    .count(),
+                1
+            );
+            assert!(!text.contains("Description (optional)"));
+            assert_no_layer_manifests(directory.path());
+        }
     }
 }
 
@@ -2881,7 +3426,7 @@ fn invalid_answers_can_be_corrected_without_creating_files_early() {
             session.choose_format(directory.path(), LayerManifestFormat::Yaml);
             assert!(session.finish().success());
             let expected = if supply_author {
-                json!({"name": "@example/_config", "author": "  Team 配置  "})
+                json!({"name": "@example/_config", "author": {"name": "  Team 配置  "}})
             } else {
                 json!({"name": "@example/_config", "description": "  Description 配置  "})
             };
@@ -2923,7 +3468,7 @@ fn unicode_schema_answers_reject_next_line_whitespace_and_accept_bom_without_nor
     assert!(session.finish().success());
     assert_eq!(
         layer_manifest_in_format(directory.path(), LayerManifestFormat::Jsonc),
-        json!({"name": "example", "author": "\u{feff}", "description": "\u{85}visible 配置 🦀\u{2003}"})
+        json!({"name": "example", "author": {"name": "\u{feff}"}, "description": "\u{85}visible 配置 🦀\u{2003}"})
     );
     assert_only_files(directory.path(), &["layer.jsonc"]);
     session.assert_guided_success(directory.path(), LayerManifestFormat::Jsonc);
@@ -2974,13 +3519,13 @@ fn every_guided_format_choice_uses_a_fixed_filename_and_independent_content() {
         assert_eq!(
             layer_manifest_in_format(directory.path(), format),
             json!({
-                "name": "shared-agent-rules", "author": "  Équipe 🦀  ", "description": "2026-10-16"
+                "name": "shared-agent-rules", "author": {"name": "  Équipe 🦀  "}, "description": "2026-10-16"
             })
         );
         assert_only_files(directory.path(), &[format.filename()]);
         session.assert_guided_success(directory.path(), format);
         let transcript = visible_text(&session.stderr);
-        assert!(!transcript.contains("Skipped"));
+        assert!(!author_summary(&transcript).contains("Skipped"));
         let summary = selector_summary(&transcript);
         assert!(summary.contains(format.extension()), "{summary}");
         assert!(!summary.contains("layer."), "{summary}");
@@ -3012,6 +3557,29 @@ fn format_only_flags_never_prompt_in_a_terminal() {
 fn metadata_flags_never_start_a_guided_session_in_a_terminal() {
     for arguments in [
         vec!["init", "--author", "Team"],
+        vec![
+            "init",
+            "--author",
+            "Team",
+            "--author-email",
+            "team@example.com",
+        ],
+        vec![
+            "init",
+            "--author",
+            "Team",
+            "--author-url",
+            "https://team.example",
+        ],
+        vec![
+            "init",
+            "--author",
+            "Team <team@example.com> (https://team.example)",
+            "--author-email",
+            "team@example.com",
+            "--author-url",
+            "https://team.example",
+        ],
         vec!["init", "--description", "Layer"],
         vec!["init", "--name", "example"],
         vec!["init", "--name", "example", "--author", "Team"],
@@ -3049,9 +3617,82 @@ fn metadata_flags_never_start_a_guided_session_in_a_terminal() {
 }
 
 #[test]
+fn author_component_and_conflict_errors_are_compact_clear_and_truthful_in_terminals() {
+    for cols in [40, 80, 100] {
+        for colour in [false, true] {
+            for (case, (arguments, facts)) in [
+                (
+                    vec!["init", "--author", "Alex <bad>"],
+                    vec!["Invalid value for '--author'.", "/author/email", "email"],
+                ),
+                (
+                    vec!["init", "--author", "Alex", "--author-url", "relative/path"],
+                    vec!["Invalid value for '--author-url'.", "/author/url", "uri"],
+                ),
+                (
+                    vec![
+                        "init",
+                        "--author",
+                        "Alex <a@example.com>",
+                        "--author-email",
+                        "b@example.com",
+                    ],
+                    vec![
+                        "Conflicting values in '--author' and '--author-email'.",
+                        "author.email",
+                        "same contact",
+                    ],
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let directory = tempdir().unwrap();
+                let mut session = Session::with_settings(
+                    directory.path(),
+                    &arguments,
+                    None,
+                    None,
+                    TerminalSettings {
+                        cols,
+                        colour: Some(colour),
+                        ..Default::default()
+                    },
+                );
+                assert!(!session.finish().success());
+                assert!(session.stdout.is_empty());
+                let text = visible_text(&session.stderr).replace('\r', "");
+                for fact in facts {
+                    assert!(text.contains(fact), "{text}");
+                }
+                assert_eq!(text.matches("No files were changed.").count(), 1);
+                assert!(
+                    !text.contains("Finding author suggestions")
+                        && !text.contains("Author (optional)")
+                );
+                diagnostic_body_support::assert_compact(&text);
+                if colour {
+                    assert_style(&session.stderr, "Error:", |style| {
+                        style.foreground == Some(31)
+                    });
+                } else {
+                    assert_no_sgr(&session.stderr);
+                }
+                assert_no_layer_manifests(directory.path());
+                session.evidence(&format!("author-contact-diagnostic-{case}-{cols}-{colour}"));
+            }
+        }
+    }
+}
+
+#[test]
 fn invalid_flags_error_instead_of_asking_for_replacements() {
     for arguments in [
         vec!["init", "--author", " "],
+        vec!["init", "--author-email", "a@example.com"],
+        vec!["init", "--author-url", "https://example.com"],
+        vec!["init", "--author", "Team", "--author-email", "invalid"],
+        vec!["init", "--author", "Team", "--author-url", "relative/path"],
         vec!["init", "--name", ""],
         vec!["init", "--name", "Shared-config"],
         vec!["init", "--name", "two words"],
@@ -3064,7 +3705,11 @@ fn invalid_flags_error_instead_of_asking_for_replacements() {
         let status = session.finish();
         assert_eq!(
             status.exit_code(),
-            if arguments.contains(&"--format") {
+            if arguments.contains(&"--format")
+                || (!arguments.contains(&"--author")
+                    && (arguments.contains(&"--author-email")
+                        || arguments.contains(&"--author-url")))
+            {
                 2
             } else {
                 1
@@ -3422,7 +4067,7 @@ fn absolute_stty_preamble_preserves_queued_keys_with_fixture_only_path() {
             finish_after_author(&mut session, directory.path());
             assert_eq!(
                 layer_manifest(directory.path()),
-                json!({"name": "example", "author": "Chosen author"})
+                json!({"name": "example", "author": {"name": "Chosen author"}})
             );
             assert_only_files(directory.path(), &["layer.yaml"]);
         }
@@ -3756,7 +4401,7 @@ fn library_writer_drop_injects_submit_and_is_not_a_terminal_hangup() {
     let document = layer_manifest(directory.path());
     assert_eq!(
         document,
-        json!({"name":"example", "author":"Team", "description":"Description"})
+        json!({"name":"example", "author":{"name":"Team"}, "description":"Description"})
     );
     session.evidence("portable-writer-drop-submit-without-hangup");
     if let Some(evidence) = std::env::var_os("HYDRAGEN_OPERATION_EVIDENCE") {

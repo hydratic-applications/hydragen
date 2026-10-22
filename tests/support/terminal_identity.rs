@@ -54,7 +54,18 @@ impl IdentityFixture {
     }
 
     pub fn github(&self, profile: Value, organisations: Value) {
-        fs::write(self.path().join("profile.json"), profile.to_string()).unwrap();
+        self.github_with_scopes(profile, organisations, Some("read:user"));
+    }
+
+    pub fn github_with_scopes(&self, profile: Value, organisations: Value, scopes: Option<&str>) {
+        let header = scopes.map_or_else(String::new, |scopes| {
+            format!("X-Oauth-Scopes: {scopes}\r\n")
+        });
+        fs::write(
+            self.path().join("profile.json"),
+            format!("HTTP/2.0 200 OK\r\n{header}\r\n{profile}"),
+        )
+        .unwrap();
         fs::write(
             self.path().join("organisations.json"),
             organisations.to_string(),
@@ -62,7 +73,7 @@ impl IdentityFixture {
         .unwrap();
         self.executable(
             "gh",
-            "case \"$*\" in\n*graphql*) /bin/cat \"$HOME/../organisations.json\";;\n*user*) /bin/cat \"$HOME/../profile.json\";;\n*) exit 1;;\nesac\n",
+            "case \"$*\" in\n*graphql*)\n  case \"$*\" in\n  *'viewer { login email'*)\n    if [ -f \"$HOME/../reject-viewer-email\" ]; then\n      printf '%s' '{\"errors\":[{\"type\":\"INSUFFICIENT_SCOPES\"}]}'\n      exit 1\n    fi;;\n  esac\n  /bin/cat \"$HOME/../organisations.json\";;\n*user*) /bin/cat \"$HOME/../profile.json\";;\n*) exit 1;;\nesac\n",
         );
     }
 

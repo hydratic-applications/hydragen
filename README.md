@@ -71,9 +71,10 @@ In an interactive terminal:
 hydragen init
 ```
 
-The prompts ask for Name, optional Author and Description, then Layer manifest
-format. Name defaults to the current directory's name, not a fetched project or
-account name; press Enter to accept it or type another name.
+The prompts ask for Name, optional Author, Author email, Author URL, and
+Description, then Layer manifest format. Name defaults to the current directory's
+name, not a fetched project or account name; press Enter to accept it or type
+another name.
 
 Author offers names directly declared in the directory's `package.json`,
 `Cargo.toml`, and `pyproject.toml` before Git, GitHub, and system-account suggestions.
@@ -88,6 +89,15 @@ Enter to omit author. GitHub organisation membership alone does not make a name
 the initial selection, though an organisation explicitly credited by the project
 is eligible.
 
+After choosing an author name, each contact step offers associated suggestions,
+custom entry, and Skip when suggestions exist, or an empty optional text input
+otherwise. Equal names can have several contact choices, each displaying a short
+source summary that stays fixed during navigation. Entering another author gives
+no inferred contacts. You can also type npm shorthand, such as
+`Alex <alex@example.com> (https://alex.example)`;
+contact values supplied there skip their later prompts. Skipping Author skips
+both contact steps. Empty optional text omits the field.
+
 **Current limitation:** If the only suggestions are seven or more GitHub
 organisation membership names, the initially selected **Enter another author**
 can be off-screen. Moving Up can also leave a selected name off-screen and omit
@@ -100,7 +110,13 @@ a short wait shows progress before continuing with the available names; choices
 do not change once displayed. Optional GitHub profile and organisation lookups may
 make network requests through the GitHub CLI (`gh`), using only its existing
 authentication. Hydragen never starts login or requests extra permissions. Lookup
-failures are silent; init still works offline and without `gh`.
+failures are silent; init still works offline and without `gh`. Contact choices
+freeze with names, so email and URL steps do not add lookup waits. GitHub email
+suggestions use only public data available under existing permissions; unavailable
+profile-email permission does not disable organisation suggestions. Local Git and
+project declarations may contain private addresses. **Author contact details may
+become public when you share the layer manifest.** Choose only information you
+intend to include.
 
 Press Enter in the empty Description prompt to omit it, or in the format selector
 to accept YAML (`layer.yaml`). Escape or Ctrl-C cancels prompts or suggestion
@@ -115,10 +131,12 @@ silently convert the name.
 
 ### Using flags
 
-Supply any of `--name`, `--author`, `--description`, or `--format` to run without
-questions. Omitted name defaults to the directory's name, author and description
-are left out, and format defaults to YAML. This route performs no author
-discovery; an explicit `--author` is validated and preserved as supplied.
+Supply any of `--name`, `--author`, `--author-email`, `--author-url`,
+`--description`, or `--format` to run without questions. Omitted name defaults to
+the directory's name, unsupplied metadata stays absent, and format defaults to
+YAML. This route performs no author or contact discovery. `--author` accepts a
+name or npm shorthand; contact flags require `--author`. If a contact flag and
+shorthand supply the same field, their values must agree.
 
 ```sh
 hydragen init --name shared-agent-rules \
@@ -130,7 +148,8 @@ This creates `layer.yaml`:
 
 ```yaml
 name: shared-agent-rules
-author: Example team
+author:
+  name: Example team
 description: Coding-agent instructions shared across our projects.
 ```
 
@@ -236,9 +255,15 @@ layer manifest loader; existing layer manifests with invalid names need delibera
 correction. A layer's declared name is separate from its directory name and the
 fixed layer manifest filename.
 
-Author and description remain arbitrary strings containing at least one
-non-whitespace character, preserved unchanged. Omit unsupplied optional fields
-rather than setting them to empty strings or `null`.
+Author accepts an object with a required non-blank `name` and optional `email` and
+`url`, or a non-blank string, including npm shorthand. When author is supplied,
+init always writes an object, even for a name-only author. Existing non-blank
+author strings are accepted unchanged without parsing their contents. Object
+contacts and contacts supplied to init use offline syntax checks, not ownership
+or reachability checks. A URL must include a scheme, such as `https:` or `mailto:`.
+Description remains a non-blank string. Omit unsupplied optional fields instead
+of empty strings or `null`. Older Hydragen binaries that support only string
+authors cannot read the new object form.
 
 Supported formats are **YAML** (`layer.yaml` or `layer.yml`), **TOML**
 (`layer.toml`), **JSON** (`layer.json`), and **JSON with comments** (`layer.jsonc`).

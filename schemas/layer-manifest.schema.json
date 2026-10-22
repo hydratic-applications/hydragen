@@ -52,6 +52,40 @@
         { "$ref": "#/$defs/publishedReference" }
       ]
     },
+    "authorName": {
+      "$ref": "#/$defs/nonBlankString"
+    },
+    "authorEmail": {
+      "allOf": [
+        { "$ref": "#/$defs/nonBlankString" },
+        { "format": "email" }
+      ],
+      "description": "A syntactically valid email address; no mailbox or ownership check is performed."
+    },
+    "authorUrl": {
+      "allOf": [
+        { "$ref": "#/$defs/nonBlankString" },
+        { "format": "uri" }
+      ],
+      "description": "An absolute URI with a scheme; no reachability or ownership check is performed."
+    },
+    "authorObject": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/authorName" },
+        "email": { "$ref": "#/$defs/authorEmail" },
+        "url": { "$ref": "#/$defs/authorUrl" }
+      },
+      "additionalProperties": true
+    },
+    "author": {
+      "type": ["string", "object"],
+      "if": { "type": "string" },
+      "then": { "$ref": "#/$defs/nonBlankString" },
+      "else": { "$ref": "#/$defs/authorObject" },
+      "$comment": "Conditional branches preserve useful nested failures instead of hiding them behind a generic union error. String authors remain literal, arbitrary non-blank strings on load."
+    },
     "nonBlankString": {
       "type": "string",
       "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]",
@@ -70,8 +104,8 @@
       "description": "The layer's declared name, without normalization or registry-specific reserved-name exclusions."
     },
     "author": {
-      "$ref": "#/$defs/nonBlankString",
-      "description": "Optional person or organisation credited with authoring the layer. When supplied, this must be a non-blank string. This is descriptive metadata, not a verified identity."
+      "$ref": "#/$defs/author",
+      "description": "Optional person or organisation credited with authoring the layer: a non-blank string, or an object with required name and optional email and url. This is descriptive metadata, not a verified identity."
     },
     "dependencies": {
       "type": "array",

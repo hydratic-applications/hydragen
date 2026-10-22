@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 use hydragen::layer_manifest::edit::append_dependencies;
 use hydragen::layer_manifest::parse_source;
 use hydragen::{
-    LayerManifestFormat as Format, Metadata, discover, encode_metadata, validate_document,
+    Author, AuthorObject, LayerManifestFormat as Format, Metadata, discover, encode_metadata,
+    validate_document,
 };
 use serde_json::{Value, json};
 
@@ -97,6 +98,15 @@ fn metadata(author: bool, description: bool) -> Metadata {
     }
 }
 
+// Init generates objects; library encoding and hand-authored fixtures
+// deliberately retain the legacy string representation they were given.
+fn init_metadata(author: bool, description: bool) -> Metadata {
+    Metadata {
+        author: author.then(|| Author::Object(AuthorObject::new(AUTHOR))),
+        ..metadata(false, description)
+    }
+}
+
 // These fixtures put each root key on its own line. Match key syntax at its
 // actual indentation, never a bare word that could occur in a metadata value.
 fn root_position(format: Format, source: &str, key: &str) -> usize {
@@ -168,7 +178,7 @@ fn cli_init_order_is_independent_of_flag_order_in_every_optional_combination() {
             for description in [false, true] {
                 for reversed in [false, true] {
                     let fixture = Fixture::new();
-                    let expected = metadata(author, description);
+                    let expected = init_metadata(author, description);
                     let mut fields = vec![("--name", expected.name.as_str())];
                     if author {
                         fields.push(("--author", AUTHOR));
@@ -405,7 +415,7 @@ fn init_then_add(format: Format) {
             assert_success_without_warnings(&fixture.run(&["add", "../shared"]));
             let result = fs::read_to_string(path).unwrap();
             let loaded = discover(&fixture.app).unwrap().load().unwrap();
-            let expected_metadata = metadata(author, description);
+            let expected_metadata = init_metadata(author, description);
             assert_eq!(loaded.metadata, expected_metadata);
             let mut expected = serde_json::to_value(&expected_metadata).unwrap();
             expected["dependencies"] = json!(["../shared"]);

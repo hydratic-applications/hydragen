@@ -181,7 +181,13 @@ and directory default without trimming, lowercasing, or sanitising. Directory
 names and path text are not layer names. An invalid init directory-name default
 must fail before prompts or writes with `--name` override guidance; a valid
 explicit name bypasses default derivation. Preserve arbitrary accepted non-blank
-author and description strings unchanged.
+author strings, author-object names, and descriptions unchanged. Author also
+accepts an object requiring name with independently optional email/URL, and
+uninterpreted additional data. Validate nested fields through the maintained
+schema's authorName/authorEmail/authorUrl definitions with offline format
+assertions, not separate Rust email/URL acceptance grammars. Keep useful nested
+schema failures and setup failures distinct. Loading and add preserve author
+representation, extra decoded data, and source bytes without conversion.
 
 Archived schemas are historical snapshots: do not synchronize them with maintained
 assets, require equality in tests, or use them as build or test inputs.
@@ -192,6 +198,10 @@ Guide generated layouts and maintained general-usage examples with the preferred
 order `$schema`, `name`, `author`, `description`, `dependencies`, skipping absent
 fields. Keep optional fields optional: init emits only name and supplied author
 and description, in that order; it does not generate `$schema` or dependencies.
+Init generates an object author with name, email, url in that order, omitting
+unsupplied contacts. Use a root TOML inline table so description remains at the
+root and root field order is preserved; reading also accepts author tables/dotted
+keys. Do not impose nested order as a validity rule.
 Accept any otherwise valid field order without ordering warnings or schema order
 checks. Additional fields have no prescribed placement. Preserve examples and
 test fixtures intentionally demonstrating alternative layouts, and leave archived
@@ -246,8 +256,10 @@ before a concrete need exists.
 When a command offers guided input and input flags, keep those routes separate.
 With no input flags, allow a guided flow when interaction is available; any input
 flag selects flag-only execution without questions to complete it. For init, the input
-flags are `--name`, `--author`, `--description`, and `--format`. Explicit format
-alone selects flag-only execution; the inferred YAML default does not count as an
+flags are `--name`, `--author`, `--author-email`, `--author-url`, `--description`,
+and `--format`. Contact flags require `--author` through clap before operational
+dispatch. Explicit format alone selects flag-only execution; the inferred YAML
+default does not count as an
 input flag. Global controls such as `--non-interactive` are not input flags.
 Preserve flags for input overrides, apply documented defaults without prompting,
 and reject missing input that has no default. Init defaults omitted name to the
@@ -255,11 +267,19 @@ current directory's name. Its guided name prompt shows that default and accepts
 it on Enter; author discovery must not replace this default with a project or
 account name. Flag-only execution performs no author discovery: do not read
 project authors, look up local identity, probe
-`gh` or its authentication, or make GitHub requests. Preserve and validate an
-explicit `--author` unchanged; omit unsupplied author and description instead of
-prompting for them. Omitted format defaults to `yaml` (`layer.yaml`). Guided init
-asks Name, Author, Description, then Layer manifest format, with choices labelled
-by extensions without a leading dot in priority order: `yaml`, `yml`, `toml`,
+`gh` or its authentication, or make GitHub requests. Interpret explicit `--author`
+as full unambiguous npm shorthand with a name and optional `<email>` then `(URL)`,
+or otherwise as the literal author name. Only explicit URI schemes identify URL
+suffixes. Separate syntax recognition from schema-backed component validity;
+captured invalid contacts are errors, not literal fallback. Preserve explicit
+payloads except recognised delimiters/separators. Do not reinterpret explicit
+object names, selected name labels, or Git/account names. Equal shorthand/contact
+flag values deduplicate; differing values fail with both flags identified, and
+every explicit value is validated. Omit unsupplied metadata instead of prompting.
+Omitted format defaults to `yaml` (`layer.yaml`). Guided init asks Name, Author,
+unresolved Author email, unresolved Author URL, Description, then Layer manifest
+format, with choices labelled by extensions without a leading dot in priority
+order: `yaml`, `yml`, `toml`,
 `json`, `jsonc`.
 The selector starts on `yaml`, accepted by Enter. Each choice still creates its
 fixed `layer.<extension>` filename. Format is separate from
@@ -277,7 +297,7 @@ host/account; never initiate login, request permissions, or change accounts.
 Missing tools, credentials, connectivity, permissions, or usable source data are
 silent, non-fatal discovery failures; retain other names and support offline use.
 Keep credentials and source/membership records out of the layer manifest. Use the
-maintained schema's author definition for discovered names; internal schema
+maintained schema's author-name definition for discovered names; internal schema
 failures remain errors, not an empty discovery result. The
 [author-suggestion design](openspec/changes/archive/2026-10-20-suggest-init-author/design.md) defines
 the supported fields, complete source order, host selection, and resource limits.
@@ -287,16 +307,59 @@ grouped names, then `Enter another author` and `Skip`. Initially select the
 first project-declared or developer-identity name, including a project-declared
 organisation. A name supported only by GitHub membership is not evidence of
 authorship and must not be initially selected; if only such names exist, start on
-`Enter another author`. Accepting a name proceeds directly to Description; `Skip`
-omits author and does the same without another prompt. With no names, bypass the
-selector and use the same empty optional Author text-input function as
+`Enter another author`. Accepting a name retains its typed frozen group and proceeds
+to optional contacts; `Skip` omits the entire author and proceeds to Description
+without contact prompts. With no names, bypass the selector and use the same
+empty optional Author text-input function as
 `Enter another author`. Empty submission omits author and proceeds to Description,
 without restoring a suggestion or returning to the selector. Keep action values
 separate from name strings, use native scrolling for long lists, and show the
 accepted name or `Skipped`, never source hints or action labels as metadata.
 
-Keep Author names and actions aligned without added icons. Every visible candidate
-shows the same dimmed parenthesised source-family summary, such as
+Custom Author text uses the same shorthand interpreter as flags. Captured contacts
+skip their later prompts; keep accepted shorthand visible in the original Author
+answer, without synthetic completed rows. Plain custom names have no inferred
+contacts, even when identical to a discovered group; do not recover groups by text.
+For each unresolved contact, use only the selected group's source records and
+independently group trimmed exact-equal values with actual contact-source hints.
+Keep differing values, source order, and provenance; do not case-fold email or
+normalise URI spelling. Email Skip/custom entry must not filter the URL pool.
+With suggestions, use native `Author email (optional)`/`Author URL (optional)`
+selectors, all choices then `Enter another email`/`Enter another URL` and `Skip`,
+initially selecting the first suggestion. Without suggestions or after custom
+entry, use shared empty optional text input with no default or return to selector.
+Empty text/Skip omits only that field. Reuse stable compact source summaries,
+typed actions, completed-value/Skipped presentation, and cancellation. Derive each
+contact summary only from structured records supplying that exact contact, never
+from all selected-name sources or by parsing detailed hint text.
+
+Retain same-entry npm email/URL and Cargo/Python email as discovery evidence;
+skip malformed/ambiguous source shorthand but independently discard invalid
+contacts rather than valid extractable names. Pair GIT_AUTHOR_NAME only with
+GIT_AUTHOR_EMAIL. Git name/email pairs require one distinct usable name in the
+same scope/origin/author-or-user family; ambiguous buckets keep names only. Do
+not cross-pair scopes, origins, families, or environment/config values, expose full
+origin paths, or derive contacts from system usernames, generic EMAIL, project
+homepages, or repository URLs. Local account sources remain name-only.
+
+Use only public GitHub viewer/organisation email. Reuse existing profile/page
+requests, matching viewer host/login before enrichment; no private-email lists,
+per-organisation detail calls, permission requests, retries, or guessed noreply
+addresses. Include headers with the existing REST profile response and request
+GraphQL viewer email only when `X-OAuth-Scopes` advertises `user`, `read:user`, or
+`user:email`. Missing or insufficient scope evidence omits that optional field,
+not organisation discovery; never use REST `/user` email or unrequested viewer
+email. Do not probe authentication or retry to determine access. Offer valid
+declared website before profile URL, retaining both; ignore
+scheme-less websites independently. Construct profile fallback URLs only from
+safe authority/path components of the known host/login, never display safety alone.
+Missing contacts must not remove usable names. Written contacts require explicit
+entry/selection; shared layer manifests may publish locally private contact data.
+The [author-contact design](openspec/changes/extend-init-author-details/design.md)
+records the source, shorthand, representation, and privacy decisions.
+
+Keep Author, email, and URL candidates and actions aligned without added icons.
+Every visible candidate shows the same dimmed parenthesised source-family summary, such as
 `(Git, GitHub, local account)`, whether focused or not. Focus changes only the
 radio indicator and name styling: never swap descriptions, add a category suffix,
 or alter row text, spacing or wrapping. Basic and colour-disabled terminals retain
@@ -313,7 +376,8 @@ login/host checks. Actions and completed/cancelled answers have no renderer-adde
 suffixes. Preserve native wrapping/redraw and colour controls, without truncation,
 extra detail rows or expansion interaction. The
 [concise author-presentation design](openspec/changes/simplify-author-choice-labels/design.md)
-supersedes the previous icon and exhaustive-picker-hint rules only.
+supersedes the previous icon and exhaustive-picker-hint rules for all three
+selectors. Detailed contact hints retain actual field-level evidence internally.
 
 Start author preparation once, only after selecting guided input and completing
 target safety checks, schema readiness, and directory-name default validation.
@@ -326,11 +390,12 @@ use the native cliclack spinner on standard error with
 `Finding author suggestions…`, keeping Escape/Ctrl-C cancellation available
 through foreground input handling. Clear it before any next prompt or
 cancellation/error report, without a synthetic lookup-success line or timeout
-warning. Freeze the collected
-choices before opening Author, ignore late results, and stop unneeded work with
-owned child-process cleanup on timeout, cancellation, failure, or session exit.
+warning. Freeze the collected names and contacts together before opening Author,
+ignore late results, and stop unneeded work with owned child-process cleanup on
+timeout, cancellation, failure, or session exit.
 Workers must not read terminal input, render output, or modify project/identity
 files; cleanup must not introduce an unbounded foreground wait.
+Email/URL steps start no lookups, workers, spinners, or additional waits.
 
 Use the shared interaction policy: `--non-interactive`, CI mode, or a non-terminal
 standard stream disables guided input. Do not reopen a terminal or read piped

@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 
 use hydragen::layer_manifest::schema;
 
-use super::{Choice, Record, Source, choices, github, identity, normalize_with, project};
+use super::{
+    Choice, ContactEvidence, ContactInput, Record, Source, choices, github, identity,
+    normalize_with, project,
+};
 
 const LIFETIME: Duration = Duration::from_secs(15);
 const AUTHOR_WAIT: Duration = Duration::from_millis(1500);
@@ -21,7 +24,7 @@ pub enum Status {
 }
 
 type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
-type Validator = Arc<dyn Fn(&str) -> Result<(), schema::Error> + Send + Sync>;
+type Validator = Arc<dyn Fn(&'static str, &str) -> Result<(), schema::Error> + Send + Sync>;
 pub(super) type Lane = Box<dyn FnOnce(&Context) -> Result<(), schema::Error> + Send>;
 
 struct State {
@@ -88,13 +91,54 @@ impl Context {
     }
 
     pub(super) fn publish(&self, name: &str, source: Source) -> Result<bool, schema::Error> {
+        self.publish_contacts(name, source, &[])
+    }
+
+    /// The bool reports whether publication is still active, not whether an
+    /// invalid field was accepted. Existing name-only collectors use `publish`.
+    pub(super) fn publish_contacts(
+        &self,
+        name: &str,
+        source: Source,
+        contacts: &[ContactInput<'_>],
+    ) -> Result<bool, schema::Error> {
+        self.publish_with_origin(name, source, contacts, None)
+    }
+
+    pub(super) fn publish_git_contacts(
+        &self,
+        name: &str,
+        source: Source,
+        origin: &[u8],
+        contacts: &[ContactInput<'_>],
+    ) -> Result<bool, schema::Error> {
+        self.publish_with_origin(name, source, contacts, Some(origin.to_vec()))
+    }
+
+    fn publish_with_origin(
+        &self,
+        name: &str,
+        source: Source,
+        contacts: &[ContactInput<'_>],
+        git_origin: Option<Vec<u8>>,
+    ) -> Result<bool, schema::Error> {
         if !self.active() {
             return Ok(false);
         }
-        let normalized = normalize_with(name, &*self.validate);
+        let normalized: Result<Option<Record>, schema::Error> = (|| {
+            let name = normalize_with(name, &|value| (self.validate)("author.name", value))?;
+            let contacts = self.normalize_contacts(&source, contacts)?;
+            Ok(name.zip(source.hint()).map(|(name, hint)| Record {
+                name,
+                source,
+                hint,
+                contacts,
+                git_origin,
+            }))
+        })();
         let mut state = self.lock();
-        let name = match normalized {
-            Ok(name) => name,
+        let record = match normalized {
+            Ok(record) => record,
             Err(error) => {
                 state.fatal.get_or_insert_with(|| error.clone());
                 return Err(error);
@@ -103,8 +147,79 @@ impl Context {
         if !self.is_active(&state) {
             return Ok(false);
         }
-        if let (Some(name), Some(hint)) = (name, source.hint()) {
-            state.records.push(Record { name, source, hint });
+        if let Some(record) = record {
+            if let Some(existing) = state.records.iter_mut().find(|existing| {
+                existing.name == record.name
+                    && existing.source == record.source
+                    && existing.git_origin == record.git_origin
+            }) {
+                existing.merge_contacts(record.contacts);
+            } else {
+                state.records.push(record);
+            }
+        }
+        Ok(true)
+    }
+
+    fn normalize_contacts(
+        &self,
+        source: &Source,
+        contacts: &[ContactInput<'_>],
+    ) -> Result<Vec<ContactEvidence>, schema::Error> {
+        let mut result = Vec::new();
+        for input in contacts {
+            let Some(hint) = source.contact_hint(input.field) else {
+                continue;
+            };
+            if let Some(value) = normalize_with(input.value, &|value| {
+                (self.validate)(input.field.schema_field(), value)
+            })? {
+                let contact = ContactEvidence {
+                    field: input.field,
+                    value,
+                    hint,
+                };
+                if !result.contains(&contact) {
+                    result.push(contact);
+                }
+            }
+        }
+        result.sort_by_key(|contact| contact.field);
+        Ok(result)
+    }
+
+    /// Enrich only an already published profile with this exact host/login.
+    /// Missing or mismatched identities introduce no row or alias. Earlier
+    /// contacts survive absent, invalid, or repeated later contact fields.
+    pub(super) fn enrich_github_profile(
+        &self,
+        host: &str,
+        login: &str,
+        contacts: &[ContactInput<'_>],
+    ) -> Result<bool, schema::Error> {
+        if !self.active() {
+            return Ok(false);
+        }
+        let source = Source::GithubProfile {
+            host: host.to_owned(),
+            login: login.to_owned(),
+        };
+        let normalized = self.normalize_contacts(&source, contacts);
+        let mut state = self.lock();
+        let contacts = match normalized {
+            Ok(contacts) => contacts,
+            Err(error) => {
+                state.fatal.get_or_insert_with(|| error.clone());
+                return Err(error);
+            }
+        };
+        if !self.is_active(&state) {
+            return Ok(false);
+        }
+        for record in &mut state.records {
+            if record.source == source {
+                record.merge_contacts(contacts.clone());
+            }
         }
         Ok(true)
     }
@@ -133,10 +248,7 @@ impl Context {
     #[cfg(test)]
     pub(super) fn for_tests() -> Self {
         schema::ensure_ready().unwrap();
-        Self::new(
-            Arc::new(Instant::now),
-            Arc::new(|name| schema::validate_field("author", name)),
-        )
+        Self::new(Arc::new(Instant::now), Arc::new(schema::validate_field))
     }
 
     #[cfg(test)]
@@ -147,10 +259,7 @@ impl Context {
     #[cfg(test)]
     pub(super) fn with_clock_for_tests(clock: Clock) -> Self {
         schema::ensure_ready().unwrap();
-        Self::new(
-            clock,
-            Arc::new(|name| schema::validate_field("author", name)),
-        )
+        Self::new(clock, Arc::new(schema::validate_field))
     }
 
     #[cfg(test)]
@@ -183,10 +292,7 @@ impl Preparation {
 
     pub(super) fn start_lanes(clock: Clock, lanes: [Lane; 2]) -> io::Result<Self> {
         schema::ensure_ready().map_err(io::Error::other)?;
-        let context = Context::new(
-            clock,
-            Arc::new(|name| schema::validate_field("author", name)),
-        );
+        let context = Context::new(clock, Arc::new(schema::validate_field));
         let preparation = Self { context };
         for (index, lane) in lanes.into_iter().enumerate() {
             let context = preparation.context.clone();
@@ -259,6 +365,7 @@ impl Drop for Preparation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::author_discovery::ContactField;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn controlled() -> (Preparation, Arc<AtomicU64>) {
@@ -267,9 +374,224 @@ mod tests {
         let time = elapsed.clone();
         let context = Context::new(
             Arc::new(move || start + Duration::from_millis(time.load(Ordering::SeqCst))),
-            Arc::new(|value| schema::validate_field("author", value)),
+            Arc::new(schema::validate_field),
         );
         (Preparation { context }, elapsed)
+    }
+
+    #[test]
+    fn profile_enrichment_merges_matching_identity_without_losing_early_contacts() {
+        use ContactField::{Email, ProfileUrl, Website};
+        let (preparation, time) = controlled();
+        let context = &preparation.context;
+        let profile = Source::GithubProfile {
+            host: "fixture.example".into(),
+            login: "alex".into(),
+        };
+        context
+            .publish_contacts(
+                "Alex",
+                profile.clone(),
+                &[ContactInput {
+                    field: ProfileUrl,
+                    value: "https://fixture.example/alex",
+                }],
+            )
+            .unwrap();
+        time.store(3000, Ordering::SeqCst);
+        preparation.enter_author();
+        let deadline = context.effective_deadline();
+        for (host, login) in [
+            ("another.example", "alex"),
+            ("fixture.example", "someone-else"),
+        ] {
+            context
+                .enrich_github_profile(
+                    host,
+                    login,
+                    &[ContactInput {
+                        field: Email,
+                        value: "wrong@example.invalid",
+                    }],
+                )
+                .unwrap();
+        }
+        let update = [
+            ContactInput {
+                field: Email,
+                value: " alex@example.invalid ",
+            },
+            ContactInput {
+                field: Website,
+                value: "https://alex.invalid",
+            },
+            ContactInput {
+                field: ProfileUrl,
+                value: "https://fixture.example/alex",
+            },
+        ];
+        context
+            .enrich_github_profile("fixture.example", "alex", &update)
+            .unwrap();
+        context
+            .enrich_github_profile("fixture.example", "alex", &update)
+            .unwrap();
+        context
+            .publish_contacts(
+                "Alex",
+                profile,
+                &[
+                    ContactInput {
+                        field: Email,
+                        value: "bad",
+                    },
+                    ContactInput {
+                        field: Website,
+                        value: "relative/path",
+                    },
+                ],
+            )
+            .unwrap();
+        assert_eq!(context.effective_deadline(), deadline);
+        time.store(4500, Ordering::SeqCst);
+        assert_eq!(preparation.status(), Status::Expired);
+        assert!(
+            !context
+                .enrich_github_profile(
+                    "fixture.example",
+                    "alex",
+                    &[ContactInput {
+                        field: Email,
+                        value: "late@example.invalid"
+                    },]
+                )
+                .unwrap()
+        );
+        let frozen = preparation.close_and_snapshot().unwrap();
+        assert_eq!(frozen.len(), 1);
+        assert_eq!(frozen[0].records.len(), 1);
+        assert_eq!(frozen[0].emails.len(), 1);
+        assert_eq!(frozen[0].emails[0].value, "alex@example.invalid");
+        assert_eq!(
+            frozen[0]
+                .urls
+                .iter()
+                .map(|c| c.value.as_str())
+                .collect::<Vec<_>>(),
+            ["https://alex.invalid", "https://fixture.example/alex",]
+        );
+        assert_eq!(
+            frozen[0].emails[0].hint,
+            "GitHub profile alex on fixture.example email"
+        );
+        assert!(
+            !context
+                .enrich_github_profile("fixture.example", "alex", &update)
+                .unwrap()
+        );
+        assert_eq!(frozen[0].emails.len(), 1);
+    }
+
+    #[test]
+    fn contact_schema_setup_failures_are_fatal_in_publication_and_enrichment() {
+        for enrichment in [false, true] {
+            let (mut preparation, _) = controlled();
+            let source = Source::GithubProfile {
+                host: "fixture.example".into(),
+                login: "alex".into(),
+            };
+            preparation.context.publish("Alex", source.clone()).unwrap();
+            let error = schema::Error::Setup {
+                message: "contact schema unavailable".into(),
+                detail: None,
+            };
+            let injected = error.clone();
+            preparation.context.validate = Arc::new(move |field, value| {
+                if field == "author.email" {
+                    Err(injected.clone())
+                } else {
+                    schema::validate_field(field, value)
+                }
+            });
+            let contacts = [ContactInput {
+                field: ContactField::Email,
+                value: "alex@example.invalid",
+            }];
+            let result = if enrichment {
+                preparation
+                    .context
+                    .enrich_github_profile("fixture.example", "alex", &contacts)
+            } else {
+                preparation
+                    .context
+                    .publish_contacts("Alex", source, &contacts)
+            };
+            assert_eq!(result, Err(error));
+            assert_eq!(preparation.status(), Status::Fatal);
+            assert!(preparation.close_and_snapshot().is_err());
+        }
+    }
+
+    #[test]
+    fn close_racing_contact_enrichment_keeps_the_entire_earlier_snapshot() {
+        use std::sync::mpsc;
+        let (started, validation_started) = mpsc::channel();
+        let (release, validation_release) = mpsc::channel();
+        let (finished, complete) = mpsc::channel();
+        let (mut preparation, _) = controlled();
+        preparation
+            .context
+            .publish_contacts(
+                "Alex",
+                Source::GithubProfile {
+                    host: "fixture.example".into(),
+                    login: "alex".into(),
+                },
+                &[ContactInput {
+                    field: ContactField::ProfileUrl,
+                    value: "https://fixture.example/alex",
+                }],
+            )
+            .unwrap();
+        let validation_release = Mutex::new(validation_release);
+        preparation.context.validate = Arc::new(move |field, value| {
+            if field == "author.email" {
+                started.send(()).unwrap();
+                validation_release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(2))
+                    .unwrap();
+            }
+            schema::validate_field(field, value)
+        });
+        let context = preparation.context.clone();
+        let worker = thread::spawn(move || {
+            finished
+                .send(context.enrich_github_profile(
+                    "fixture.example",
+                    "alex",
+                    &[ContactInput {
+                        field: ContactField::Email,
+                        value: "late@example.invalid",
+                    }],
+                ))
+                .unwrap();
+        });
+        validation_started
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        let frozen = preparation.close_and_snapshot().unwrap();
+        assert!(frozen[0].emails.is_empty());
+        assert_eq!(frozen[0].urls[0].value, "https://fixture.example/alex");
+        release.send(()).unwrap();
+        assert_eq!(
+            complete.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Ok(false)
+        );
+        worker.join().unwrap();
+        assert!(preparation.context.choices_for_tests().unwrap().is_empty());
+        assert!(frozen[0].emails.is_empty());
     }
 
     #[test]
@@ -325,7 +647,7 @@ mod tests {
             detail: None,
         };
         let injected = error.clone();
-        preparation.context.validate = Arc::new(move |_| Err(injected.clone()));
+        preparation.context.validate = Arc::new(move |_, _| Err(injected.clone()));
         assert_eq!(preparation.status(), Status::Pending);
         assert_eq!(
             preparation.context.publish("valid", Source::AccountName),
@@ -418,7 +740,7 @@ mod tests {
         let (finished, complete) = mpsc::channel();
         let (mut preparation, _) = controlled();
         let validation_release = Mutex::new(validation_release);
-        preparation.context.validate = Arc::new(move |_| {
+        preparation.context.validate = Arc::new(move |_, _| {
             started.send(()).unwrap();
             validation_release
                 .lock()
@@ -581,13 +903,13 @@ mod tests {
 [ "$1 $2 $3" = 'api --hostname fixture.example' ] || exit 9
 printf '%s\n' "$*" >> "$REQUESTS"
 case "$4" in
-user) printf '%s' '{"login":"alex","name":"Alex"}';;
+user) printf 'HTTP/2.0 200 OK\r\nX-Oauth-Scopes: read:user\r\n\r\n'; printf '%s' '{"login":"alex","name":"Alex","blog":"https://early.invalid","html_url":"https://fixture.example/alex","email":"private@example.invalid"}';;
 graphql) case "$*" in
 *after=next*)
   printf '%s\n' "$PRIVATE_STDERR_SENTINEL" >&2
   printf '%s\n' "$$" > "$PID_FILE"
   exec /bin/sleep 30;;
-*) printf '%s' '{"data":{"viewer":{"login":"alex","organizations":{"nodes":[{"login":"team","name":"Team"}],"pageInfo":{"hasNextPage":true,"endCursor":"next"}}}}}';;
+*) printf '%s' '{"data":{"viewer":{"login":"alex","email":"public@example.invalid","organizations":{"nodes":[{"login":"team","name":"Team","email":"team@example.invalid","websiteUrl":"https://team.invalid","url":"https://fixture.example/team"}],"pageInfo":{"hasNextPage":true,"endCursor":"next"}}}}}';;
 esac;;
 *) exit 9;;
 esac
@@ -677,6 +999,26 @@ esac
                 ["Local project", "Alex", "Team"]
             );
             assert!(!frozen[2].eligible);
+            assert_eq!(frozen[1].records.len(), 1);
+            assert_eq!(frozen[1].emails[0].value, "public@example.invalid");
+            assert_eq!(
+                frozen[1]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["https://early.invalid", "https://fixture.example/alex"]
+            );
+            assert_eq!(frozen[2].emails[0].value, "team@example.invalid");
+            assert_eq!(
+                frozen[2]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["https://team.invalid", "https://fixture.example/team"]
+            );
+            assert!(!format!("{frozen:?}").contains("private@example.invalid"));
             assert!(!format!("{frozen:?}").contains("private-error"));
             Fixture::assert_reaped(pid);
             assert_eq!(
@@ -716,7 +1058,14 @@ esac
                         clock,
                         [
                             Box::new(move |context| {
-                                context.publish("early", Source::AccountName)?;
+                                context.publish_contacts(
+                                    "early",
+                                    Source::GitAuthorEnvironment,
+                                    &[ContactInput {
+                                        field: ContactField::Email,
+                                        value: "early@example.invalid",
+                                    }],
+                                )?;
                                 let mut command = Command::new("/bin/sh");
                                 command.arg(executable);
                                 command.env_clear().env("PID_FILE", &pid_file);
@@ -771,6 +1120,7 @@ esac
                         .collect::<Vec<_>>(),
                     ["early"]
                 );
+                assert_eq!(frozen[0].emails[0].value, "early@example.invalid");
                 assert!(!context.publish("even later", Source::AccountName).unwrap());
                 assert_eq!(context.lock().processes, 0);
                 Fixture::assert_reaped(pid);

@@ -1,0 +1,5 @@
+{
+  "author": { "name": " Shared Name ", "email": " project@example.invalid ", "url": "https://author.example.invalid" },
+  "homepage": "https://not-author.example.invalid",
+  "repository": "https://not-author.example.invalid/repo"
+}

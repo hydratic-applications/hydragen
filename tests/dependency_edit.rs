@@ -67,6 +67,111 @@ fn assert_append(
 }
 
 #[test]
+fn author_representations_and_comments_survive_only_fixture_permitted_insertions() {
+    // Offset markers and insertion text belong to these fixtures, not to either
+    // decoder/editor. This oracle catches changed comments, quoting, attachment,
+    // or author bytes even if a shared decoder would consider them equivalent.
+    for (format, source, marker, insertion) in [
+        (
+            LayerManifestFormat::Yaml,
+            "name: app\nauthor: '  Alex <bad> (legacy)  ' # author comment\n# root footer\n",
+            "# root footer",
+            "dependencies: [\"../new\"]\n",
+        ),
+        (
+            LayerManifestFormat::Yml,
+            "name: app\n# author introduction\nauthor: # author mapping\n  name: '  配置 🦀  ' # name comment\n  email: Alex@example.invalid # email comment\n  url: 'mailto:Alex@example.invalid' # URL comment\n  extra:\n    values: [true, 7, null] # extra comment\n  # author footer\n# root footer\n",
+            "# root footer",
+            "dependencies: [\"../new\"]\n",
+        ),
+        (
+            LayerManifestFormat::Yaml,
+            "name: app\nauthor: {url: 'https://example.invalid', extra: {values: [false, 7]}, name: Alex} # inline author\n# root footer\n",
+            "# root footer",
+            "dependencies: [\"../new\"]\n",
+        ),
+        (
+            LayerManifestFormat::Toml,
+            "name = 'app'\nauthor = '  Alex <bad> (legacy)  ' # author comment\n# root footer\n",
+            "# root footer",
+            "dependencies = [\"../new\"]\n",
+        ),
+        (
+            LayerManifestFormat::Toml,
+            "name = 'app'\n# inline author introduction\nauthor = { url = 'https://example.invalid', name = '  配置 🦀  ', email = 'Alex@example.invalid', extra = { values = [true, 7] } } # author comment\ndescription = 'root description' # description comment\n# root footer\n",
+            "# root footer",
+            "dependencies = [\"../new\"]\n",
+        ),
+        (
+            LayerManifestFormat::Toml,
+            "name = 'app'\ndescription = 'root description'\n\n# author introduction\n[author] # table comment\nname = '  配置 🦀  ' # name comment\nemail = 'Alex@example.invalid' # email comment\nurl = 'https://example.invalid'\n# extra introduction\n[author.extra]\nvalues = [true, 7] # extra comment\n",
+            "\n# author introduction",
+            "dependencies = [\"../new\"]\n",
+        ),
+        (
+            LayerManifestFormat::Toml,
+            "author.url = 'https://example.invalid' # URL comment\nname = 'app'\nauthor.name = '  配置 🦀  ' # name comment\nauthor.extra.values = [true, 7]\ndescription = 'root description'\nauthor.email = 'Alex@example.invalid' # email comment\n# root footer\n",
+            "# root footer",
+            "dependencies = [\"../new\"]\n",
+        ),
+    ] {
+        for ending in ["\n", "\r\n"] {
+            let source = source.replace('\n', ending);
+            let marker = marker.replace('\n', ending);
+            let insertion = insertion.replace('\n', ending);
+            let position = source.find(&marker).unwrap();
+            let before = loaded(format, &source);
+            let candidate = append_dependencies(&before, &["../new"]).unwrap();
+            insertion_oracle::assert_insertions(&source, &candidate, &[(position, &insertion)]);
+            let after = loaded(format, &candidate);
+            assert_eq!(after.metadata, before.metadata);
+            assert_eq!(after.document["author"], before.document["author"]);
+            assert_eq!(
+                after.document["dependencies"],
+                serde_json::json!(["../new"])
+            );
+        }
+    }
+
+    for (format, source) in [
+        (
+            LayerManifestFormat::Json,
+            r#"{"name":"app","dependencies":["../old"],"author":"  Alex <bad>  "}"#,
+        ),
+        (
+            LayerManifestFormat::Json,
+            r#"{"name":"app","dependencies":["../old"],"author":{"url":"https://example.invalid","extra":{"values":[null,true,7]},"name":"  配置 🦀  ","email":"Alex@example.invalid"}}"#,
+        ),
+        (
+            LayerManifestFormat::Jsonc,
+            "{\n  \"name\": \"app\",\n  \"dependencies\": [\"../old\" /* old dependency */],\n  // author introduction\n  \"author\": {\n    \"url\": \"https://example.invalid\", // URL comment\n    \"name\": \"  配置 🦀  \", // name comment\n    \"extra\": {\"values\": [null, true, 7]}, /* extra comment */\n  }, // author comment\n}\n",
+        ),
+    ] {
+        let position = source.find("\"../old\"").unwrap() + "\"../old\"".len();
+        let before = loaded(format, source);
+        let candidate = append_dependencies(&before, &["../new"]).unwrap();
+        if format == LayerManifestFormat::Jsonc {
+            let after_comment =
+                source.find("/* old dependency */").unwrap() + "/* old dependency */".len();
+            insertion_oracle::assert_insertions(
+                source,
+                &candidate,
+                &[(position, ","), (after_comment, " \"../new\"")],
+            );
+        } else {
+            insertion_oracle::assert_insertions(source, &candidate, &[(position, ", \"../new\"")]);
+        }
+        let after = loaded(format, &candidate);
+        assert_eq!(after.metadata, before.metadata);
+        assert_eq!(after.document["author"], before.document["author"]);
+        assert_eq!(
+            after.document["dependencies"],
+            serde_json::json!(["../old", "../new"])
+        );
+    }
+}
+
+#[test]
 fn absent_dependencies_preserve_metadata_and_unknown_source_in_all_formats() {
     for (format, source, preserved) in [
         (

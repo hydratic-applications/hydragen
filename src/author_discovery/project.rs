@@ -4,9 +4,10 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::Path;
 
+use hydragen::author::{AuthorParts, PersonInput, PersonSyntax, recognize};
 use hydragen::layer_manifest::schema;
 
-use super::{Context, ProjectFile, Source};
+use super::{ContactField, ContactInput, Context, ProjectFile, Source};
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
@@ -107,19 +108,21 @@ fn collect_package(contents: &str, context: &Context) -> Result<bool, schema::Er
     let Some(author) = document.get("author") else {
         return Ok(true);
     };
-    let name = match author {
-        serde_json::Value::Object(author) => author.get("name").and_then(|name| name.as_str()),
-        serde_json::Value::String(author) => person_name(author, true),
-        _ => None,
-    };
-    match name {
-        Some(name) => context.publish(
-            name,
-            Source::Project {
-                file: ProjectFile::PackageJson,
-                index: 0,
-            },
-        ),
+    let parts =
+        match author {
+            serde_json::Value::Object(author) => author
+                .get("name")
+                .and_then(|name| name.as_str())
+                .map(|name| AuthorParts {
+                    name,
+                    email: author.get("email").and_then(|value| value.as_str()),
+                    url: author.get("url").and_then(|value| value.as_str()),
+                }),
+            serde_json::Value::String(author) => person_parts(author, PersonSyntax::Npm),
+            _ => None,
+        };
+    match parts {
+        Some(parts) => publish_author(parts, ProjectFile::PackageJson, 0, context),
         None => Ok(true),
     }
 }
@@ -137,79 +140,63 @@ fn collect_toml(contents: &str, context: &Context, python: bool) -> Result<bool,
         return Ok(true);
     };
     for (index, author) in authors.iter().enumerate() {
-        let name = if python {
-            author
-                .as_table()
-                .and_then(|author| author.get("name"))
-                .and_then(|name| name.as_str())
+        let parts = if python {
+            author.as_table().and_then(|author| {
+                author
+                    .get("name")
+                    .and_then(|name| name.as_str())
+                    .map(|name| AuthorParts {
+                        name,
+                        email: author.get("email").and_then(|value| value.as_str()),
+                        url: None,
+                    })
+            })
         } else {
             author
                 .as_str()
-                .and_then(|author| person_name(author, false))
+                .and_then(|author| person_parts(author, PersonSyntax::Cargo))
         };
-        let Some(name) = name else { continue };
+        let Some(parts) = parts else { continue };
         let file = if python {
             ProjectFile::PyprojectToml
         } else {
             ProjectFile::CargoToml
         };
-        if !context.publish(name, Source::Project { file, index })? {
+        if !publish_author(parts, file, index, context)? {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
-/// Parse only unambiguous person shorthand, not explicit object/table names.
-/// Cargo permits a trailing email; npm also permits a following URL component.
-fn person_name(person: &str, npm: bool) -> Option<&str> {
-    let person = person.trim();
-    let contact = person.find(|character| character == '<' || (npm && character == '('));
-    let (name, mut suffix) = match contact {
-        Some(offset) => (&person[..offset], &person[offset..]),
-        None => (person, ""),
-    };
-    // Bare addresses/URLs and broken delimiters are not declared names. Ordinary
-    // punctuation (including Cargo names containing parentheses) stays literal.
-    if name.trim().is_empty()
-        || name.contains(['@', '<', '>'])
-        || name.contains("://")
-        || (npm && name.contains(['(', ')']))
-    {
-        return None;
+/// Syntax recognition is shared with explicit input; discovery alone trims and
+/// filters fields independently instead of rejecting the whole valid name.
+fn person_parts(person: &str, syntax: PersonSyntax) -> Option<AuthorParts<'_>> {
+    match recognize(person.trim(), syntax) {
+        PersonInput::Literal(name) => Some(AuthorParts {
+            name,
+            email: None,
+            url: None,
+        }),
+        PersonInput::Shorthand(parts) => Some(parts),
+        PersonInput::Unrecognised(_) => None,
     }
-    if let Some(email) = suffix.strip_prefix('<') {
-        let end = email.find('>')?;
-        let address = &email[..end];
-        let (local, domain) = address.split_once('@')?;
-        if local.is_empty()
-            || domain.is_empty()
-            || domain.contains('@')
-            || address.contains(['<', '>', '(', ')'])
-            || address.chars().any(char::is_whitespace)
-        {
-            return None;
-        }
-        suffix = email[end + 1..].trim();
-    }
-    if npm && let Some(url) = suffix.strip_prefix('(') {
-        let url = url.strip_suffix(')')?;
-        // A plain parenthetical such as "Alex (team)" is ambiguous, unlike an
-        // explicit URL. Require a URI scheme, without inventing network access.
-        let (scheme, location) = url.split_once(':')?;
-        if !scheme.starts_with(|character: char| character.is_ascii_alphabetic())
-            || !scheme
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || "+-.".contains(character))
-            || location.is_empty()
-            || url.contains(['<', '>', '(', ')'])
-            || url.chars().any(char::is_whitespace)
-        {
-            return None;
-        }
-        suffix = "";
-    }
-    suffix.is_empty().then_some(name)
+}
+
+fn publish_author(
+    parts: AuthorParts<'_>,
+    file: ProjectFile,
+    index: usize,
+    context: &Context,
+) -> Result<bool, schema::Error> {
+    let contacts: Vec<_> = [
+        (ContactField::Email, parts.email),
+        (ContactField::Url, parts.url),
+    ]
+    .into_iter()
+    .filter_map(|(field, value)| value.map(|value| ContactInput { field, value }))
+    .collect();
+    context.publish_contacts(parts.name, Source::Project { file, index }, &contacts)
 }
 
 #[cfg(test)]
@@ -248,6 +235,34 @@ mod tests {
             .collect()
     }
 
+    fn person_name(person: &str, npm: bool) -> Option<String> {
+        let context = Context::for_tests();
+        let parts = person_parts(
+            person,
+            if npm {
+                PersonSyntax::Npm
+            } else {
+                PersonSyntax::Cargo
+            },
+        )?;
+        publish_author(
+            parts,
+            if npm {
+                ProjectFile::PackageJson
+            } else {
+                ProjectFile::CargoToml
+            },
+            0,
+            &context,
+        )
+        .unwrap();
+        context
+            .choices_for_tests()
+            .unwrap()
+            .first()
+            .map(|choice| choice.name.clone())
+    }
+
     #[test]
     fn closed_context_collects_no_records_and_does_not_open_project_files() {
         let directory = fixture("conflicts");
@@ -279,12 +294,14 @@ mod tests {
     }
 
     #[test]
-    fn npm_person_string_extracts_only_name() {
+    fn npm_person_string_extracts_name_and_independent_contacts() {
         let directory = fixture("npm-string");
         assert_eq!(names(directory.path()), ["Zoë O’Connor & Co., 水 🦀"]);
         let choices = choices(directory.path());
         assert_eq!(choices[0].hint, "package.json author");
         assert!(choices[0].eligible);
+        assert_eq!(choices[0].emails[0].value, "zoe@example.com");
+        assert_eq!(choices[0].urls[0].value, "https://example.com/zoe");
     }
 
     #[test]
@@ -303,19 +320,23 @@ mod tests {
     fn supported_shorthand_contacts_and_punctuation() {
         for (person, npm, expected) in [
             ("Alex Morgan", true, "Alex Morgan"),
-            ("Alex Morgan <alex@example.com>", true, "Alex Morgan "),
-            ("Alex Morgan (https://example.com)", true, "Alex Morgan "),
+            ("Alex Morgan <alex@example.com>", true, "Alex Morgan"),
+            ("Alex Morgan (https://example.com)", true, "Alex Morgan"),
             (
                 " Alex Morgan <alex@example.com> (https://example.com/path) ",
                 true,
-                "Alex Morgan ",
+                "Alex Morgan",
             ),
             ("Alex<alex@example.com>(https://example.com)", true, "Alex"),
             ("A. O’Connor, Jr. & 水-🦀", true, "A. O’Connor, Jr. & 水-🦀"),
             ("Example (Research)", false, "Example (Research)"),
-            ("Alex <alex@example.com>", false, "Alex "),
+            ("Alex <alex@example.com>", false, "Alex"),
         ] {
-            assert_eq!(person_name(person, npm), Some(expected), "{person:?}");
+            assert_eq!(
+                person_name(person, npm).as_deref(),
+                Some(expected),
+                "{person:?}"
+            );
         }
     }
 
@@ -331,11 +352,6 @@ mod tests {
             "Alex <alex@example.com",
             "Alex alex@example.com>",
             "Alex <>",
-            "Alex <alex>",
-            "Alex <@example.com>",
-            "Alex <alex@>",
-            "Alex <alex@@example.com>",
-            "Alex <alex @example.com>",
             "Alex <<alex@example.com>>",
             "Alex <alex@example.com> trailing",
             "Alex <alex@example.com> <other@example.com>",
@@ -353,10 +369,8 @@ mod tests {
             "Alex (https://example.com) <alex@example.com>",
             "Alex (https://example.com) (https://other.example)",
             "Alex (https://example.com/a(b))",
-            "Alex (https://example.com/with space)",
             "Alex (1http:example)",
             "Alex (:example)",
-            "Alex (https:)",
         ] {
             assert_eq!(person_name(person, true), None, "{person:?}");
         }
@@ -364,6 +378,73 @@ mod tests {
             person_name("Alex <alex@example.com> (https://example.com)", false),
             None
         );
+    }
+
+    #[test]
+    fn invalid_contacts_do_not_erase_extractable_names_or_other_contacts() {
+        for (person, npm) in [
+            ("Alex <alex>", true),
+            ("Alex <@example.com>", true),
+            ("Alex <alex@>", true),
+            ("Alex <alex@@example.com>", true),
+            ("Alex <alex @example.com>", true),
+            ("Alex (https://example.com/with space)", true),
+            ("Alex <bad>", false),
+        ] {
+            assert_eq!(
+                person_name(person, npm).as_deref(),
+                Some("Alex"),
+                "{person:?}"
+            );
+        }
+        let context = Context::for_tests();
+        collect_package(
+            r#"{"author":" Alex (team) <bad> (https://example.invalid) "}"#,
+            &context,
+        )
+        .unwrap();
+        let choices = context.choices_for_tests().unwrap();
+        assert_eq!(choices[0].name, "Alex (team)");
+        assert!(choices[0].emails.is_empty());
+        assert_eq!(choices[0].urls[0].value, "https://example.invalid");
+        let context = Context::for_tests();
+        collect_package(r#"{"author":{"name":"Literal <bad>","email":" valid@example.invalid ","url":"relative"},"homepage":"https://never.invalid"}"#, &context).unwrap();
+        let choices = context.choices_for_tests().unwrap();
+        assert_eq!(choices[0].name, "Literal <bad>");
+        assert_eq!(choices[0].emails[0].value, "valid@example.invalid");
+        assert!(choices[0].urls.is_empty());
+    }
+
+    #[test]
+    fn project_contacts_stay_on_their_declarations_and_group_without_losing_alternatives() {
+        let directory = fixture("contacts");
+        let original = FILES.map(|filename| fs::read(directory.path().join(filename)).unwrap());
+        let choices = choices(directory.path());
+        assert_eq!(
+            choices.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["Shared Name", "Cargo Other", "Literal <bad>"]
+        );
+        assert_eq!(
+            choices[0]
+                .emails
+                .iter()
+                .map(|c| c.value.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "project@example.invalid",
+                "cargo@example.invalid",
+                "python@example.invalid"
+            ]
+        );
+        assert_eq!(choices[0].records.len(), 5);
+        assert_eq!(choices[0].urls.len(), 1);
+        assert_eq!(choices[0].urls[0].value, "https://author.example.invalid");
+        assert_eq!(choices[1].emails[0].value, "other@example.invalid");
+        assert_eq!(choices[2].emails[0].value, "literal@example.invalid");
+        assert!(choices[1].urls.is_empty() && choices[2].urls.is_empty());
+        for (filename, original) in FILES.into_iter().zip(original) {
+            assert_eq!(fs::read(directory.path().join(filename)).unwrap(), original);
+        }
     }
 
     #[test]

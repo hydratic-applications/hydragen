@@ -92,6 +92,7 @@ pub(super) fn schema_details(source: &schema::Error, model: &mut Diagnostic) {
                 schema::ViolationKind::NonBlank => "Provide a string containing at least one non-whitespace character at the reported field.".into(),
                 schema::ViolationKind::Name { guidance } => format!("Correct the layer name: {}", display(guidance)),
                 schema::ViolationKind::Type => "Use the value type required by the reported schema constraint.".into(),
+                schema::ViolationKind::Format { format } => format!("Provide a value in the required {} format at the reported field.", display(format)),
                 schema::ViolationKind::Required { property } => format!("Add the required '{}' property at the reported location.", display(property)),
                 schema::ViolationKind::Other => "Correct the value at the reported location using the schema constraint above.".into(),
             });

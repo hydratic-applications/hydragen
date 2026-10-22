@@ -4,9 +4,13 @@ use std::process::Command;
 use hydragen::layer_manifest::schema;
 use serde_json::Value;
 
-use super::{Context, Source, normalize_candidate, process, safe_component};
+use super::{
+    ContactField, ContactInput, Context, Source, normalize_candidate, normalize_with, process,
+    safe_component,
+};
 
-const QUERY: &str = "query($after: String) { viewer { login organizations(first: 100, after: $after) { nodes { name login } pageInfo { hasNextPage endCursor } } } }";
+const QUERY: &str = "query($after: String) { viewer { login websiteUrl url organizations(first: 100, after: $after) { nodes { name login email websiteUrl url } pageInfo { hasNextPage endCursor } } } }";
+const QUERY_WITH_EMAIL: &str = "query($after: String) { viewer { login email websiteUrl url organizations(first: 100, after: $after) { nodes { name login email websiteUrl url } pageInfo { hasNextPage endCursor } } } }";
 
 pub(super) fn collect(context: &Context) -> Result<(), schema::Error> {
     let Some(host) = selected_host(std::env::var_os("GH_HOST")) else {
@@ -31,6 +35,19 @@ fn request(
     arguments: &[&str],
     configure: &impl Fn(&mut Command),
 ) -> Option<Value> {
+    serde_json::from_slice(&request_output(
+        context, executable, host, arguments, configure,
+    )?)
+    .ok()
+}
+
+fn request_output(
+    context: &Context,
+    executable: &OsStr,
+    host: &str,
+    arguments: &[&str],
+    configure: &impl Fn(&mut Command),
+) -> Option<Vec<u8>> {
     if !context.active() {
         return None;
     }
@@ -43,8 +60,32 @@ fn request(
         .env("GH_PROMPT_DISABLED", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
     configure(&mut command);
-    let output = process::run(command, context, None).ok()?;
-    serde_json::from_slice(&output).ok()
+    process::run(command, context, None).ok()
+}
+
+// GitHub gates even the public GraphQL User.email field on additional token
+// scopes. Reuse headers from the existing profile request, never an auth probe
+// or a failed-query retry. Unknown/missing scope evidence omits only that field.
+fn profile_response(output: &[u8]) -> Option<(Value, bool)> {
+    let response = std::str::from_utf8(output).ok()?;
+    let (headers, body) = if response.starts_with("HTTP/") {
+        response
+            .split_once("\r\n\r\n")
+            .or_else(|| response.split_once("\n\n"))?
+    } else {
+        ("", response)
+    };
+    let public_email_available =
+        headers
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .any(|(name, value)| {
+                name.eq_ignore_ascii_case("x-oauth-scopes")
+                    && value
+                        .split(',')
+                        .any(|scope| matches!(scope.trim(), "user" | "read:user" | "user:email"))
+            });
+    Some((serde_json::from_str(body).ok()?, public_email_available))
 }
 
 fn usable_name(value: &Value) -> Result<Option<String>, schema::Error> {
@@ -59,6 +100,96 @@ fn usable_name(value: &Value) -> Result<Option<String>, schema::Error> {
     }
 }
 
+/// This is a construction-safety boundary, not a second author-URL validator.
+/// Only authority/path components that cannot introduce userinfo, a different
+/// host, path traversal, escaping, query, or fragment may be concatenated.
+fn fallback_profile_url(host: &str, login: &str) -> Option<String> {
+    if login.is_empty()
+        || !login
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return None;
+    }
+    let (hostname, port) = if let Some(rest) = host.strip_prefix('[') {
+        let (address, suffix) = rest.split_once(']')?;
+        address.parse::<std::net::Ipv6Addr>().ok()?;
+        (
+            None,
+            if suffix.is_empty() {
+                None
+            } else {
+                Some(suffix.strip_prefix(':')?)
+            },
+        )
+    } else {
+        let (hostname, port) = host
+            .split_once(':')
+            .map_or((host, None), |(name, port)| (name, Some(port)));
+        (Some(hostname), port)
+    };
+    if let Some(hostname) = hostname
+        && (hostname.is_empty()
+            || !hostname.split('.').all(|label| {
+                !label.is_empty()
+                    && label.starts_with(|c: char| c.is_ascii_alphanumeric())
+                    && label.ends_with(|c: char| c.is_ascii_alphanumeric())
+                    && label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            }))
+    {
+        return None;
+    }
+    if let Some(port) = port
+        && (port.is_empty()
+            || !port.bytes().all(|byte| byte.is_ascii_digit())
+            || port.parse::<u16>().ok()? == 0)
+    {
+        return None;
+    }
+    Some(format!("https://{host}/{login}"))
+}
+
+fn contacts(
+    value: &Value,
+    website_key: &str,
+    profile_key: &str,
+    fallback: Option<String>,
+    public_email: bool,
+) -> Result<Vec<(ContactField, String)>, schema::Error> {
+    let mut contacts = Vec::new();
+    if public_email && let Some(email) = value.get("email").and_then(Value::as_str) {
+        contacts.push((ContactField::Email, email.to_owned()));
+    }
+    if let Some(website) = value.get(website_key).and_then(Value::as_str) {
+        contacts.push((ContactField::Website, website.to_owned()));
+    }
+    // REST `url` is an API resource, never a profile contact. The caller supplies
+    // `html_url` for REST and the documented profile `url` for GraphQL.
+    let profile = value
+        .get(profile_key)
+        .and_then(Value::as_str)
+        .map(|value| normalize_with(value, &|value| schema::validate_field("author.url", value)))
+        .transpose()?
+        .flatten()
+        .or(fallback);
+    if let Some(profile) = profile {
+        contacts.push((ContactField::ProfileUrl, profile));
+    }
+    Ok(contacts)
+}
+
+fn contact_inputs(contacts: &[(ContactField, String)]) -> Vec<ContactInput<'_>> {
+    contacts
+        .iter()
+        .map(|(field, value)| ContactInput {
+            field: *field,
+            value,
+        })
+        .collect()
+}
+
 fn collect_with(
     context: &Context,
     executable: &OsStr,
@@ -68,7 +199,14 @@ fn collect_with(
     if !safe_component(host) {
         return Ok(());
     }
-    let Some(profile) = request(context, executable, host, &["user"], &configure) else {
+    let Some((profile, public_email_available)) = request_output(
+        context,
+        executable,
+        host,
+        &["user", "--include"],
+        &configure,
+    )
+    .and_then(|output| profile_response(&output)) else {
         return Ok(());
     };
     let Some(login) = profile
@@ -78,13 +216,21 @@ fn collect_with(
     else {
         return Ok(());
     };
+    let profile_contacts = contacts(
+        &profile,
+        "blog",
+        "html_url",
+        fallback_profile_url(host, login),
+        false,
+    )?;
     if let Some(name) = usable_name(&profile)?
-        && !context.publish(
+        && !context.publish_contacts(
             &name,
             Source::GithubProfile {
                 login: login.into(),
                 host: host.into(),
             },
+            &contact_inputs(&profile_contacts),
         )?
     {
         return Ok(());
@@ -92,7 +238,14 @@ fn collect_with(
     let mut cursor: Option<String> = None;
     while context.active() {
         let mut arguments = vec!["graphql", "-f", "query", "-F", "after=null"];
-        let query = format!("query={QUERY}");
+        let query = format!(
+            "query={}",
+            if public_email_available {
+                QUERY_WITH_EMAIL
+            } else {
+                QUERY
+            }
+        );
         arguments[2] = &query;
         let after;
         if let Some(cursor) = &cursor {
@@ -116,6 +269,10 @@ fn collect_with(
         if viewer.get("login").and_then(Value::as_str) != Some(login) {
             break;
         }
+        let viewer_contacts = contacts(viewer, "websiteUrl", "url", None, public_email_available)?;
+        if !context.enrich_github_profile(host, login, &contact_inputs(&viewer_contacts))? {
+            return Ok(());
+        }
         let Some(organizations) = viewer.get("organizations") else {
             break;
         };
@@ -134,13 +291,21 @@ fn collect_with(
             else {
                 continue;
             };
+            let org_contacts = contacts(
+                organization,
+                "websiteUrl",
+                "url",
+                fallback_profile_url(host, org_login),
+                true,
+            )?;
             if let Some(name) = usable_name(organization)?
-                && !context.publish(
+                && !context.publish_contacts(
                     &name,
                     Source::GithubOrganization {
                         login: org_login.into(),
                         host: host.into(),
                     },
+                    &contact_inputs(&org_contacts),
                 )?
             {
                 return Ok(());
@@ -196,6 +361,394 @@ mod tests {
         fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
+    }
+
+    fn collect_responses(profile: Value, page: Value) -> (Vec<super::super::Choice>, String) {
+        collect_responses_on_host(profile, page, "enterprise.example")
+    }
+
+    fn collect_responses_on_host(
+        profile: Value,
+        page: Value,
+        host: &str,
+    ) -> (Vec<super::super::Choice>, String) {
+        collect_responses_with_headers(
+            profile,
+            page,
+            host,
+            "HTTP/2.0 200 OK\r\nX-Oauth-Scopes: read:user\r\n\r\n",
+            false,
+        )
+    }
+
+    fn collect_responses_with_headers(
+        profile: Value,
+        page: Value,
+        host: &str,
+        headers: &str,
+        reject_viewer_email: bool,
+    ) -> (Vec<super::super::Choice>, String) {
+        let directory = tempfile::tempdir().unwrap();
+        let profile_file = directory.path().join("profile.json");
+        let page_file = directory.path().join("page.json");
+        let log = directory.path().join("requests");
+        fs::write(&profile_file, profile.to_string()).unwrap();
+        fs::write(&page_file, page.to_string()).unwrap();
+        let gh = fake(
+            directory.path(),
+            r#"
+printf '%s\n' "$*" >> "$LOG"
+[ "$1" = api ] && [ "$2" = --hostname ] && [ "$3" = "$HOST" ] || exit 9
+case "$4" in
+user) printf '%s' "$HEADERS"; /bin/cat "$PROFILE";;
+graphql)
+  if [ "$REJECT_VIEWER_EMAIL" = 1 ]; then
+    case "$*" in
+      *'viewer { login email'*)
+        printf '%s' '{"errors":[{"type":"INSUFFICIENT_SCOPES","message":"User.email requires read:user or user:email"}]}'
+        exit 1;;
+    esac
+  fi
+  /bin/cat "$PAGE";;
+*) exit 9;;
+esac
+"#,
+        );
+        let context = Context::for_tests();
+        collect_with(&context, gh.as_os_str(), host, |command| {
+            command
+                .env_clear()
+                .env("LOG", &log)
+                .env("PROFILE", &profile_file)
+                .env("PAGE", &page_file)
+                .env("HEADERS", headers)
+                .env(
+                    "REJECT_VIEWER_EMAIL",
+                    if reject_viewer_email { "1" } else { "0" },
+                )
+                .env("HOST", host);
+        })
+        .unwrap();
+        (
+            context.choices_for_tests().unwrap(),
+            fs::read_to_string(log).unwrap(),
+        )
+    }
+
+    #[test]
+    fn profile_scope_evidence_is_explicit_and_never_comes_from_body_or_other_headers() {
+        let profile = r#"{"login":"alex","email":"private@example.invalid"}"#;
+        for scope in [
+            "user",
+            "read:user",
+            "user:email",
+            "repo, read:user, read:org",
+        ] {
+            for newline in ["\r\n", "\n"] {
+                let response = format!(
+                    "HTTP/2.0 200 OK{newline}x-OAuTh-SCopES: {scope}{newline}{newline}{profile}"
+                );
+                assert!(profile_response(response.as_bytes()).unwrap().1, "{scope}");
+            }
+        }
+        for headers in [
+            "",
+            "HTTP/2.0 200 OK\r\n\r\n",
+            "HTTP/2.0 200 OK\r\nX-Oauth-Scopes: repo, read:org, gist\r\n\r\n",
+            "HTTP/2.0 200 OK\r\nX-Oauth-Scopes: \r\n\r\n",
+            "HTTP/2.0 200 OK\r\nX-Oauth-Scopes: not-read:user, user:email:extra\r\n\r\n",
+            "HTTP/2.0 200 OK\r\nX-Accepted-Oauth-Scopes: user\r\n\r\n",
+        ] {
+            let response = format!("{headers}{profile}");
+            let (value, allowed) = profile_response(response.as_bytes()).unwrap();
+            assert_eq!(value["login"], "alex");
+            assert!(!allowed, "{headers:?}");
+        }
+        let (_, allowed) =
+            profile_response(br#"{"login":"alex","X-Oauth-Scopes":"read:user"}"#).unwrap();
+        assert!(!allowed);
+        assert!(profile_response(b"HTTP/2.0 200 OK\r\nX-Oauth-Scopes: user").is_none());
+        assert!(profile_response(b"HTTP/2.0 200 OK\r\n\r\nnot json").is_none());
+    }
+
+    #[test]
+    fn memberships_and_public_org_contacts_survive_without_optional_user_email_scopes() {
+        use serde_json::json;
+        for headers in [
+            "",
+            "HTTP/2.0 200 OK\r\n\r\n",
+            "HTTP/2.0 200 OK\r\nX-Oauth-Scopes: admin:public_key, gist, read:org, repo\r\n\r\n",
+            "HTTP/2.0 200 OK\r\nX-Accepted-Oauth-Scopes: user:email\r\n\r\n",
+        ] {
+            let (choices, log) = collect_responses_with_headers(
+                json!({"login":"alex","name":"Alex","email":"private@example.invalid","blog":"https://alex.invalid"}),
+                json!({"data":{"viewer":{"login":"alex","email":"unrequested@example.invalid","websiteUrl":"https://public.invalid","organizations":{"nodes":[
+                    {"login":"team","name":"Team","email":"public-team@example.invalid","websiteUrl":"https://team.invalid"}
+                ],"pageInfo":{"hasNextPage":false}}}}}),
+                "github.com",
+                headers,
+                true,
+            );
+            assert_eq!(
+                choices.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                ["Alex", "Team"]
+            );
+            assert!(choices[0].emails.is_empty());
+            assert!(choices[0].eligible);
+            assert!(!choices[1].eligible);
+            assert_eq!(choices[1].emails[0].value, "public-team@example.invalid");
+            assert_eq!(
+                choices[0]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                [
+                    "https://alex.invalid",
+                    "https://public.invalid",
+                    "https://github.com/alex"
+                ]
+            );
+            assert_eq!(
+                choices[1]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["https://team.invalid", "https://github.com/team"]
+            );
+            assert_eq!(
+                log.lines().count(),
+                2,
+                "no probes, retries, or extra lookups"
+            );
+            assert!(log.contains("user --include"));
+            assert!(log.contains("viewer { login websiteUrl url organizations"));
+            assert!(!log.contains("viewer { login email"));
+            assert!(!format!("{choices:?}").contains("private@example.invalid"));
+            assert!(!format!("{choices:?}").contains("unrequested@example.invalid"));
+        }
+    }
+
+    #[test]
+    fn public_contacts_reuse_only_existing_requests_and_preserve_website_profile_alternatives() {
+        use serde_json::json;
+        let (choices, log) = collect_responses(
+            json!({"login":"alex", "name":"Alex", "blog":" https://rest-website.invalid ", "html_url":"https://enterprise.example/alex", "url":"https://api.invalid/users/alex", "email":"private-rest-email@example.invalid"}),
+            json!({"data":{"viewer":{"login":"alex", "email":" public@example.invalid ", "websiteUrl":"https://graphql-website.invalid", "url":"https://enterprise.example/alex", "organizations":{"nodes":[
+                {"login":"team", "name":"Alex", "email":"org@example.invalid", "websiteUrl":"https://team.invalid", "url":"https://enterprise.example/team"},
+                {"login":"other", "name":"Other", "email":null, "websiteUrl":null, "url":null}
+            ], "pageInfo":{"hasNextPage":false}}}}}),
+        );
+        assert_eq!(choices.len(), 2);
+        let alex = &choices[0];
+        assert_eq!(alex.name, "Alex");
+        assert_eq!(alex.records.len(), 2);
+        assert_eq!(alex.kind, super::super::AuthorProvenanceKind::Mixed);
+        assert_eq!(
+            alex.emails
+                .iter()
+                .map(|c| c.value.as_str())
+                .collect::<Vec<_>>(),
+            ["public@example.invalid", "org@example.invalid"]
+        );
+        assert_eq!(
+            alex.emails[0].kind,
+            super::super::AuthorProvenanceKind::Identity
+        );
+        assert_eq!(
+            alex.emails[1].kind,
+            super::super::AuthorProvenanceKind::Organisation
+        );
+        assert_eq!(
+            alex.emails[0].hint,
+            "GitHub profile alex on enterprise.example email"
+        );
+        assert_eq!(
+            alex.urls
+                .iter()
+                .map(|c| c.value.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "https://rest-website.invalid",
+                "https://graphql-website.invalid",
+                "https://enterprise.example/alex",
+                "https://team.invalid",
+                "https://enterprise.example/team"
+            ]
+        );
+        assert_eq!(choices[1].urls[0].value, "https://enterprise.example/other");
+        assert!(choices[1].emails.is_empty());
+        assert_eq!(log.lines().count(), 2);
+        assert!(log.contains("viewer { login email websiteUrl url"));
+        assert!(log.contains("nodes { name login email websiteUrl url }"));
+        for forbidden in [
+            "user/emails",
+            "orgs/",
+            "auth ",
+            "private-rest-email",
+            "rest-website.invalid",
+        ] {
+            assert!(!log.contains(forbidden), "unexpected request {forbidden}");
+        }
+        assert!(!format!("{choices:?}").contains("private-rest-email"));
+        assert!(!format!("{choices:?}").contains("api.invalid"));
+    }
+
+    #[test]
+    fn null_wrong_type_invalid_and_scheme_less_contacts_do_not_erase_names_or_other_fields() {
+        use serde_json::json;
+        for email in [
+            Value::Null,
+            json!(42),
+            json!("bad"),
+            json!("bad\n@example.invalid"),
+        ] {
+            let (choices, log) = collect_responses(
+                json!({"login":"alex", "name":"bad\nname", "blog":"scheme-less.example", "html_url":"relative/path", "url":"https://api.invalid/users/alex"}),
+                json!({"data":{"viewer":{"login":"alex", "email":email, "websiteUrl":42, "url":null, "organizations":{"nodes":[
+                    {"login":"valid", "name":null, "email":"valid@example.invalid", "websiteUrl":"scheme-less.example", "url":"https://enterprise.example/valid"},
+                    {"login":"website", "name":"Website", "email":false, "websiteUrl":"https://website.invalid", "url":false},
+                    {"login":"bad\nlogin", "name":"Unsafe", "email":"unsafe@example.invalid"}
+                ], "pageInfo":{"hasNextPage":false}}}}}),
+            );
+            assert_eq!(
+                choices.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                ["alex", "Website", "valid"]
+            );
+            assert!(choices[0].emails.is_empty());
+            assert_eq!(choices[0].urls[0].value, "https://enterprise.example/alex");
+            assert_eq!(
+                choices[1]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                [
+                    "https://website.invalid",
+                    "https://enterprise.example/website"
+                ]
+            );
+            assert_eq!(choices[2].emails[0].value, "valid@example.invalid");
+            assert_eq!(choices[2].urls.len(), 1);
+            assert_eq!(log.lines().count(), 2);
+        }
+    }
+
+    #[test]
+    fn mismatched_viewer_or_graphql_errors_cannot_attach_contacts_or_memberships() {
+        use serde_json::json;
+        for page in [
+            json!({"data":{"viewer":{"login":"other", "email":"wrong@example.invalid", "websiteUrl":"https://wrong.invalid", "organizations":{"nodes":[{"login":"wrong", "name":"Wrong"}]}}}}),
+            json!({"errors":[{"message":"denied"}], "data":{"viewer":{"login":"alex", "email":"error@example.invalid"}}}),
+            json!({"data":{"viewer":null}}),
+        ] {
+            let (choices, log) = collect_responses(
+                json!({"login":"alex", "name":"Alex", "blog":"https://early.invalid", "html_url":"https://enterprise.example/alex"}),
+                page,
+            );
+            assert_eq!(choices.len(), 1);
+            assert!(choices[0].emails.is_empty());
+            assert_eq!(
+                choices[0]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["https://early.invalid", "https://enterprise.example/alex"]
+            );
+            assert_eq!(log.lines().count(), 2);
+        }
+    }
+
+    #[test]
+    fn fallback_urls_accept_only_safe_authority_and_single_path_components() {
+        for host in [
+            "github.com",
+            "enterprise.example:8443",
+            "127.0.0.1",
+            "[2001:db8::1]",
+            "[::1]:8443",
+        ] {
+            assert_eq!(
+                fallback_profile_url(host, "alex-team_1"),
+                Some(format!("https://{host}/alex-team_1"))
+            );
+        }
+        for host in [
+            "",
+            "evil@example.invalid",
+            "github.com@evil.invalid",
+            "github.com/path",
+            "github.com?query",
+            "github.com#fragment",
+            "https://github.com",
+            "github.com\\@evil.invalid",
+            "github.com%2f.evil.invalid",
+            "github.com:bad",
+            "github.com:0",
+            "github.com:65536",
+            "github.com:",
+            "github..com",
+            ".github.com",
+            "github.com.",
+            " github.com",
+            "github.com\n",
+            "[::1]@evil.invalid",
+            "[::1]:443/path",
+            "::1",
+        ] {
+            assert_eq!(
+                fallback_profile_url(host, "alex"),
+                None,
+                "unsafe authority {host:?}"
+            );
+        }
+        for login in [
+            "",
+            "../evil",
+            ".",
+            "..",
+            "//evil.invalid",
+            "alex/path",
+            "alex?query",
+            "alex#fragment",
+            "alex@evil.invalid",
+            "alex%2f..",
+            "alex\\path",
+            "alex\n",
+            "alex name",
+            "水",
+        ] {
+            assert_eq!(
+                fallback_profile_url("github.com", login),
+                None,
+                "unsafe path {login:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsafe_url_components_omit_only_constructed_contacts_not_display_safe_names() {
+        use serde_json::json;
+        for (host, login) in [
+            ("github.com@evil.invalid", "alex"),
+            ("github.com/path", "alex"),
+            ("enterprise.example", "../evil"),
+            ("enterprise.example", "alex?query"),
+            ("enterprise.example", "alex%2f.."),
+        ] {
+            let (choices, log) = collect_responses_on_host(
+                json!({"login":login, "name":"Kept Name", "url":"https://api.invalid/users/alex"}),
+                json!({"data":{"viewer":{"login":login, "email":"public@example.invalid", "organizations":{"nodes":[], "pageInfo":{"hasNextPage":false}}}}}),
+                host,
+            );
+            assert_eq!(choices.len(), 1);
+            assert_eq!(choices[0].name, "Kept Name");
+            assert!(choices[0].urls.is_empty(), "host={host}, login={login}");
+            assert_eq!(choices[0].emails[0].value, "public@example.invalid");
+            assert_eq!(log.lines().count(), 2);
+        }
     }
 
     #[test]
@@ -256,6 +809,8 @@ esac
         assert!(!choices[2].eligible);
         let log = fs::read_to_string(log).unwrap();
         assert_eq!(log.lines().count(), 3);
+        assert!(log.contains("user --include"));
+        assert!(!log.contains("viewer { login email"));
         assert!(log.contains("organizations(first: 100"));
         assert!(!log.contains("orgs/"));
     }
@@ -265,6 +820,7 @@ esac
         for later in [
             "exit 4",
             "printf '%s' '{\"data\":{\"viewer\":{\"login\":\"other\",\"organizations\":{\"nodes\":[{\"login\":\"wrong\",\"name\":\"Wrong\"}],\"pageInfo\":{\"hasNextPage\":false}}}}}'",
+            "printf '%s' '{\"errors\":[{\"message\":\"later denied\"}]}'",
         ] {
             let directory = tempfile::tempdir().unwrap();
             let gh = fake(
@@ -272,10 +828,10 @@ esac
                 &format!(
                     r#"
 case "$4" in
-user) printf '%s' '{{"login":"alex","name":"Alex"}}';;
+user) printf 'HTTP/2.0 200 OK\r\nX-Oauth-Scopes: read:user\r\n\r\n'; printf '%s' '{{"login":"alex","name":"Alex","blog":"https://early.invalid","html_url":"https://github.com/alex"}}';;
 *) case "$*" in
 *after=next*) {later};;
-*) printf '%s' '{{"data":{{"viewer":{{"login":"alex","organizations":{{"nodes":[{{"login":"team","name":"Team"}}],"pageInfo":{{"hasNextPage":true,"endCursor":"next"}}}}}}}}}}';;
+*) printf '%s' '{{"data":{{"viewer":{{"login":"alex","email":"public@example.invalid","organizations":{{"nodes":[{{"login":"team","name":"Team","email":"team@example.invalid","websiteUrl":"https://team.invalid","url":"https://github.com/team"}}],"pageInfo":{{"hasNextPage":true,"endCursor":"next"}}}}}}}}}}';;
 esac;; esac
 "#
                 ),
@@ -290,6 +846,25 @@ esac;; esac
                     .map(|choice| choice.name.as_str())
                     .collect::<Vec<_>>(),
                 ["Alex", "Team"]
+            );
+            let choices = context.choices_for_tests().unwrap();
+            assert_eq!(choices[0].emails[0].value, "public@example.invalid");
+            assert_eq!(
+                choices[0]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["https://early.invalid", "https://github.com/alex"]
+            );
+            assert_eq!(choices[1].emails[0].value, "team@example.invalid");
+            assert_eq!(
+                choices[1]
+                    .urls
+                    .iter()
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["https://team.invalid", "https://github.com/team"]
             );
         }
     }

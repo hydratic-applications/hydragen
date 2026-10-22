@@ -341,7 +341,7 @@ fn command_words_and_option_separators_still_reach_unchanged_operational_values(
     assert!(output.stderr.is_empty());
     let initial: serde_json::Value =
         serde_json::from_slice(&fs::read(app.join("layer.json")).unwrap()).unwrap();
-    assert_eq!(initial["author"], "init");
+    assert_eq!(initial["author"], serde_json::json!({"name": "init"}));
     assert_eq!(initial["description"], "add");
     for command_word in ["init", "add", "help"] {
         let target = app.join(command_word);

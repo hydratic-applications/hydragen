@@ -317,8 +317,10 @@ impl Case {
                             "name: rules\nauthor: 42\n"
                         },
                         strings(&[
-                            "Metadata field 'author' must be a string",
-                            "omit it only if it is optional",
+                            "/author (type):",
+                            "not of types \"string\", \"object\"",
+                            "Schema rule: '/$defs/author/type'",
+                            "Tip: Use the value type required by the reported schema constraint.",
                         ]),
                     ),
                     "metadata-blank" => (
@@ -343,6 +345,12 @@ impl Case {
                 case.facts
                     .push("Invalid layer manifest '../rules/layer.yaml'.".into());
                 case.absent.extend(strings(&["hydragen init", "--name"]));
+                if matches!(label, "metadata-type" | "metadata-type-number") {
+                    case.absent.extend(strings(&[
+                        "Metadata field 'author' must be a string",
+                        "omit it only if it is optional",
+                    ]));
+                }
                 case.absent.push(case.root.path().display().to_string());
                 if label == "metadata-type-number" {
                     case.absent.push("null".into());

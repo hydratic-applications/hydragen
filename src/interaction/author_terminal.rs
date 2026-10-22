@@ -1,7 +1,7 @@
 //! Controlled PTYs exercise the production collector with injected source lanes.
 //! This module, including its environment protocol, does not exist in release builds.
 use super::*;
-use crate::author_discovery::{Status, testing};
+use crate::author_discovery::{ContactField, ContactInput, ProjectFile, Source, Status, testing};
 use portable_pty::{Child, CommandBuilder, ExitStatus, PtySize, native_pty_system};
 use std::fs;
 use std::io::{Read, Write};
@@ -39,6 +39,128 @@ fn terminal_driver() {
             "empty" => {}
             "custom" => {
                 publisher.publish("Fixture author", false)?;
+            }
+            "contacts-one" | "contacts-multi" | "contacts-literal" => {
+                let name = if source_case == "contacts-literal" {
+                    "Fixture <literal@example.com> (https://literal.example)"
+                } else {
+                    "Fixture author"
+                };
+                publisher.publish_contacts(
+                    name,
+                    Source::Project {
+                        file: ProjectFile::PackageJson,
+                        index: 0,
+                    },
+                    &[
+                        ContactInput {
+                            field: ContactField::Email,
+                            value: "work@example.com",
+                        },
+                        ContactInput {
+                            field: ContactField::Url,
+                            value: "https://work.example",
+                        },
+                    ],
+                )?;
+                if source_case == "contacts-multi" {
+                    publisher.publish_contacts(
+                        name,
+                        Source::GithubProfile {
+                            host: "github.com".into(),
+                            login: "fixture".into(),
+                        },
+                        &[
+                            ContactInput {
+                                field: ContactField::Email,
+                                value: "personal@example.com",
+                            },
+                            ContactInput {
+                                field: ContactField::Website,
+                                value: "https://personal.example",
+                            },
+                            ContactInput {
+                                field: ContactField::ProfileUrl,
+                                value: "https://github.com/fixture",
+                            },
+                        ],
+                    )?;
+                    publisher.publish_contacts(
+                        "Other author",
+                        Source::Project {
+                            file: ProjectFile::PackageJson,
+                            index: 1,
+                        },
+                        &[
+                            ContactInput {
+                                field: ContactField::Email,
+                                value: "other@example.com",
+                            },
+                            ContactInput {
+                                field: ContactField::Url,
+                                value: "https://other.example",
+                            },
+                        ],
+                    )?;
+                }
+            }
+            "contacts-many" => {
+                for index in 0..16 {
+                    publisher.publish_contacts(
+                        "Fixture author",
+                        Source::Project {
+                            file: ProjectFile::PackageJson,
+                            index,
+                        },
+                        &[
+                            ContactInput {
+                                field: ContactField::Email,
+                                value: &format!("contact-{index:02}@example.com"),
+                            },
+                            ContactInput {
+                                field: ContactField::Url,
+                                value: &format!("https://example.com/{index:02}"),
+                            },
+                        ],
+                    )?;
+                }
+            }
+            "late-contacts" => {
+                publisher.publish_contacts(
+                    "Fixture author",
+                    Source::GithubProfile {
+                        host: "github.com".into(),
+                        login: "fixture".into(),
+                    },
+                    &[ContactInput {
+                        field: ContactField::ProfileUrl,
+                        value: "https://github.com/fixture",
+                    }],
+                )?;
+                fs::write(source_root.join("ready-to-wait"), "1").unwrap();
+                let until = Instant::now() + TIMEOUT;
+                while !source_root.join("release").exists() && Instant::now() < until {
+                    thread::sleep(Duration::from_millis(2));
+                }
+                let accepted = publisher.enrich_github_profile(
+                    "github.com",
+                    "fixture",
+                    &[
+                        ContactInput {
+                            field: ContactField::Email,
+                            value: "late@example.com",
+                        },
+                        ContactInput {
+                            field: ContactField::Website,
+                            value: "https://late.example",
+                        },
+                    ],
+                )?;
+                fs::write(
+                    source_root.join("published"),
+                    if accepted { "yes" } else { "no" },
+                )
+                .unwrap();
             }
             "membership" => {
                 publisher.publish("Membership organisation", true)?;
@@ -100,7 +222,15 @@ fn terminal_driver() {
     let preparation = testing::start(clock, [local, Box::new(|_| Ok(()))]).unwrap();
     if matches!(
         scenario.as_str(),
-        "empty" | "custom" | "membership" | "many-memberships" | "fatal"
+        "empty"
+            | "custom"
+            | "membership"
+            | "many-memberships"
+            | "fatal"
+            | "contacts-one"
+            | "contacts-multi"
+            | "contacts-literal"
+            | "contacts-many"
     ) {
         // These fixtures specifically enter Name with already-ready results.
         // The pending fixtures below never wait before calling the collector.
@@ -404,6 +534,46 @@ impl TerminalDriver {
         }
     }
 
+    fn frame_since(&mut self, offset: usize, field: &str) -> String {
+        let until = Instant::now() + TIMEOUT;
+        loop {
+            let fresh = console::strip_ansi_codes(&String::from_utf8_lossy(&self.output[offset..]))
+                .replace('\r', "");
+            if let Some((_, frame)) = fresh.rsplit_once(&format!("◆  {field} (optional)\n"))
+                && frame.lines().any(|line| line.starts_with("└  "))
+            {
+                return frame.into();
+            }
+            assert!(Instant::now() < until, "fresh {field}: {}", self.text());
+            self.receive();
+        }
+    }
+
+    fn submit_to(&mut self, answer: &[u8], next: &str) -> String {
+        let offset = self.output.len();
+        self.send(answer);
+        self.frame_since(offset, next)
+    }
+
+    fn contact_action(&mut self, field: &str, label: &str) -> usize {
+        let mut frame = self.frame_since(0, field);
+        for _ in 0..32 {
+            let selected = frame
+                .lines()
+                .find(|line| line.starts_with("│  ● "))
+                .expect("contact selector");
+            if selected == format!("│  ● {label}") {
+                let offset = self.output.len();
+                self.send(b"\r");
+                return offset;
+            }
+            let offset = self.output.len();
+            self.send(b"\x1b[B");
+            frame = self.frame_since(offset, field);
+        }
+        panic!("missing {label}: {frame}");
+    }
+
     fn finish(&mut self) -> ExitStatus {
         let until = Instant::now() + TIMEOUT;
         let status = loop {
@@ -438,12 +608,41 @@ impl TerminalDriver {
     }
 
     fn complete(&mut self) -> serde_json::Value {
-        self.wait("Description");
+        self.omit_contacts();
         self.send(b"\r");
         self.wait("jsonc");
         self.send(b"\r");
         assert!(self.finish().success(), "{}", self.text());
         serde_json::from_str(&self.file("result")).unwrap()
+    }
+
+    fn omit_contacts(&mut self) {
+        let until = Instant::now() + TIMEOUT;
+        let mut offset = 0;
+        loop {
+            let fresh = console::strip_ansi_codes(&String::from_utf8_lossy(&self.output[offset..]))
+                .replace('\r', "");
+            if let Some((_, frame)) = fresh.rsplit_once("◆  ") {
+                let field = frame.lines().next().unwrap_or("");
+                if field == "Description (optional)" {
+                    return;
+                }
+                if matches!(field, "Author email (optional)" | "Author URL (optional)")
+                    && frame.lines().any(|line| line == "└  ")
+                {
+                    offset = self.output.len();
+                    let selected = frame.lines().find(|line| line.starts_with("│  ● "));
+                    self.send(if selected.is_some_and(|line| line != "│  ● Skip") {
+                        b"\x1b[B"
+                    } else {
+                        b"\r"
+                    });
+                    continue;
+                }
+            }
+            assert!(Instant::now() < until, "contact omission: {}", self.text());
+            self.receive();
+        }
     }
 
     fn cancellation(&mut self, key: &[u8]) {
@@ -526,9 +725,344 @@ fn absolute_stty_preamble_preserves_queued_keys_without_path_utilities() {
             driver.send(b"temp\x7f\x7f\x7f\x7fQueued author\r");
             let result = driver.complete();
             assert_eq!(result["name"], "queued-name");
-            assert_eq!(result["author"], "Queued author");
+            assert_eq!(
+                result["author"],
+                serde_json::json!({"name": "Queued author"})
+            );
         }
     }
+}
+
+#[test]
+fn shorthand_bypasses_only_captured_fields_and_preserves_the_original_author_answer() {
+    for scenario in ["empty", "custom"] {
+        for (answer, email, url) in [
+            ("Alex", None, None),
+            ("Alex <alex@example.com>", Some("alex@example.com"), None),
+            (
+                "Alex (mailto:alex@example.com)",
+                None,
+                Some("mailto:alex@example.com"),
+            ),
+            (
+                "Alex <alex@example.com> (https://alex.example)",
+                Some("alex@example.com"),
+                Some("https://alex.example"),
+            ),
+        ] {
+            let mut driver = TerminalDriver::new(scenario);
+            driver.enter_name();
+            if scenario == "custom" {
+                driver.custom();
+            } else {
+                driver.frame_since(0, "Author");
+            }
+            let offset = driver.output.len();
+            driver.send(format!("{answer}\r").as_bytes());
+            if email.is_none() {
+                let frame = driver.frame_since(offset, "Author email");
+                assert!(!frame.contains('●') && !frame.contains("Enter another email"));
+                driver.send(b"\r");
+            }
+            if url.is_none() {
+                let frame = driver.frame_since(offset, "Author URL");
+                assert!(!frame.contains('●') && !frame.contains("Enter another URL"));
+                driver.send(b"\r");
+            }
+            driver.wait("Description (optional)");
+            let summary =
+                console::strip_ansi_codes(&String::from_utf8_lossy(&driver.output[offset..]))
+                    .replace('\r', "");
+            assert!(summary.contains(&format!("│  {answer}\n")), "{summary}");
+            assert_eq!(summary.contains("Author email (optional)"), email.is_none());
+            assert_eq!(summary.contains("Author URL (optional)"), url.is_none());
+            let result = driver.complete();
+            let mut expected = serde_json::json!({"name":"Alex"});
+            if let Some(value) = email {
+                expected["email"] = value.into();
+            }
+            if let Some(value) = url {
+                expected["url"] = value.into();
+            }
+            assert_eq!(result["author"], expected);
+            assert!(!driver.text().contains("Finding author suggestions"));
+        }
+    }
+}
+
+#[test]
+fn author_omission_bypasses_both_contact_steps_without_synthetic_summaries() {
+    for scenario in ["empty", "custom", "contacts-one"] {
+        let mut driver = TerminalDriver::new(scenario);
+        driver.enter_name();
+        if scenario == "custom" {
+            driver.custom();
+        } else if scenario == "contacts-one" {
+            driver.wait("Enter another author");
+            driver.send(b"\x1b[B\x1b[B");
+            driver.wait("● Skip");
+        } else {
+            driver.frame_since(0, "Author");
+        }
+        let offset = driver.output.len();
+        driver.send(b"\r");
+        driver.frame_since(offset, "Description");
+        assert!(
+            !driver.text().contains("Author email (optional)")
+                && !driver.text().contains("Author URL (optional)")
+        );
+        assert!(driver.complete()["author"].is_null());
+    }
+}
+
+#[test]
+fn selected_contacts_are_independent_and_use_only_the_selected_groups_actual_sources() {
+    for email_action in ["accept", "Skip", "Enter another email", "custom-empty"] {
+        let mut driver = TerminalDriver::new("contacts-multi");
+        driver.enter_name();
+        driver.wait("Enter another author");
+        let email = driver.submit_to(b"\r", "Author email");
+        assert!(
+            email.contains("● work@example.com (project metadata)"),
+            "{email}"
+        );
+        assert!(email.contains("personal@example.com"));
+        assert!(email.contains("○ personal@example.com (GitHub)"), "{email}");
+        assert!(!email.contains("other@example.com"));
+        assert!(!email.contains("GitHub profile fixture email"));
+        let offset = driver.output.len();
+        if email_action == "accept" {
+            driver.send(b"\r");
+        } else {
+            let custom_offset = driver.contact_action(
+                "Author email",
+                if email_action == "custom-empty" {
+                    "Enter another email"
+                } else {
+                    email_action
+                },
+            );
+            if matches!(email_action, "Enter another email" | "custom-empty") {
+                let custom = driver.frame_since(custom_offset, "Author email");
+                assert!(!custom.contains('●'), "{custom}");
+                driver.send(if email_action == "custom-empty" {
+                    b"\r"
+                } else {
+                    b"custom@example.com\r"
+                });
+            }
+        }
+        let url = driver.frame_since(offset, "Author URL");
+        for value in [
+            "https://work.example",
+            "https://personal.example",
+            "https://github.com/fixture",
+        ] {
+            assert!(url.contains(value), "{url}");
+        }
+        assert!(!url.contains("https://other.example"));
+        assert!(!url.contains("Finding author suggestions"));
+        let first = driver.output.len();
+        driver.send(b"\x1b[B");
+        let focused = driver.frame_since(first, "Author URL");
+        assert!(
+            focused.contains("https://personal.example (GitHub)"),
+            "{focused}"
+        );
+        let offset = driver.output.len();
+        driver.send(b"\r");
+        driver.frame_since(offset, "Description");
+        let result = driver.complete();
+        let mut expected =
+            serde_json::json!({"name":"Fixture author", "url":"https://personal.example"});
+        match email_action {
+            "accept" => expected["email"] = "work@example.com".into(),
+            "Enter another email" => expected["email"] = "custom@example.com".into(),
+            _ => {}
+        }
+        assert_eq!(result["author"], expected);
+    }
+}
+
+#[test]
+fn one_contact_still_requires_selection_and_selected_name_labels_are_never_shorthand() {
+    for scenario in ["contacts-one", "contacts-literal"] {
+        let mut driver = TerminalDriver::new(scenario);
+        driver.enter_name();
+        driver.wait("Enter another author");
+        let email = driver.submit_to(b"\r", "Author email");
+        for value in ["work@example.com", "Enter another email", "Skip"] {
+            assert!(email.contains(value));
+        }
+        let url = driver.submit_to(b"\r", "Author URL");
+        for value in ["https://work.example", "Enter another URL", "Skip"] {
+            assert!(url.contains(value));
+        }
+        driver.submit_to(b"\r", "Description");
+        let result = driver.complete();
+        assert_eq!(result["author"]["email"], "work@example.com");
+        assert_eq!(result["author"]["url"], "https://work.example");
+        assert_eq!(
+            result["author"]["name"],
+            if scenario == "contacts-literal" {
+                "Fixture <literal@example.com> (https://literal.example)"
+            } else {
+                "Fixture author"
+            }
+        );
+        assert!(!driver.text().contains("Finding author suggestions"));
+    }
+}
+
+#[test]
+fn custom_equal_name_never_recovers_suggestions_and_contact_fields_can_retry_clear_or_cancel() {
+    for field in ["Author email", "Author URL"] {
+        for cancel in [None, Some(b"\x1b".as_slice()), Some(b"\x03".as_slice())] {
+            let mut driver = TerminalDriver::new("contacts-one");
+            driver.enter_name();
+            driver.custom();
+            let email = driver.submit_to(b"Fixture author\r", "Author email");
+            assert!(!email.contains("work@example.com") && !email.contains('●'));
+            if field == "Author URL" {
+                driver.submit_to(b"\r", "Author URL");
+            }
+            if let Some(key) = cancel {
+                driver.cancellation(key);
+                continue;
+            }
+            driver.send(b" \r");
+            driver.wait("clear the field and press Enter to skip");
+            let offset = driver.output.len();
+            driver.send(b"\x7fnot-valid\r");
+            let until = Instant::now() + TIMEOUT;
+            while !console::strip_ansi_codes(&String::from_utf8_lossy(&driver.output[offset..]))
+                .contains("Enter a valid")
+            {
+                assert!(Instant::now() < until, "{}", driver.text());
+                driver.receive();
+            }
+            assert!(!driver.text().contains("--author"));
+            driver.send(b"\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\r");
+            if field == "Author email" {
+                driver.frame_since(offset, "Author URL");
+                driver.send(b"\r");
+            }
+            driver.frame_since(offset, "Description");
+            assert_eq!(
+                driver.complete()["author"],
+                serde_json::json!({"name":"Fixture author"})
+            );
+        }
+    }
+}
+
+#[test]
+fn contact_selectors_and_custom_contact_inputs_cancel_without_files_or_theme_leaks() {
+    for field in ["Author email", "Author URL"] {
+        for custom in [false, true] {
+            for key in [b"\x1b".as_slice(), b"\x03".as_slice()] {
+                let mut driver = TerminalDriver::new("contacts-one");
+                driver.enter_name();
+                driver.wait("Enter another author");
+                driver.submit_to(b"\r", "Author email");
+                if field == "Author URL" {
+                    driver.submit_to(b"\r", "Author URL");
+                }
+                if custom {
+                    let offset = driver.contact_action(
+                        field,
+                        if field == "Author email" {
+                            "Enter another email"
+                        } else {
+                            "Enter another URL"
+                        },
+                    );
+                    let frame = driver.frame_since(offset, field);
+                    assert!(!frame.contains('●') && !frame.contains("package.json"));
+                }
+                driver.cancellation(key);
+            }
+        }
+    }
+}
+
+#[test]
+fn late_contacts_freeze_with_names_without_contact_step_wait_or_spinner() {
+    let mut driver = TerminalDriver::new("late-contacts");
+    driver.wait("directory-default");
+    driver.file("ready-to-wait");
+    driver.signal("clock", "15000");
+    driver.send(b"\r");
+    driver.wait("Enter another author");
+    driver.signal("release", "1");
+    assert_eq!(driver.file("published"), "no");
+    let offset = driver.output.len();
+    let before = Instant::now();
+    let email = driver.submit_to(b"\r", "Author email");
+    assert!(before.elapsed() < Duration::from_millis(800));
+    assert!(!email.contains('●') && !email.contains("late@example.com"));
+    let before = Instant::now();
+    let url = driver.submit_to(b"\r", "Author URL");
+    assert!(before.elapsed() < Duration::from_millis(800));
+    assert!(url.contains("https://github.com/fixture") && !url.contains("https://late.example"));
+    driver.submit_to(b"\r", "Description");
+    assert!(
+        !String::from_utf8_lossy(&driver.output[offset..]).contains("Finding author suggestions")
+    );
+    assert_eq!(
+        driver.complete()["author"],
+        serde_json::json!({"name":"Fixture author", "url":"https://github.com/fixture"})
+    );
+}
+
+#[test]
+fn invalid_captured_contacts_retry_author_without_silent_literal_fallback_or_duplicate_rows() {
+    for (answer, component) in [
+        ("Alex <bad>", "author email"),
+        ("Alex (https://bad host)", "author URL"),
+    ] {
+        let mut driver = TerminalDriver::new("empty");
+        driver.enter_name();
+        driver.frame_since(0, "Author");
+        driver.send(format!("{answer}\r").as_bytes());
+        driver.wait(&format!("Enter a valid {component}"));
+        assert!(
+            driver
+                .text()
+                .contains("clear the field and press Enter to skip")
+        );
+        assert!(!driver.text().contains("Description") && !driver.text().contains("--author"));
+        driver.send(&vec![0x7f; answer.len()]);
+        let offset = driver.output.len();
+        driver.send(b"Alex <alex@example.com> (https://alex.example)\r");
+        driver.frame_since(offset, "Description");
+        let fresh = String::from_utf8_lossy(&driver.output[offset..]);
+        assert!(
+            !fresh.contains("Author email (optional)") && !fresh.contains("Author URL (optional)")
+        );
+        assert_eq!(
+            driver.complete()["author"],
+            serde_json::json!({"name":"Alex", "email":"alex@example.com", "url":"https://alex.example"})
+        );
+    }
+}
+
+#[test]
+fn long_contact_lists_scroll_natively_and_keep_last_candidates_and_actions() {
+    let mut driver = TerminalDriver::new("contacts-many");
+    driver.enter_name();
+    driver.wait("Enter another author");
+    driver.submit_to(b"\r", "Author email");
+    let selected =
+        driver.contact_action("Author email", "contact-15@example.com (project metadata)");
+    let url = driver.frame_since(selected, "Author URL");
+    assert!(url.contains("https://example.com/00"));
+    let selected = driver.contact_action("Author URL", "https://example.com/15 (project metadata)");
+    driver.frame_since(selected, "Description");
+    assert_eq!(
+        driver.complete()["author"],
+        serde_json::json!({"name":"Fixture author", "email":"contact-15@example.com", "url":"https://example.com/15"})
+    );
 }
 
 #[test]
@@ -550,7 +1084,10 @@ fn shared_optional_author_text_handles_values_empty_retry_clear_and_cancel() {
             let result = driver.complete();
             assert_eq!(
                 result["author"],
-                answer.map_or(serde_json::Value::Null, |value| value.into())
+                answer.map_or(
+                    serde_json::Value::Null,
+                    |value| serde_json::json!({"name": value})
+                )
             );
             assert_eq!(result["name"], "directory-default");
             assert!(!driver.text().contains("Finding author suggestions"));
@@ -628,7 +1165,7 @@ fn moving_up_from_long_membership_custom_visibly_selects_and_summarises_the_name
     // before reading Enter, even when both keys are already available.
     driver.send(b"\x1b[A\r");
     let result = driver.complete();
-    assert_eq!(result["author"], "Membership 19");
+    assert_eq!(result["author"]["name"], "Membership 19");
     let transcript = console::strip_ansi_codes(&String::from_utf8_lossy(&driver.output[offset..]))
         .replace('\r', "");
     let submit = transcript.find("◇  Author (optional)");
@@ -666,7 +1203,7 @@ fn delayed_sources_leave_name_responsive_and_ready_results_need_no_wait() {
     driver.send(b"\r");
     let result = driver.complete();
     assert_eq!(result["name"], "responsive-name");
-    assert_eq!(result["author"], "Late author");
+    assert_eq!(result["author"]["name"], "Late author");
 }
 
 #[test]
@@ -693,7 +1230,7 @@ fn fast_name_gets_fresh_author_wait_and_late_results_are_frozen() {
     assert_eq!(driver.file("published"), "no");
     assert!(!driver.text().contains("Late author"));
     driver.send(b"\r");
-    assert_eq!(driver.complete()["author"], "Early author");
+    assert_eq!(driver.complete()["author"]["name"], "Early author");
     assert!(!driver.text().contains("Warning"));
 }
 
@@ -711,7 +1248,7 @@ fn preparation_expired_during_name_has_no_new_wait_or_spinner() {
     driver.signal("release", "1");
     assert_eq!(driver.file("published"), "no");
     driver.send(b"\r");
-    assert_eq!(driver.complete()["author"], "Early author");
+    assert_eq!(driver.complete()["author"]["name"], "Early author");
 }
 
 #[test]
@@ -748,7 +1285,7 @@ fn completing_a_pending_source_clears_wait_before_the_next_prompt() {
     );
     assert_eq!(driver.file("published"), "yes");
     driver.send(b"\r");
-    assert_eq!(driver.complete()["author"], "Late author");
+    assert_eq!(driver.complete()["author"]["name"], "Late author");
     let text = driver.text();
     let author = text.find("◆  Author (optional)").unwrap();
     assert!(!text[author..].contains("Finding author suggestions"));
@@ -767,7 +1304,7 @@ fn visible_wait_timeout_cleans_up_the_child_while_author_remains_usable() {
     assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
     assert!(!driver.text().contains("Enter another author"));
     driver.send(b"Still usable\r");
-    assert_eq!(driver.complete()["author"], "Still usable");
+    assert_eq!(driver.complete()["author"]["name"], "Still usable");
 }
 
 #[test]

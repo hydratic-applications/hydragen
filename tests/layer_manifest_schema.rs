@@ -63,8 +63,25 @@ fn public_content_validation_covers_shapes_the_typed_writer_cannot_construct() {
             document[field] = value;
             let violation = content(schema::validate(&document).unwrap_err());
             assert_eq!(violation.instance_path, format!("/{field}"));
-            assert_eq!(violation.kind, ViolationKind::Type);
-            assert_eq!(violation.keyword, "type");
+            let missing_author_name = field == "author" && document[field].is_object();
+            assert_eq!(
+                violation.kind,
+                if missing_author_name {
+                    ViolationKind::Required {
+                        property: "name".into(),
+                    }
+                } else {
+                    ViolationKind::Type
+                }
+            );
+            assert_eq!(
+                violation.keyword,
+                if missing_author_name {
+                    "required"
+                } else {
+                    "type"
+                }
+            );
         }
     }
 }
@@ -125,7 +142,7 @@ fn independent_optional_fields_and_uninterpreted_data_are_valid() {
             }
             schema::validate(&document).unwrap();
             let metadata = validate_document(&document).unwrap();
-            assert_eq!(metadata.author.as_deref(), author);
+            assert_eq!(metadata.author.as_ref().map(hydragen::Author::name), author);
             assert_eq!(metadata.description.as_deref(), description);
         }
     }
@@ -456,7 +473,10 @@ fn every_loader_format_validates_schema_property_and_retains_complete_data() {
             let loaded = discover(directory.path()).unwrap().load().unwrap();
             assert_eq!(loaded.document, expected, "{format}");
             assert_eq!(loaded.metadata.name, "@example/.config");
-            assert_eq!(loaded.metadata.author.as_deref(), Some("  配置 🦀  "));
+            assert_eq!(
+                loaded.metadata.author.as_ref().map(hydragen::Author::name),
+                Some("  配置 🦀  ")
+            );
             assert_eq!(loaded.metadata.description, None);
             assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
         }
