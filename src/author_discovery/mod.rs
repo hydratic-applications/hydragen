@@ -71,7 +71,10 @@ pub(crate) mod testing {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Choice {
     pub name: String,
+    /// Complete safe source evidence, also used as the selector's raw hint identity.
     pub hint: String,
+    /// Deduplicated source families for the human-facing picker.
+    pub summary: String,
     pub eligible: bool,
     pub kind: AuthorProvenanceKind,
 }
@@ -148,6 +151,30 @@ pub(super) enum Source {
 }
 
 impl Source {
+    // Only admitted records reach grouping: hint() has already checked unsafe
+    // GitHub components. Keep display families separate from detailed evidence.
+    fn summary(&self) -> String {
+        match self {
+            Self::Project { .. } => "project metadata".into(),
+            Self::GitAuthorEnvironment | Self::Git { .. } => "Git".into(),
+            Self::AccountName | Self::AccountUsername | Self::EnvironmentUsername { .. } => {
+                "local account".into()
+            }
+            Self::GithubProfile { host, .. } | Self::GithubOrganization { host, .. } => {
+                let family = if matches!(self, Self::GithubProfile { .. }) {
+                    "GitHub"
+                } else {
+                    "GitHub organisation"
+                };
+                if host.eq_ignore_ascii_case("github.com") {
+                    family.into()
+                } else {
+                    format!("{family} on {host}")
+                }
+            }
+        }
+    }
+
     fn provenance_kind(&self) -> AuthorProvenanceKind {
         match self {
             Self::Project { .. } => AuthorProvenanceKind::Unspecified,
@@ -271,26 +298,34 @@ fn choices(mut records: Vec<Record>) -> Vec<Choice> {
     let mut indices = HashMap::new();
     let mut result: Vec<Choice> = Vec::new();
     let mut hints: Vec<Vec<String>> = Vec::new();
+    let mut summaries: Vec<Vec<String>> = Vec::new();
     for record in records {
         let eligible = !matches!(record.source, Source::GithubOrganization { .. });
         let index = *indices.entry(record.name.clone()).or_insert_with(|| {
             result.push(Choice {
                 name: record.name,
                 hint: String::new(),
+                summary: String::new(),
                 eligible: false,
                 kind: AuthorProvenanceKind::Unspecified,
             });
             hints.push(Vec::new());
+            summaries.push(Vec::new());
             result.len() - 1
         });
         result[index].eligible |= eligible;
         result[index].kind = result[index].kind.merge(record.source.provenance_kind());
+        let summary = record.source.summary();
+        if !summaries[index].contains(&summary) {
+            summaries[index].push(summary);
+        }
         if !hints[index].contains(&record.hint) {
             hints[index].push(record.hint);
         }
     }
-    for (choice, hints) in result.iter_mut().zip(hints) {
+    for ((choice, hints), summaries) in result.iter_mut().zip(hints).zip(summaries) {
         choice.hint = join_source_hints(&hints);
+        choice.summary = summaries.join(", ");
     }
     result
 }
@@ -307,6 +342,130 @@ fn join_source_hints(hints: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_summaries_deduplicate_families_without_losing_detailed_evidence() {
+        let context = Context::for_tests();
+        let sources = [
+            Source::Project {
+                file: ProjectFile::PackageJson,
+                index: 0,
+            },
+            Source::Project {
+                file: ProjectFile::CargoToml,
+                index: 0,
+            },
+            Source::Project {
+                file: ProjectFile::PyprojectToml,
+                index: 0,
+            },
+            Source::GitAuthorEnvironment,
+            Source::Git {
+                key: GitKey::User,
+                scope: GitScope::Global,
+                index: 0,
+            },
+            Source::Git {
+                key: GitKey::Author,
+                scope: GitScope::Local,
+                index: 0,
+            },
+            Source::GithubProfile {
+                login: "alex".into(),
+                host: "github.com".into(),
+            },
+            Source::AccountName,
+            Source::AccountUsername,
+            Source::EnvironmentUsername {
+                variable: "USER",
+                index: 0,
+            },
+            Source::GithubOrganization {
+                login: "first-org".into(),
+                host: "github.com".into(),
+            },
+            Source::GithubOrganization {
+                login: "second-org".into(),
+                host: "github.com".into(),
+            },
+        ];
+        for source in sources.iter().rev().chain(sources.iter()) {
+            context.publish(" Team ", source.clone()).unwrap();
+        }
+        let grouped = context.choices_for_tests().unwrap();
+        assert_eq!(grouped.len(), 1);
+        let choice = &grouped[0];
+        assert_eq!(choice.name, "Team");
+        assert_eq!(
+            choice.summary,
+            "project metadata, Git, GitHub, local account, GitHub organisation"
+        );
+        assert!(choice.eligible);
+        assert_eq!(choice.kind, AuthorProvenanceKind::Mixed);
+        for source in sources {
+            let hint = source.hint().unwrap();
+            assert_eq!(choice.hint.matches(&hint).count(), 1, "{}", choice.hint);
+        }
+    }
+
+    #[test]
+    fn common_identity_summary_stays_short_when_settings_share_a_name() {
+        let context = Context::for_tests();
+        for source in [
+            Source::AccountName,
+            Source::GithubProfile {
+                login: "alex-morgan".into(),
+                host: "github.com".into(),
+            },
+            Source::Git {
+                key: GitKey::User,
+                scope: GitScope::Global,
+                index: 0,
+            },
+        ] {
+            context.publish("Alex Morgan", source).unwrap();
+        }
+        let choices = context.choices_for_tests().unwrap();
+        assert_eq!(choices[0].summary, "Git, GitHub, local account");
+        assert_eq!(
+            choices[0].hint,
+            "Git global user.name, GitHub profile alex-morgan, and system account name"
+        );
+    }
+
+    #[test]
+    fn summaries_keep_enterprise_and_membership_distinctions_after_safety_checks() {
+        for (host, suffix) in [("GITHUB.COM", ""), ("work.example", " on work.example")] {
+            let context = Context::for_tests();
+            for source in [
+                Source::GithubProfile {
+                    login: "alex".into(),
+                    host: host.into(),
+                },
+                Source::GithubOrganization {
+                    login: "first".into(),
+                    host: host.into(),
+                },
+                Source::GithubOrganization {
+                    login: "second".into(),
+                    host: host.into(),
+                },
+                Source::GithubOrganization {
+                    login: "unsafe\nlogin".into(),
+                    host: host.into(),
+                },
+            ] {
+                context.publish("Same name", source).unwrap();
+            }
+            let grouped = context.choices_for_tests().unwrap();
+            assert_eq!(
+                grouped[0].summary,
+                format!("GitHub{suffix}, GitHub organisation{suffix}")
+            );
+            assert!(!grouped[0].hint.contains("unsafe"));
+            assert_eq!(grouped[0].kind, AuthorProvenanceKind::Mixed);
+        }
+    }
 
     #[test]
     fn github_hints_omit_the_public_host_but_keep_enterprise_context_and_safety() {

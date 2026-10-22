@@ -206,14 +206,16 @@ design everything upfront.
      [early preparation and Author waiting](changes/archive/2026-10-20-suggest-init-author/design.md#prepare-author-choices-while-name-is-being-answered),
      [grouping](changes/archive/2026-10-20-suggest-init-author/design.md#group-equal-names-and-retain-their-sources),
      and [conditional author interaction](changes/archive/2026-10-20-suggest-init-author/design.md#show-a-selector-only-when-there-are-names-to-choose-from).
-   - **Author presentation refinement:** Show sources only beside the focused
-     name, in inline parentheses with natural-language list punctuation. Use one
-     aligned source-evidence icon per choice, an emoji pencil for custom entry,
-     and a consistent two-space gap before labels. Omit the redundant public
-     GitHub hostname but retain Enterprise hosts. This changes presentation, not
-     discovery or author values. See the
-     [focused-source decision](changes/refine-author-choice-presentation/design.md#reveal-sources-inline-only-on-focus)
-     and [icon decision](changes/refine-author-choice-presentation/design.md#use-one-icon-for-source-evidence-not-a-guessed-entity-type).
+    - **Author presentation refinement:** Replace the previous emoji/icon slots
+      with dimmed source-evidence categories on unfocused names and compact source
+      summaries on focus, such as `(Git, GitHub, local account)`. Deduplicate source
+      families rather than list every setting, file and login; retain full evidence
+      internally and keep Enterprise hosts and organisation support distinct.
+      Names and actions stay aligned, without guessing entity types, truncating
+      hints or adding expansion input. This supersedes the earlier icon and
+      exhaustive-picker-hint presentation, not discovery or author values. See the
+      [summary decision](changes/simplify-author-choice-labels/design.md#separate-detailed-evidence-from-compact-display)
+      and [text-category decision](changes/simplify-author-choice-labels/design.md#replace-icon-slots-with-suffixes).
    - **Initial add interaction decision:** Require source arguments and no guided
      flow, in terminals and automation alike. Defer registry-backed search,
      autocomplete, existence checking, and available-version selection until

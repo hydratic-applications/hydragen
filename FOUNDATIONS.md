@@ -502,6 +502,12 @@ when they reach it. If preparation is unfinished, a short, clearly indicated wai
 is preferable to an unexplained pause. Optional discovery must not hold the
 developer indefinitely or change the choices after they start selecting one.
 
+Presentation can add attention costs too. If Git, GitHub and the local account
+all suggest the same author, listing every setting and account detail beside that
+name can wrap across several lines even on a medium-width terminal. Keep enough
+source context to explain the suggestion without making an optional convenience
+harder to scan than typing the name directly.
+
 One developer changes a shared configuration without AI tools. Another uses their
 own AI assistant for help and later delegates an update to an agent. Both need to
 find the same dependency and selected version, understand local contributions,

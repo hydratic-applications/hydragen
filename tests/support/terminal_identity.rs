@@ -14,12 +14,14 @@ pub const DEFAULT_AUTHOR: &str = "Terminal fixture author";
 // alone would still expose real credentials, Git includes, and account settings.
 pub struct IdentityFixture {
     directory: TempDir,
+    github_host: Option<String>,
 }
 
 impl IdentityFixture {
     pub fn new() -> Self {
         let fixture = Self {
             directory: tempdir().unwrap(),
+            github_host: None,
         };
         for directory in ["bin", "home", "xdg", "gh"] {
             fs::create_dir(fixture.path().join(directory)).unwrap();
@@ -32,6 +34,11 @@ impl IdentityFixture {
 
     pub fn path(&self) -> &Path {
         self.directory.path()
+    }
+
+    pub fn with_github_host(mut self, host: &str) -> Self {
+        self.github_host = Some(host.into());
+        self
     }
 
     fn executable(&self, name: &str, body: &str) {
@@ -80,6 +87,9 @@ impl IdentityFixture {
         command.env("HOME", self.path().join("home"));
         command.env("XDG_CONFIG_HOME", self.path().join("xdg"));
         command.env("GH_CONFIG_DIR", self.path().join("gh"));
+        if let Some(host) = &self.github_host {
+            command.env("GH_HOST", host);
+        }
         command.env("GIT_CONFIG_NOSYSTEM", "1");
         command.env("GIT_CONFIG_GLOBAL", self.path().join("gitconfig"));
         command.env("GIT_AUTHOR_NAME", DEFAULT_AUTHOR);

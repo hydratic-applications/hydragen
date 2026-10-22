@@ -808,6 +808,11 @@ esac",
                 )
                 .unwrap();
             }
+            fs::write(
+                Path::new(&directory).join(format!("{label}.screen.txt")),
+                self.screen(),
+            )
+            .unwrap();
         }
     }
 
@@ -885,26 +890,18 @@ fn visible_text(bytes: &[u8]) -> String {
     console::strip_ansi_codes(&String::from_utf8_lossy(bytes)).into_owned()
 }
 
-// Remove exactly one renderer-owned slot, never glyphs belonging to the name.
-// Emoji occupy two columns; narrower alternatives have one padding space.
-// Every slot is followed by two separator spaces.
+// Focused candidates have a renderer-owned source summary; raw names, including
+// leading emoji or parentheses, are never stripped or interpreted as decoration.
 fn focused_author(frame: &str) -> (&str, bool) {
     let item = frame
         .lines()
         .find_map(|line| line.strip_prefix("│  ● "))
         .expect("Author must be a native selector");
-    let name = [
-        "👤  ", "🏢  ", "◈   ", "◇   ", "✏️  ", "⏭   ", "U   ", "O   ", "*   ", "?   ", "+   ",
-        ">   ",
-    ]
-    .iter()
-    .find_map(|prefix| item.strip_prefix(prefix))
-    .expect("Author must have exactly one known icon slot");
     // The final parenthesised suffix is renderer-owned; parentheses in the
     // original name are retained. Actions have no source suffix.
-    match name.rsplit_once(" (") {
+    match item.rsplit_once(" (") {
         Some((name, hint)) if hint.ends_with(')') => (name, true),
-        _ => (name, false),
+        _ => (item, false),
     }
 }
 
@@ -1216,6 +1213,68 @@ fn finish_after_author(session: &mut Session, directory: &Path) {
     session.choose_format(directory, LayerManifestFormat::Yaml);
     assert!(session.finish().success());
     session.assert_guided_success(directory, LayerManifestFormat::Yaml);
+}
+
+#[test]
+fn compact_identity_summaries_keep_medium_width_picker_rows_short() {
+    for cols in [40, 60, 80] {
+        let directory = tempdir().unwrap();
+        let identity = IdentityFixture::new();
+        identity.github(
+            json!({"name": DEFAULT_AUTHOR, "login": "account-login-not-for-display"}),
+            json!({"data": {"viewer": {
+                "login": "account-login-not-for-display",
+                "organizations": {
+                    "nodes": [{"name": "Example organisation", "login": "organisation-login-not-for-display"}],
+                    "pageInfo": {"hasNextPage": false, "endCursor": null}
+                }
+            }}}),
+        );
+        let mut session = Session::with_settings(
+            directory.path(),
+            &["init"],
+            None,
+            None,
+            TerminalSettings {
+                cols,
+                rows: 16,
+                identity: Some(identity),
+                ..Default::default()
+            },
+        );
+        session.wait_for("Name");
+        session.send(b"example\r");
+        let frame = session.author_frame();
+        assert_eq!(focused_author(&frame), (DEFAULT_AUTHOR, true));
+        assert_eq!(author_detail(&frame), "Git, GitHub");
+        let selected = frame
+            .lines()
+            .find(|line| line.starts_with("│  ● "))
+            .unwrap();
+        assert_eq!(selected, format!("│  ● {DEFAULT_AUTHOR} (Git, GitHub)"));
+        if cols >= 60 {
+            assert!(console::measure_text_width(selected) <= usize::from(cols));
+            assert!(session.screen().lines().any(|line| line == selected));
+        }
+        for detail in [
+            "account-login-not-for-display",
+            "organisation-login-not-for-display",
+            "GIT_AUTHOR_NAME",
+            "👤",
+            "🏢",
+            "✏️",
+            "⏭",
+        ] {
+            assert!(!frame.contains(detail), "{frame}");
+        }
+        session.evidence(&format!("concise-author-{cols}"));
+        session.send(b"\r");
+        finish_after_author(&mut session, directory.path());
+        assert_eq!(
+            layer_manifest(directory.path()),
+            json!({"name": "example", "author": DEFAULT_AUTHOR})
+        );
+    }
 }
 
 fn layer_manifest(directory: &Path) -> Value {
@@ -1916,7 +1975,7 @@ fn project_author_and_declared_organisation_are_default_without_changing_layer_n
         let frame = session.author_frame();
         assert!(
             focused_author(&frame) == (author, true)
-                && author_detail(&frame).starts_with("package.json author"),
+                && author_detail(&frame).starts_with("project metadata"),
             "{frame}"
         );
         assert!(frame.contains(DEFAULT_AUTHOR), "{frame}");
@@ -1971,12 +2030,7 @@ fn project_sources_are_grouped_once_with_all_hints_before_identity_alternatives(
     let frame = session.author_frame();
     assert_eq!(frame.matches(DEFAULT_AUTHOR).count(), 1, "{frame}");
     let grouped = author_detail(&frame);
-    for hint in [
-        "package.json author",
-        "Cargo.toml package.authors",
-        "pyproject.toml project.authors",
-        "GIT_AUTHOR_NAME",
-    ] {
+    for hint in ["project metadata", "Git"] {
         assert_eq!(grouped.matches(hint).count(), 1, "{grouped}");
     }
     let first = frame.find(DEFAULT_AUTHOR).unwrap();
@@ -1984,21 +2038,15 @@ fn project_sources_are_grouped_once_with_all_hints_before_identity_alternatives(
     let python = frame.find("Python alternative").unwrap();
     assert!(first < cargo && cargo < python, "{frame}");
     assert_eq!(frame.matches("Cargo alternative").count(), 1, "{frame}");
-    assert_eq!(
-        grouped,
-        "package.json author, Cargo.toml package.authors, pyproject.toml project.authors, and GIT_AUTHOR_NAME"
-    );
+    assert_eq!(grouped, "project metadata, Git");
     assert!(
         frame.contains(&format!("{DEFAULT_AUTHOR} ({grouped})")),
         "{frame}"
     );
     let cargo_frame = session.focus_author("Cargo alternative", false);
-    assert_eq!(author_detail(&cargo_frame), "Cargo.toml package.authors");
+    assert_eq!(author_detail(&cargo_frame), "project metadata");
     let python_frame = session.focus_author("Python alternative", false);
-    assert_eq!(
-        author_detail(&python_frame),
-        "pyproject.toml project.authors"
-    );
+    assert_eq!(author_detail(&python_frame), "project metadata");
     session.choose_author("Python alternative", false);
     finish_after_author(&mut session, directory.path());
     assert_eq!(
@@ -2036,16 +2084,13 @@ fn github_organisation_can_be_selected_without_storing_membership_or_leaking_cre
     session.send(b"example\r");
     let frame = session.author_frame();
     assert_eq!(focused_author(&frame), (DEFAULT_AUTHOR, true));
-    assert_eq!(author_detail(&frame), "GIT_AUTHOR_NAME");
+    assert_eq!(author_detail(&frame), "Git");
     let profile = session.focus_author("Fixture GitHub person", false);
-    assert_eq!(author_detail(&profile), "GitHub profile fixture-person");
+    assert_eq!(author_detail(&profile), "GitHub");
     let organisation = session.focus_author("Fixture organisation", false);
-    assert_eq!(
-        author_detail(&organisation),
-        "GitHub organisation fixture-org"
-    );
+    assert_eq!(author_detail(&organisation), "GitHub organisation");
     assert!(
-        organisation.contains("● 🏢  Fixture organisation"),
+        organisation.contains("● Fixture organisation (GitHub organisation)"),
         "{organisation}"
     );
     session.choose_author("Fixture organisation", false);
@@ -2137,9 +2182,9 @@ fn long_author_lists_scroll_natively_without_dropping_declared_names() {
         session.send(b"example\r");
         let frame = session.author_frame();
         assert_eq!(focused_author(&frame), ("Project author 00", true));
-        assert_eq!(author_detail(&frame), "Cargo.toml package.authors");
+        assert_eq!(author_detail(&frame), "project metadata");
         assert!(session.screen().contains("Project author 00"));
-        assert_eq!(session.screen().matches("Cargo.toml").count(), 1);
+        assert_eq!(session.screen().matches("project metadata").count(), 1);
         assert!(
             !frame.contains("Project author 35"),
             "Expected a scroll window, not every row: {frame}"
@@ -2147,9 +2192,9 @@ fn long_author_lists_scroll_natively_without_dropping_declared_names() {
         for name in ["Project author 18", "Project author 35"] {
             let frame = session.focus_author(name, false);
             assert_eq!(focused_author(&frame), (name, true));
-            assert_eq!(author_detail(&frame), "Cargo.toml package.authors");
+            assert_eq!(author_detail(&frame), "project metadata");
             assert!(session.screen().contains(name), "{}", session.screen());
-            assert_eq!(session.screen().matches("Cargo.toml").count(), 1);
+            assert_eq!(session.screen().matches("project metadata").count(), 1);
         }
         session.choose_author("Project author 35", false);
         finish_after_author(&mut session, directory.path());
@@ -2179,6 +2224,8 @@ fn candidate_names_that_match_actions_remain_literal_author_metadata() {
         "✏️ Enter another author",
         "Team (tools)",
         "Team (GitHub profile)",
+        "Team · identity",
+        "Team - project",
     ] {
         let directory = tempdir().unwrap();
         let package = json!({"author": {"name": name}}).to_string();
@@ -2188,8 +2235,7 @@ fn candidate_names_that_match_actions_remain_literal_author_metadata() {
         session.send(b"example\r");
         let frame = session.author_frame();
         assert!(
-            focused_author(&frame) == (name, true)
-                && author_detail(&frame) == "package.json author",
+            focused_author(&frame) == (name, true) && author_detail(&frame) == "project metadata",
             "{frame}"
         );
         session.choose_author(name, false);
@@ -2260,35 +2306,25 @@ fn author_choices_and_hints_remain_meaningful_without_colour_or_on_basic_termina
         session.wait_for("Name");
         session.send(b"example\r");
         let frame = session.author_frame();
-        for label in [
-            DEFAULT_AUTHOR,
-            "GIT_AUTHOR_NAME",
-            "Enter another author",
-            "Skip",
-        ] {
+        for label in [DEFAULT_AUTHOR, "Git", "Enter another author", "Skip"] {
             assert!(frame.contains(label), "{frame}");
         }
         assert!(
-            frame.contains(if basic { "● U   " } else { "● 👤  " }),
+            frame.contains(&format!("● {DEFAULT_AUTHOR} (Git)")),
             "{frame}"
         );
+        assert!(frame.contains("○ Enter another author"), "{frame}");
+        assert!(frame.contains("○ Skip"), "{frame}");
+        assert_eq!(author_detail(&frame), "Git");
+        let alternate = session.focus_author("Enter another author", true);
         assert!(
-            frame.contains(if basic {
-                "○ +   Enter another author"
-            } else {
-                "○ ✏️  Enter another author"
-            }),
-            "{frame}"
+            alternate.contains(&format!(
+                "{DEFAULT_AUTHOR}{}identity",
+                if basic { " - " } else { " · " }
+            )),
+            "{alternate}"
         );
-        assert!(
-            frame.contains(if basic {
-                "○ >   Skip"
-            } else {
-                "○ ⏭   Skip"
-            }),
-            "{frame}"
-        );
-        assert_eq!(author_detail(&frame), "GIT_AUTHOR_NAME");
+        session.focus_author(DEFAULT_AUTHOR, false);
         session.send(b"\r");
         finish_after_author(&mut session, directory.path());
         assert_no_sgr(&session.stderr);
@@ -2301,18 +2337,12 @@ fn author_choices_and_hints_remain_meaningful_without_colour_or_on_basic_termina
 }
 
 #[test]
-fn focused_source_details_keep_one_two_three_and_four_source_grammar_after_deduplication() {
+fn focused_summaries_collapse_repeated_project_sources_without_losing_grouped_names() {
     for (count, expected) in [
-        (1, "GIT_AUTHOR_NAME"),
-        (2, "package.json author and GIT_AUTHOR_NAME"),
-        (
-            3,
-            "package.json author, Cargo.toml package.authors, and GIT_AUTHOR_NAME",
-        ),
-        (
-            4,
-            "package.json author, Cargo.toml package.authors, pyproject.toml project.authors, and GIT_AUTHOR_NAME",
-        ),
+        (1, "Git"),
+        (2, "project metadata, Git"),
+        (3, "project metadata, Git"),
+        (4, "project metadata, Git"),
     ] {
         let directory = tempdir().unwrap();
         if count >= 2 {
@@ -2361,7 +2391,7 @@ fn focused_source_details_keep_one_two_three_and_four_source_grammar_after_dedup
 }
 
 #[test]
-fn equal_project_identity_profile_and_memberships_use_one_mixed_icon_and_keep_every_source() {
+fn equal_project_identity_profile_and_memberships_have_compact_summary_and_mixed_category() {
     let directory = tempdir().unwrap();
     fs::write(
         directory.path().join("package.json"),
@@ -2394,10 +2424,7 @@ fn equal_project_identity_profile_and_memberships_use_one_mixed_icon_and_keep_ev
     let frame = session.author_frame();
     assert_eq!(focused_author(&frame), (DEFAULT_AUTHOR, true));
     assert_eq!(frame.matches(DEFAULT_AUTHOR).count(), 1, "{frame}");
-    assert!(
-        frame.contains(&format!("● ◈   {DEFAULT_AUTHOR}")),
-        "{frame}"
-    );
+    assert!(frame.contains(&format!("● {DEFAULT_AUTHOR}")), "{frame}");
     let selected = frame
         .lines()
         .find(|line| line.starts_with("│  ● "))
@@ -2408,8 +2435,14 @@ fn equal_project_identity_profile_and_memberships_use_one_mixed_icon_and_keep_ev
     );
     assert_eq!(
         author_detail(&frame),
-        "package.json author, GIT_AUTHOR_NAME, GitHub profile same-profile, GitHub organisation first-org, and GitHub organisation second-org"
+        "project metadata, Git, GitHub, GitHub organisation"
     );
+    let alternate = session.focus_author("Enter another author", true);
+    assert!(
+        alternate.contains(&format!("{DEFAULT_AUTHOR} · identity + organisation")),
+        "{alternate}"
+    );
+    session.focus_author(DEFAULT_AUTHOR, false);
     session.send(b"\r");
     finish_after_author(&mut session, directory.path());
     let transcript = visible_text(&session.stderr);
@@ -2435,7 +2468,7 @@ fn equal_project_identity_profile_and_memberships_use_one_mixed_icon_and_keep_ev
 }
 
 #[test]
-fn unicode_and_basic_provenance_slots_align_without_guessing_project_entity_types() {
+fn unicode_and_basic_categories_align_names_without_guessing_project_entity_types() {
     for (term, basic) in [("xterm-256color", false), ("dumb", true)] {
         let directory = tempdir().unwrap();
         fs::write(
@@ -2461,57 +2494,45 @@ fn unicode_and_basic_provenance_slots_align_without_guessing_project_entity_type
         );
         session.wait_for("Name");
         session.send(b"example\r");
-        for (name, action, unicode, ascii, expected_detail) in [
-            (
-                "A company-like project name",
-                false,
-                "◇   ",
-                "?   ",
-                "package.json author",
-            ),
-            (
-                DEFAULT_AUTHOR,
-                false,
-                "◈   ",
-                "*   ",
-                "GIT_AUTHOR_NAME and GitHub organisation same-name-org",
-            ),
-            (
-                "Fixture GitHub person",
-                false,
-                "👤  ",
-                "U   ",
-                "GitHub profile fixture-person",
-            ),
-            (
-                "Membership-only name",
-                false,
-                "🏢  ",
-                "O   ",
-                "GitHub organisation only-org",
-            ),
-            ("Enter another author", true, "✏️  ", "+   ", ""),
-            ("Skip", true, "⏭   ", ">   ", ""),
+        let initial = session.author_frame();
+        let separator = if basic { " - " } else { " · " };
+        for (name, category) in [
+            (DEFAULT_AUTHOR, "identity + organisation"),
+            ("Fixture GitHub person", "identity"),
+            ("Membership-only name", "organisation"),
+        ] {
+            assert!(
+                initial.contains(&format!("{name}{separator}{category}")),
+                "{initial}"
+            );
+        }
+        for (name, action, expected_detail) in [
+            ("A company-like project name", false, "project metadata"),
+            (DEFAULT_AUTHOR, false, "Git, GitHub organisation"),
+            ("Fixture GitHub person", false, "GitHub"),
+            ("Membership-only name", false, "GitHub organisation"),
+            ("Enter another author", true, ""),
+            ("Skip", true, ""),
         ] {
             let frame = session.focus_author(name, action);
             assert_eq!(focused_author(&frame), (name, !action));
-            assert!(
-                frame.contains(&format!(
-                    "│  ● {}{name}",
-                    if basic { ascii } else { unicode }
-                )),
-                "{frame}"
-            );
+            assert!(frame.contains(&format!("│  ● {name}")), "{frame}");
             let selected = frame
                 .lines()
                 .find(|line| line.starts_with("│  ● "))
                 .unwrap();
             assert_eq!(
                 console::measure_text_width(selected.split_once(name).unwrap().0),
-                9
+                5
             );
             assert_eq!(author_detail(&frame), expected_detail);
             assert_eq!(inline_source_count(&session.screen()), usize::from(!action));
+            if name == DEFAULT_AUTHOR {
+                assert!(
+                    frame.contains(&format!("A company-like project name{separator}project")),
+                    "{frame}"
+                );
+            }
         }
         session.send(b"\r");
         finish_after_author(&mut session, directory.path());
@@ -2522,13 +2543,14 @@ fn unicode_and_basic_provenance_slots_align_without_guessing_project_entity_type
 
 #[test]
 fn narrow_inline_sources_wrap_naturally_and_clear_on_shorter_rows_actions_and_submission() {
-    for cols in [40, 80] {
+    for cols in [40, 60, 80] {
         let directory = tempdir().unwrap();
-        // A wide label and a long source token exercise display-column wrapping,
+        // A wide label and a retained Enterprise host exercise display-column wrapping,
         // not byte/character counts. No network or real account is consulted.
         let profile_name = "配置 Profile 🦀";
-        let login = "longtoken-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-終";
-        let identity = IdentityFixture::new();
+        let login = "profile-login-not-for-display";
+        let host = "longtoken-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz.example";
+        let identity = IdentityFixture::new().with_github_host(host);
         identity.github(
             json!({"name": profile_name, "login": login}),
             json!({"data": {"viewer": {"login": login, "organizations": {
@@ -2553,17 +2575,18 @@ fn narrow_inline_sources_wrap_naturally_and_clear_on_shorter_rows_actions_and_su
         session.author_frame();
         let frame = session.focus_author(profile_name, false);
         assert_eq!(focused_author(&frame), (profile_name, true));
-        assert_style(&session.stderr, " (GitHub profile", |style| {
+        assert_style(&session.stderr, " (GitHub on", |style| {
             style.dim && !style.bold && style.foreground.is_none()
         });
         let detail = author_detail(&frame);
-        // No source text is shortened or split by the renderer, even when the
+        // The concise summary is not shortened or split by the renderer, even when the
         // terminal must wrap the row across several physical lines.
-        assert_eq!(detail, format!("GitHub profile {login}"));
+        assert_eq!(detail, format!("GitHub on {host}"));
+        assert!(!frame.contains(login), "{frame}");
         let selected = frame.lines().find(|line| line.contains('●')).unwrap();
         let name_column = console::measure_text_width(selected.split_once(profile_name).unwrap().0);
-        assert_eq!(name_column, 9);
-        assert_eq!(selected, format!("│  ● 👤  {profile_name} ({detail})"));
+        assert_eq!(name_column, 5);
+        assert_eq!(selected, format!("│  ● {profile_name} ({detail})"));
         assert!(console::measure_text_width(selected) > usize::from(cols));
         assert!(!frame.contains("│       "), "{frame}");
         let screen = session.screen();
@@ -2580,12 +2603,17 @@ fn narrow_inline_sources_wrap_naturally_and_clear_on_shorter_rows_actions_and_su
             !screen.contains("GIT_AUTHOR_NAME"),
             "old detail survived: {screen}"
         );
-        let short = session.focus_author("Short organisation", false);
-        assert_eq!(author_detail(&short), "GitHub organisation short-org");
+        let organisation = session.focus_author("Short organisation", false);
+        assert_eq!(
+            author_detail(&organisation),
+            format!("GitHub organisation on {host}")
+        );
+        let short = session.focus_author(DEFAULT_AUTHOR, false);
+        assert_eq!(author_detail(&short), "Git");
         let screen = session.screen();
         assert_eq!(inline_source_count(&screen), 1, "{screen}");
         assert!(
-            !screen.contains("longtoken") && !screen.contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+            !screen.contains("longtoken") && !screen.contains("abcdefghijklmnopqrstuvwxyz"),
             "wrapped detail survived: {screen}"
         );
         for action in ["Enter another author", "Skip"] {
@@ -2602,7 +2630,7 @@ fn narrow_inline_sources_wrap_naturally_and_clear_on_shorter_rows_actions_and_su
         session.wait_for("Description (optional)");
         let screen = session.screen();
         assert!(
-            !screen.contains(" (GIT_AUTHOR_NAME)")
+            !screen.contains(" (Git)")
                 && !screen.contains(" (GitHub")
                 && !screen.contains("longtoken")
                 && !screen.contains("short-org"),
@@ -2614,7 +2642,16 @@ fn narrow_inline_sources_wrap_naturally_and_clear_on_shorter_rows_actions_and_su
             summary.contains(&format!("│  {DEFAULT_AUTHOR}\r\n")),
             "{summary}"
         );
-        for glyph in ["👤", "🏢", "◈", "✏️", "⏭", " (GIT_AUTHOR_NAME)"] {
+        for glyph in [
+            "👤",
+            "🏢",
+            "◈",
+            "✏️",
+            "⏭",
+            " (Git)",
+            " · identity",
+            " · organisation",
+        ] {
             assert!(!summary.contains(glyph), "{summary}");
         }
         finish_after_author(&mut session, directory.path());
@@ -2626,7 +2663,7 @@ fn narrow_inline_sources_wrap_naturally_and_clear_on_shorter_rows_actions_and_su
 }
 
 #[test]
-fn focused_author_cancellation_clears_sources_and_icons_from_the_visible_frame() {
+fn focused_author_cancellation_clears_summaries_and_categories_from_the_visible_frame() {
     for (cols, key) in [(40, b"\x1b".as_slice()), (80, b"\x03".as_slice())] {
         let directory = tempdir().unwrap();
         let mut session = Session::with_settings(
@@ -2643,12 +2680,14 @@ fn focused_author_cancellation_clears_sources_and_icons_from_the_visible_frame()
         session.wait_for("Name");
         session.send(b"example\r");
         let frame = session.author_frame();
-        assert_eq!(author_detail(&frame), "GIT_AUTHOR_NAME");
+        assert_eq!(author_detail(&frame), "Git");
         session.send(key);
         assert!(!session.finish().success());
         let screen = session.screen();
         assert!(
-            !screen.contains(" (GIT_AUTHOR_NAME)") && !screen.contains("GIT_AUTHOR_NAME"),
+            !screen.contains(" (Git)")
+                && !screen.contains(" · identity")
+                && !screen.contains(" · organisation"),
             "{screen}"
         );
         for glyph in ["👤", "🏢", "◈", "✏️", "⏭"] {
